@@ -32,7 +32,7 @@ are completely unaffected.
    gets no elevated access.
 7. **Cost awareness** — token usage trackable per agent, per user, per time window; estimated
    spend queryable as a service.
-8. **Conversation continuity** — named threads; the caller passes a thread ID, not history.
+8. **Conversation continuity** — named conversations; the caller passes a conversation ID, not history.
 9. **Human approval gate** — irreversible tools require human approval; the agent suspends,
    persists state, and resumes after a decision.
 10. **Operational UI** — monitoring, approvals, cost review, and conversation history without a
@@ -237,7 +237,7 @@ ai.AgentServices.create#Agent / update#Agent   (agent + tool grants + knowledge 
 ai.AgentServices.reload#Definitions            (re-scan ai/ dirs; validate; atomic swap)
 ```
 
-Thread, cost, and approval services arrive in their respective phases.
+Conversation, cost, and approval services arrive in their respective phases.
 
 ## 12. Provider configuration & transport
 
@@ -334,7 +334,7 @@ runtime/component/moqui-ai/
 | # | Phase | Delivers |
 |---|---|---|
 | **1** | **Core agent runtime + dev console** | Everything in this spec: ToolFactory registration, file/DB authoring model, tool schema gen, provider-agnostic loop with OpenAI/Anthropic/Google + Mock, structured output, attached knowledge, observability, permission via `ec.service.sync()`, and the developer console (Agents, Tools, Playground, Runs). |
-| **2** | **Conversation continuity** | Named threads; caller passes `threadId`; history persisted and replayed. |
+| **2** | **Conversation continuity** | Named conversations; caller passes `conversationId`; history persisted and replayed. |
 | **3** | **Cost awareness** | Spend aggregation + queryable estimate service (per agent / user / time window) over Phase 1's token capture. |
 | **4** | **Human approval gate** | `requiresApproval` tools; the agent suspends, persists state, and resumes after an approve/reject service call. |
 | **5** | **Operational UI** | Operator-facing screens: monitoring dashboards, approvals queue, cost review, conversation history; role-secured. |
@@ -344,7 +344,7 @@ Phase 1 is the foundational slice; phases 2–6 are additive and never change th
 
 ## 18. Non-goals (Phase 1)
 
-- No conversation threads / multi-turn replay (Phase 2).
+- No conversations / multi-turn replay (Phase 2).
 - No cost aggregation/query service — only raw token/cost capture (Phase 3).
 - No human-approval suspend/resume — `approvalStatus` field reserved only (Phase 4).
 - No operator UI — developer console only (Phase 5).
