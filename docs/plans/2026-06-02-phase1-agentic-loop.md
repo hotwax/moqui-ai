@@ -45,9 +45,8 @@ runtime/component/moqui-ai/
 ├── ai/test.tools.xml                               ← test tool catalog file (Task 6)
 ├── src/main/groovy/org/moqui/ai/
 │   ├── AiToolFactory.groovy                        ← SPI singleton + registry (Tasks 1,6,7)
-│   ├── LlmProvider.groovy                          ← interface (Task 3)
-│   ├── LlmModels.groovy                            ← normalized data classes (Task 3)
-│   ├── ToolSchemaBuilder.groovy                    ← service in-params → JSON schema (Task 5)
+│   ├── LlmProvider.groovy                          ← interface, Map-based (Task 3)
+│   ├── ToolSchemaBuilder.groovy                    ← service in-params → JSON schema Map (Task 5)
 │   ├── DefinitionLoader.groovy                     ← scan ai/ dirs, validate, load (Task 6)
 │   ├── AgentRunner.groovy                          ← the agentic loop (Task 7)
 │   └── provider/
@@ -447,98 +446,62 @@ git commit -m "feat(moqui-ai): definition + observability entities, status data"
 
 ---
 
-## Task 3: Normalized provider model + LlmProvider interface
+## Task 3: Provider interface + normalized Map shapes
 
-**Files:**
-- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmModels.groovy`
-- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmProvider.groovy`
+Moqui passes structured data as **Maps** (`Map` / `List<Map>`), exactly like `ElasticFacade`
+(`Map get(...)`, `Map search(...)`, `void index(String, String, Map document)`) and like every
+service (`ServiceCallSync.call()` returns `Map<String,Object>`). **No data-holder classes.**
+The only thing we define here is the one interface providers implement; everything flowing
+through it is a Groovy map literal `[key: value]`.
 
-No dedicated test (pure data holders exercised by Task 4's `MockProviderTests`).
-
-- [ ] **Step 1: Define the normalized data classes**
-
-`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmModels.groovy`:
-```groovy
-package org.moqui.ai
-
-import groovy.transform.CompileStatic
-
-/** One message in the normalized conversation. role: "system"|"user"|"assistant"|"tool".
- *  For an assistant turn that requested tools, toolCalls is non-empty.
- *  For a tool result message, toolCallId + content (the JSON result) are set. */
-@CompileStatic
-class LlmMessage {
-    String role
-    String content
-    List<LlmToolCall> toolCalls = []
-    String toolCallId          // set when role == "tool"
-    LlmMessage(String role, String content) { this.role = role; this.content = content }
-    LlmMessage() { }
-}
-
-/** A tool the LLM may call: name + description + JSON-schema map for its arguments. */
-@CompileStatic
-class LlmToolSchema {
-    String name
-    String description
-    Map<String, Object> parameters   // JSON Schema object: {type:"object", properties:{...}, required:[...]}
-}
-
-/** A tool call the LLM requested. id correlates the eventual result. */
-@CompileStatic
-class LlmToolCall {
-    String id
-    String name
-    Map<String, Object> arguments = [:]
-}
-
-/** A normalized request to a provider. */
-@CompileStatic
-class LlmRequest {
-    String model
-    String systemContext
-    List<LlmMessage> messages = []
-    List<LlmToolSchema> tools = []
-}
-
-/** A normalized response from a provider. assistantText is null when the model only
- *  requested tools. finishReason: "stop" | "tool_use" | "length" | other provider value. */
-@CompileStatic
-class LlmResponse {
-    String assistantText
-    List<LlmToolCall> toolCalls = []
-    long tokensIn = 0
-    long tokensOut = 0
-    String finishReason
-}
+**Canonical Map shapes (the contract — documented, not classes):**
+```
+message     : [role: "system"|"user"|"assistant"|"tool", content: String,
+               toolCalls: List<Map> (assistant turns), toolCallId: String (tool results)]
+toolCall    : [id: String, name: String, arguments: Map]
+toolSchema  : [name: String, description: String, parameters: Map]   // parameters = JSON Schema map
+request     : [model: String, systemContext: String, messages: List<Map>, tools: List<Map>]
+response    : [assistantText: String (null if only tool calls), toolCalls: List<Map>,
+               tokensIn: long, tokensOut: long, finishReason: String]
+toolDef     : [toolName: String, serviceName: String, description: String,
+               requiresApproval: boolean, schema: Map]               // a catalog entry
+runResult   : [assistantMessage: String, agentRunId: String, tokensIn: long, tokensOut: long,
+               iterations: int, truncated: boolean, statusId: String]
 ```
 
-- [ ] **Step 2: Define the provider interface**
+**Files:**
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmProvider.groovy`
+
+No dedicated test (the shapes are exercised by Task 4's `MockProviderTests`).
+
+- [ ] **Step 1: Define the provider interface (Map in, Map out)**
 
 `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmProvider.groovy`:
 ```groovy
 package org.moqui.ai
 
-/** The only contract a new provider implements. The agentic loop talks ONLY to this. */
+/** The only contract a new provider implements. Map-based, like ElasticFacade.
+ *  The agentic loop talks ONLY to this. See the plan's "Canonical Map shapes" for the
+ *  request/response Map contract. */
 interface LlmProvider {
     /** Registry key: "mock" | "anthropic" | "openai" | "google". Matches AiAgent.providerName. */
     String getName()
-    /** Normalized request in, normalized response out. Implementations make the HTTP call. */
-    LlmResponse chat(LlmRequest request)
+    /** request Map in (model, systemContext, messages, tools), response Map out
+     *  (assistantText, toolCalls, tokensIn, tokensOut, finishReason). Impl makes the HTTP call. */
+    Map chat(Map request)
 }
 ```
 
-- [ ] **Step 3: Compile**
+- [ ] **Step 2: Compile**
 
 Run: `./gradlew :runtime:component:moqui-ai:compileGroovy`
 Expected: BUILD SUCCESSFUL.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmModels.groovy \
-        runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmProvider.groovy
-git commit -m "feat(moqui-ai): normalized provider model + LlmProvider interface"
+git add runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmProvider.groovy
+git commit -m "feat(moqui-ai): LlmProvider interface (Map-based, no data classes)"
 ```
 
 ---
@@ -554,26 +517,25 @@ git commit -m "feat(moqui-ai): normalized provider model + LlmProvider interface
 `runtime/component/moqui-ai/src/test/groovy/MockProviderTests.groovy`:
 ```groovy
 import spock.lang.*
-import org.moqui.ai.*
 import org.moqui.ai.provider.MockProvider
 
 class MockProviderTests extends Specification {
     def cleanup() { MockProvider.reset() }
 
-    def "returns scripted responses in order then defaults to a stop"() {
+    def "returns scripted response Maps in order then defaults to a stop"() {
         given:
-        def r1 = new LlmResponse(toolCalls: [new LlmToolCall(id: "c1", name: "get#Echo",
-                    arguments: [text: "hi"])], finishReason: "tool_use", tokensIn: 10, tokensOut: 5)
-        def r2 = new LlmResponse(assistantText: "done", finishReason: "stop", tokensIn: 8, tokensOut: 3)
+        def r1 = [toolCalls: [[id: "c1", name: "get#Echo", arguments: [text: "hi"]]],
+                  finishReason: "tool_use", tokensIn: 10L, tokensOut: 5L]
+        def r2 = [assistantText: "done", finishReason: "stop", tokensIn: 8L, tokensOut: 3L]
         MockProvider.enqueue(r1); MockProvider.enqueue(r2)
         def provider = new MockProvider()
 
         expect:
         provider.name == "mock"
-        provider.chat(new LlmRequest(model: "mock-1")).is(r1)
-        provider.chat(new LlmRequest(model: "mock-1")).is(r2)
-        // queue empty -> a default stop response, never null
-        provider.chat(new LlmRequest(model: "mock-1")).finishReason == "stop"
+        provider.chat([model: "mock-1"]).is(r1)
+        provider.chat([model: "mock-1"]).is(r2)
+        // queue empty -> a default stop response Map, never null
+        provider.chat([model: "mock-1"]).finishReason == "stop"
     }
 }
 ```
@@ -590,25 +552,23 @@ Expected: FAIL — `MockProvider` does not exist.
 package org.moqui.ai.provider
 
 import org.moqui.ai.LlmProvider
-import org.moqui.ai.LlmRequest
-import org.moqui.ai.LlmResponse
 import java.util.concurrent.ConcurrentLinkedQueue
 
-/** Deterministic provider for tests. A test enqueues the responses the loop should
+/** Deterministic provider for tests. A test enqueues the response Maps the loop should
  *  receive, in order. When the queue is empty, returns a benign "stop" so the loop
  *  always terminates. Registered under name "mock" (always available, no config). */
 class MockProvider implements LlmProvider {
-    private static final ConcurrentLinkedQueue<LlmResponse> SCRIPT = new ConcurrentLinkedQueue<>()
+    private static final ConcurrentLinkedQueue<Map> SCRIPT = new ConcurrentLinkedQueue<>()
 
-    static void enqueue(LlmResponse r) { SCRIPT.add(r) }
+    static void enqueue(Map r) { SCRIPT.add(r) }
     static void reset() { SCRIPT.clear() }
 
     @Override String getName() { return "mock" }
 
-    @Override LlmResponse chat(LlmRequest request) {
-        LlmResponse r = SCRIPT.poll()
+    @Override Map chat(Map request) {
+        Map r = SCRIPT.poll()
         if (r != null) return r
-        return new LlmResponse(assistantText: "", finishReason: "stop")
+        return [assistantText: "", finishReason: "stop", toolCalls: [], tokensIn: 0L, tokensOut: 0L]
     }
 }
 ```
@@ -825,54 +785,40 @@ class DefinitionLoaderTests extends Specification {
 ```groovy
 package org.moqui.ai
 
-import groovy.transform.CompileStatic
 import org.moqui.context.ExecutionContextFactory
 import org.moqui.util.MNode
 
-/** Immutable parsed tool definition: the service it calls + the LLM-facing description
- *  + the generated JSON schema. */
-@CompileStatic
-class ToolDefinition {
-    final String toolName        // we key the catalog by the full service name
-    final String serviceName
-    final String description
-    final boolean requiresApproval
-    final Map<String, Object> schema
-    ToolDefinition(String serviceName, String description, boolean requiresApproval, Map<String,Object> schema) {
-        this.toolName = serviceName; this.serviceName = serviceName
-        this.description = description; this.requiresApproval = requiresApproval; this.schema = schema
-    }
-}
-
 /** Scans every component's ai/ directory for *.tools.xml, validates each tool's service
- *  reference (fail-loud), and builds an immutable catalog map. Reload returns a NEW map;
- *  callers swap atomically and keep the last-good map on failure. */
+ *  reference (fail-loud), and builds an immutable catalog Map keyed by service name. Each
+ *  entry is a toolDef Map: [toolName, serviceName, description, requiresApproval, schema]
+ *  (see the plan's "Canonical Map shapes"). Reload returns a NEW map; callers swap
+ *  atomically and keep the last-good map on failure. */
 class DefinitionLoader {
     /** Build the catalog by scanning all components' ai/ dirs. Throws on any bad reference. */
-    static Map<String, ToolDefinition> loadCatalog(ExecutionContextFactory ecf) {
-        Map<String, ToolDefinition> catalog = [:]
+    static Map<String, Map> loadCatalog(ExecutionContextFactory ecf) {
+        Map<String, Map> catalog = [:]
         for (String componentName in ecf.getComponentBaseLocations().keySet()) {
             String base = ecf.getComponentBaseLocations().get(componentName)
             org.moqui.resource.ResourceReference aiDir = ecf.resource.getLocationReference(base + "/ai")
             if (aiDir == null || !aiDir.getExists() || !aiDir.isDirectory()) continue
             for (org.moqui.resource.ResourceReference rr in aiDir.getDirectoryEntries()) {
                 if (!rr.fileName.endsWith(".tools.xml")) continue
-                MNode toolsNode = MNode.parse(rr)
-                parseToolsNode(ecf, toolsNode, catalog)
+                parseToolsNode(ecf, MNode.parse(rr), catalog)
             }
         }
         return catalog
     }
 
-    /** Parse one <tools> node into the catalog, validating each service ref. */
-    static void parseToolsNode(ExecutionContextFactory ecf, MNode toolsNode, Map<String, ToolDefinition> catalog) {
+    /** Parse one <tools> node into the catalog, validating each service ref (fail-loud). */
+    static void parseToolsNode(ExecutionContextFactory ecf, MNode toolsNode, Map<String, Map> catalog) {
         for (MNode toolNode in toolsNode.children("tool")) {
             String serviceName = toolNode.attribute("service")
-            String description = toolNode.attribute("description")
-            boolean approval = toolNode.attribute("requires-approval") == "true"
             // Fail-loud: ToolSchemaBuilder.build throws IllegalArgumentException on unknown service
-            Map<String, Object> schema = ToolSchemaBuilder.build(ecf, serviceName)
-            catalog.put(serviceName, new ToolDefinition(serviceName, description, approval, schema))
+            Map schema = ToolSchemaBuilder.build(ecf, serviceName)
+            catalog.put(serviceName, [toolName: serviceName, serviceName: serviceName,
+                    description: toolNode.attribute("description"),
+                    requiresApproval: toolNode.attribute("requires-approval") == "true",
+                    schema: schema])
         }
     }
 }
@@ -898,7 +844,7 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
     protected final static Logger logger = LoggerFactory.getLogger(AiToolFactory.class)
 
     protected ExecutionContextFactory ecf = null
-    private volatile Map<String, ToolDefinition> toolCatalog = [:]
+    private volatile Map<String, Map> toolCatalog = [:]
     private final Map<String, LlmProvider> providers = [:]
 
     AiToolFactory() { }
@@ -929,16 +875,16 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
         return p
     }
 
-    // ---- tool catalog ----
-    ToolDefinition getTool(String serviceName) { return toolCatalog.get(serviceName) }
-    Map<String, ToolDefinition> getToolCatalog() { return toolCatalog }
+    // ---- tool catalog (each entry is a toolDef Map) ----
+    Map getTool(String serviceName) { return toolCatalog.get(serviceName) }
+    Map<String, Map> getToolCatalog() { return toolCatalog }
 
     /** Reload the catalog from disk. On any validation error, keep the last-good catalog and rethrow. */
     void reloadCatalog() { this.toolCatalog = DefinitionLoader.loadCatalog(ecf) }
 
     /** Test/util helper: validate + merge a <tools> snippet (used by tests; fail-loud). */
     void loadToolsFromText(String toolsXml) {
-        Map<String, ToolDefinition> merged = new LinkedHashMap<>(toolCatalog)
+        Map<String, Map> merged = new LinkedHashMap<>(toolCatalog)
         DefinitionLoader.parseToolsNode(ecf, MNode.parseText("tools.xml", toolsXml), merged)
         this.toolCatalog = merged
     }
@@ -1005,7 +951,7 @@ class AgentRunnerTests extends Specification {
     private AgentRunner runner() { new AgentRunner(ec, ec.factory.getTool("AI", AiToolFactory.class)) }
 
     def "text-only response returns the assistant message"() {
-        given: MockProvider.enqueue(new LlmResponse(assistantText: "hello", finishReason: "stop", tokensIn: 4, tokensOut: 2))
+        given: MockProvider.enqueue([assistantText: "hello", finishReason: "stop", tokensIn: 4L, tokensOut: 2L])
         when: def out = runner().run("EchoAgent", "hi")
         then:
         out.assistantMessage == "hello"
@@ -1016,9 +962,9 @@ class AgentRunnerTests extends Specification {
 
     def "tool call is dispatched and the result is fed back"() {
         given:
-        MockProvider.enqueue(new LlmResponse(toolCalls: [new LlmToolCall(id: "c1",
-            name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "boom"])], finishReason: "tool_use"))
-        MockProvider.enqueue(new LlmResponse(assistantText: "echoed boom", finishReason: "stop"))
+        MockProvider.enqueue([toolCalls: [[id: "c1",
+            name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "boom"]]], finishReason: "tool_use"])
+        MockProvider.enqueue([assistantText: "echoed boom", finishReason: "stop"])
         when: def out = runner().run("EchoAgent", "echo boom")
         then:
         out.assistantMessage == "echoed boom"
@@ -1029,8 +975,8 @@ class AgentRunnerTests extends Specification {
     }
 
     def "hitting max-iterations returns truncated"() {
-        given: 6.times { MockProvider.enqueue(new LlmResponse(toolCalls: [new LlmToolCall(id: "c$it",
-            name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "x"])], finishReason: "tool_use")) }
+        given: 6.times { MockProvider.enqueue([toolCalls: [[id: "c$it",
+            name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "x"]]], finishReason: "tool_use"]) }
         when: def out = runner().run("EchoAgent", "loop")
         then:
         out.truncated == true
@@ -1039,9 +985,9 @@ class AgentRunnerTests extends Specification {
 
     def "a throwing tool feeds the error back instead of aborting the run"() {
         given:
-        MockProvider.enqueue(new LlmResponse(toolCalls: [new LlmToolCall(id: "c1",
-            name: "moqui.ai.test.TestServices.get#Echo", arguments: [repeat: -1])], finishReason: "tool_use"))
-        MockProvider.enqueue(new LlmResponse(assistantText: "recovered", finishReason: "stop"))
+        MockProvider.enqueue([toolCalls: [[id: "c1",
+            name: "moqui.ai.test.TestServices.get#Echo", arguments: [repeat: -1]]], finishReason: "tool_use"])
+        MockProvider.enqueue([assistantText: "recovered", finishReason: "stop"])
         when: def out = runner().run("EchoAgent", "bad")
         then:
         out.assistantMessage == "recovered"   // loop continued after the tool error
@@ -1068,20 +1014,10 @@ import org.moqui.entity.EntityValue
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-/** Result of a run, returned to the run#Agent service. */
-class AgentResult {
-    String assistantMessage
-    String agentRunId
-    long tokensIn = 0
-    long tokensOut = 0
-    int iterations = 0
-    boolean truncated = false
-    String statusId = "AI_RUN_COMPLETED"
-}
-
-/** The provider-agnostic agentic loop. Holds NO enclosing transaction: LLM calls happen
- *  outside any tx; each tool call runs in its own tx (ec.service.sync default); each
- *  observability write runs in its own tx via persist(), guarded so failures only warn. */
+/** The provider-agnostic agentic loop. All data is Map-based (Moqui idiom, like ElasticFacade).
+ *  Holds NO enclosing transaction: LLM calls happen outside any tx; each tool call runs in its
+ *  own tx (ec.service.sync default); each observability write runs in its own tx via persist(),
+ *  guarded so failures only warn. run() returns a runResult Map (see "Canonical Map shapes"). */
 class AgentRunner {
     protected final static Logger logger = LoggerFactory.getLogger(AgentRunner.class)
 
@@ -1090,7 +1026,8 @@ class AgentRunner {
 
     AgentRunner(ExecutionContext ec, AiToolFactory ai) { this.ec = ec; this.ai = ai }
 
-    AgentResult run(String agentName, String userMessage) {
+    /** @return runResult Map: [assistantMessage, agentRunId, tokensIn, tokensOut, iterations, truncated, statusId] */
+    Map run(String agentName, String userMessage) {
         EntityValue agent = ec.entity.find("moqui.ai.AiAgent")
             .condition("agentName", agentName).useCache(true).one()
         if (agent == null) throw new IllegalArgumentException("Unknown agent: ${agentName}")
@@ -1100,49 +1037,46 @@ class AgentRunner {
         int maxToolCalls = (agent.maxToolCallsPerTurn ?: 20) as int
 
         LlmProvider provider = ai.getProvider(agent.providerName as String)
-        List<LlmToolSchema> toolSchemas = loadToolSchemas(agentName)
+        List<Map> toolSchemas = loadToolSchemas(agentName)
 
         String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
-        AgentResult result = new AgentResult(agentRunId: runId, statusId: "AI_RUN_RUNNING")
+        Map result = [agentRunId: runId, assistantMessage: null, tokensIn: 0L, tokensOut: 0L,
+                      iterations: 0, truncated: false, statusId: "AI_RUN_RUNNING"]
         persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentName: agentName,
             userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
             providerName: agent.providerName, modelName: agent.modelName, userMessage: userMessage])
 
-        List<LlmMessage> messages = [new LlmMessage("user", userMessage)]
+        List<Map> messages = [[role: "user", content: userMessage]]
         int stepSeq = 0
         try {
             for (int i = 0; i < maxIter; i++) {
                 result.iterations = i + 1
-                LlmRequest req = new LlmRequest(model: agent.modelName as String,
-                    systemContext: agent.systemPrompt as String, messages: messages, tools: toolSchemas)
-
-                LlmResponse resp = provider.chat(req)          // <-- external HTTP, no tx held
-                result.tokensIn += resp.tokensIn; result.tokensOut += resp.tokensOut
+                // request Map in, response Map out -- external HTTP, no tx held
+                Map resp = provider.chat([model: agent.modelName, systemContext: agent.systemPrompt,
+                        messages: messages, tools: toolSchemas])
+                long inTok = (resp.tokensIn ?: 0L) as long
+                long outTok = (resp.tokensOut ?: 0L) as long
+                result.tokensIn += inTok; result.tokensOut += outTok
                 stepSeq++
                 persist("create#moqui.ai.AiAgentRunStep", [agentRunId: runId, stepSeqId: stepSeq as String,
-                    stepType: "llm_call", tokensIn: resp.tokensIn, tokensOut: resp.tokensOut,
-                    finishReason: resp.finishReason])
+                    stepType: "llm_call", tokensIn: inTok, tokensOut: outTok, finishReason: resp.finishReason])
 
-                if (maxTokens > 0 && (result.tokensIn + result.tokensOut) > maxTokens) {
+                if (maxTokens > 0 && ((result.tokensIn as long) + (result.tokensOut as long)) > maxTokens)
                     return finish(result, runId, "AI_RUN_ABORTED", "Per-run token ceiling exceeded")
-                }
 
-                if (!resp.toolCalls) {
+                List toolCalls = (resp.toolCalls ?: []) as List
+                if (!toolCalls) {
                     result.assistantMessage = resp.assistantText ?: ""
                     return finish(result, runId, "AI_RUN_COMPLETED", null)
                 }
-
-                if (resp.toolCalls.size() > maxToolCalls) {
+                if (toolCalls.size() > maxToolCalls)
                     return finish(result, runId, "AI_RUN_ABORTED", "Tool-calls-per-turn ceiling exceeded")
-                }
 
                 // record the assistant turn that requested tools, then dispatch each
-                messages.add(new LlmMessage(role: "assistant", toolCalls: resp.toolCalls))
-                for (LlmToolCall tc in resp.toolCalls) {
+                messages.add([role: "assistant", toolCalls: toolCalls])
+                for (Map tc in toolCalls) {
                     String resultJson = dispatchTool(runId, stepSeq, tc)
-                    LlmMessage toolMsg = new LlmMessage("tool", resultJson)
-                    toolMsg.toolCallId = tc.id
-                    messages.add(toolMsg)
+                    messages.add([role: "tool", toolCallId: tc.id, content: resultJson])
                 }
             }
             return finish(result, runId, "AI_RUN_TRUNCATED", null)   // ran out of iterations
@@ -1152,10 +1086,10 @@ class AgentRunner {
         }
     }
 
-    /** Dispatch one tool call via ec.service.sync (its own tx; Moqui authz applies). Tool
+    /** Dispatch one tool-call Map via ec.service.sync (its own tx; Moqui authz applies). Tool
      *  errors are caught and returned as a JSON error so the loop can recover. */
-    private String dispatchTool(String runId, int stepSeq, LlmToolCall tc) {
-        ToolDefinition td = ai.getTool(tc.name)
+    private String dispatchTool(String runId, int stepSeq, Map tc) {
+        Map td = ai.getTool(tc.name as String)
         long start = System.currentTimeMillis()
         String resultJson; boolean success; String errorText = null
         if (td == null) {
@@ -1163,7 +1097,8 @@ class AgentRunner {
             resultJson = JsonOutput.toJson([error: errorText])
         } else {
             try {
-                Map out = ec.service.sync().name(td.serviceName).parameters(tc.arguments).call()
+                Map out = ec.service.sync().name(td.serviceName as String)
+                        .parameters((tc.arguments ?: [:]) as Map).call()
                 if (ec.message.hasError()) {
                     success = false; errorText = ec.message.errorsString; ec.message.clearErrors()
                     resultJson = JsonOutput.toJson([error: errorText])
@@ -1176,33 +1111,35 @@ class AgentRunner {
         }
         persist("create#moqui.ai.AiToolCall", [agentRunId: runId, stepSeqId: stepSeq as String,
             toolCallId: tc.id, toolName: tc.name, serviceName: td?.serviceName,
-            arguments: JsonOutput.toJson(tc.arguments), result: resultJson,
+            arguments: JsonOutput.toJson(tc.arguments ?: [:]), result: resultJson,
             success: success ? "Y" : "N", errorText: errorText,
             durationMs: (System.currentTimeMillis() - start) as int])
         return resultJson
     }
 
-    private List<LlmToolSchema> loadToolSchemas(String agentName) {
-        List<LlmToolSchema> schemas = []
+    /** Build the agent's granted tools as a List of toolSchema Maps. */
+    private List<Map> loadToolSchemas(String agentName) {
+        List<Map> schemas = []
         for (EntityValue grant in ec.entity.find("moqui.ai.AiAgentTool")
                 .condition("agentName", agentName).useCache(true).list()) {
-            ToolDefinition td = ai.getTool(grant.toolName as String)
+            Map td = ai.getTool(grant.toolName as String)
             if (td == null) {
                 logger.warn("Agent ${agentName} grants unknown tool ${grant.toolName}; skipping")
                 continue
             }
-            schemas.add(new LlmToolSchema(name: td.toolName, description: td.description, parameters: td.schema))
+            schemas.add([name: td.toolName, description: td.description, parameters: td.schema])
         }
         return schemas
     }
 
-    private AgentResult finish(AgentResult r, String runId, String statusId, String errorText) {
-        r.statusId = statusId
-        r.truncated = (statusId == "AI_RUN_TRUNCATED")
+    /** Finalize: set status + truncated on the result Map, persist the run update, return it. */
+    private Map finish(Map result, String runId, String statusId, String errorText) {
+        result.statusId = statusId
+        result.truncated = (statusId == "AI_RUN_TRUNCATED")
         persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, thruDate: ec.user.nowTimestamp,
-            statusId: statusId, assistantMessage: r.assistantMessage, iterations: r.iterations,
-            tokensIn: r.tokensIn, tokensOut: r.tokensOut, errorText: errorText])
-        return r
+            statusId: statusId, assistantMessage: result.assistantMessage, iterations: result.iterations,
+            tokensIn: result.tokensIn, tokensOut: result.tokensOut, errorText: errorText])
+        return result
     }
 
     /** Persistence never aborts the run: each write is its own service call (own tx); on
@@ -1245,7 +1182,6 @@ Expose the runner as the Moqui-native entry point, with **no enclosing transacti
 import spock.lang.*
 import org.moqui.context.ExecutionContext
 import org.moqui.Moqui
-import org.moqui.ai.LlmResponse
 import org.moqui.ai.provider.MockProvider
 
 class RunAgentServiceTests extends Specification {
@@ -1262,7 +1198,7 @@ class RunAgentServiceTests extends Specification {
     def cleanup() { MockProvider.reset() }
 
     def "run#Agent returns the assistant message and run id"() {
-        given: MockProvider.enqueue(new LlmResponse(assistantText: "service ok", finishReason: "stop", tokensOut: 3))
+        given: MockProvider.enqueue([assistantText: "service ok", finishReason: "stop", tokensOut: 3L])
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
             .parameters([agentName: "SvcAgent", userMessage: "ping"]).call()
@@ -1364,7 +1300,6 @@ Edit `runtime/component/moqui-ai/MoquiConf.xml` — add inside `<moqui-conf>`, b
 `runtime/component/moqui-ai/src/test/groovy/AnthropicProviderTests.groovy`:
 ```groovy
 import spock.lang.*
-import org.moqui.ai.*
 import org.moqui.ai.provider.AnthropicProvider
 import groovy.json.JsonSlurper
 
@@ -1373,10 +1308,10 @@ class AnthropicProviderTests extends Specification {
     def "encodes a request body with system, messages, and tools"() {
         given:
         def p = new AnthropicProvider("k", "https://api.anthropic.com", "2023-06-01", 60)
-        def req = new LlmRequest(model: "claude-sonnet-4-6", systemContext: "be terse",
-            messages: [new LlmMessage("user", "hi")],
-            tools: [new LlmToolSchema(name: "get#Echo", description: "echo",
-                parameters: [type: "object", properties: [text: [type: "string"]], required: ["text"]])])
+        Map req = [model: "claude-sonnet-4-6", systemContext: "be terse",
+            messages: [[role: "user", content: "hi"]],
+            tools: [[name: "get#Echo", description: "echo",
+                parameters: [type: "object", properties: [text: [type: "string"]], required: ["text"]]]]]
         when:
         Map body = new JsonSlurper().parseText(p.encodeRequest(req)) as Map
         then:
@@ -1387,17 +1322,17 @@ class AnthropicProviderTests extends Specification {
         body.tools[0].input_schema.properties.text.type == "string"
     }
 
-    def "decodes a tool_use response into normalized tool calls"() {
+    def "decodes a tool_use response into tool-call Maps"() {
         given:
         def p = new AnthropicProvider("k", "https://api.anthropic.com", "2023-06-01", 60)
         String raw = '''{"stop_reason":"tool_use","usage":{"input_tokens":12,"output_tokens":7},
             "content":[{"type":"text","text":"calling"},
             {"type":"tool_use","id":"tu_1","name":"get#Echo","input":{"text":"hi"}}]}'''
         when:
-        LlmResponse r = p.decodeResponse(raw)
+        Map r = p.decodeResponse(raw)
         then:
         r.finishReason == "tool_use"
-        r.tokensIn == 12 && r.tokensOut == 7
+        r.tokensIn == 12L && r.tokensOut == 7L
         r.toolCalls.size() == 1
         r.toolCalls[0].name == "get#Echo"
         r.toolCalls[0].arguments.text == "hi"
@@ -1406,10 +1341,10 @@ class AnthropicProviderTests extends Specification {
     def "decodes a plain text response"() {
         given: def p = new AnthropicProvider("k", "u", "v", 60)
         when:
-        LlmResponse r = p.decodeResponse('{"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":2},"content":[{"type":"text","text":"hello"}]}')
+        Map r = p.decodeResponse('{"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":2},"content":[{"type":"text","text":"hello"}]}')
         then:
         r.assistantText == "hello"
-        r.toolCalls.isEmpty()
+        (r.toolCalls ?: []).isEmpty()
         r.finishReason == "end_turn"
     }
 }
@@ -1427,14 +1362,13 @@ Expected: FAIL — `AnthropicProvider` does not exist.
 package org.moqui.ai.provider
 
 import org.moqui.ai.LlmProvider
-import org.moqui.ai.LlmRequest
-import org.moqui.ai.LlmResponse
 import org.moqui.util.RestClient
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 /** Shared transport for HTTP providers: RestClient POST of an encoded body, error mapping,
- *  and the encode/decode template. Concrete adapters implement only the wire format. */
+ *  and the encode/decode template. All data is Map-based. Concrete adapters implement only
+ *  the wire format (encodeRequest Map->String, decodeResponse String->Map). */
 abstract class AbstractLlmProvider implements LlmProvider {
     protected final static Logger logger = LoggerFactory.getLogger(AbstractLlmProvider.class)
 
@@ -1450,13 +1384,13 @@ abstract class AbstractLlmProvider implements LlmProvider {
     protected abstract String endpointPath()
     /** Provider-specific auth/version headers. */
     protected abstract Map<String, String> authHeaders()
-    /** Encode the normalized request into the provider's JSON body. */
-    abstract String encodeRequest(LlmRequest request)
-    /** Decode the provider's JSON response text into the normalized response. */
-    abstract LlmResponse decodeResponse(String responseText)
+    /** Encode the normalized request Map into the provider's JSON body. */
+    abstract String encodeRequest(Map request)
+    /** Decode the provider's JSON response text into a normalized response Map. */
+    abstract Map decodeResponse(String responseText)
 
     @Override
-    LlmResponse chat(LlmRequest request) {
+    Map chat(Map request) {
         String body = encodeRequest(request)
         RestClient rc = new RestClient().uri(baseUrl + endpointPath())
             .method('POST').contentType("application/json").timeout(timeoutSeconds).text(body)
@@ -1480,12 +1414,9 @@ package org.moqui.ai.provider
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
-import org.moqui.ai.LlmMessage
-import org.moqui.ai.LlmRequest
-import org.moqui.ai.LlmResponse
-import org.moqui.ai.LlmToolCall
 
-/** Anthropic Messages API adapter. Maps the normalized shape to/from tool_use/tool_result blocks. */
+/** Anthropic Messages API adapter. Maps the normalized request/response Maps to/from
+ *  Anthropic's tool_use/tool_result content blocks. */
 class AnthropicProvider extends AbstractLlmProvider {
     private final String anthropicVersion
 
@@ -1500,14 +1431,14 @@ class AnthropicProvider extends AbstractLlmProvider {
     }
 
     @Override
-    String encodeRequest(LlmRequest request) {
+    String encodeRequest(Map request) {
         List<Map> apiMessages = []
-        for (LlmMessage m in request.messages) {
+        for (Map m in (request.messages ?: []) as List<Map>) {
             if (m.role == "tool") {
                 apiMessages.add([role: "user", content: [[type: "tool_result",
                     tool_use_id: m.toolCallId, content: m.content]]])
             } else if (m.role == "assistant" && m.toolCalls) {
-                apiMessages.add([role: "assistant", content: m.toolCalls.collect { tc ->
+                apiMessages.add([role: "assistant", content: (m.toolCalls as List<Map>).collect { tc ->
                     [type: "tool_use", id: tc.id, name: tc.name, input: tc.arguments] }])
             } else {
                 apiMessages.add([role: m.role, content: m.content])
@@ -1515,27 +1446,27 @@ class AnthropicProvider extends AbstractLlmProvider {
         }
         Map body = [model: request.model, max_tokens: 4096, messages: apiMessages]
         if (request.systemContext) body.system = request.systemContext
-        if (request.tools) body.tools = request.tools.collect { t ->
+        if (request.tools) body.tools = (request.tools as List<Map>).collect { t ->
             [name: t.name, description: t.description, input_schema: t.parameters] }
         return JsonOutput.toJson(body)
     }
 
     @Override
-    LlmResponse decodeResponse(String responseText) {
+    Map decodeResponse(String responseText) {
         Map json = new JsonSlurper().parseText(responseText) as Map
-        LlmResponse r = new LlmResponse()
-        r.finishReason = json.stop_reason
-        Map usage = json.usage as Map
-        if (usage) { r.tokensIn = (usage.input_tokens ?: 0L) as long; r.tokensOut = (usage.output_tokens ?: 0L) as long }
+        Map usage = (json.usage ?: [:]) as Map
+        List<Map> toolCalls = []
         StringBuilder text = new StringBuilder()
-        for (Map block in (json.content as List<Map>)) {
+        for (Map block in (json.content ?: []) as List<Map>) {
             if (block.type == "text") text.append(block.text as String)
-            else if (block.type == "tool_use") r.toolCalls.add(new LlmToolCall(
-                id: block.id as String, name: block.name as String,
-                arguments: (block.input ?: [:]) as Map))
+            else if (block.type == "tool_use") toolCalls.add(
+                [id: block.id, name: block.name, arguments: (block.input ?: [:])])
         }
-        if (text.length() > 0) r.assistantText = text.toString()
-        return r
+        return [finishReason: json.stop_reason,
+                tokensIn: (usage.input_tokens ?: 0L) as long,
+                tokensOut: (usage.output_tokens ?: 0L) as long,
+                toolCalls: toolCalls,
+                assistantText: text.length() > 0 ? text.toString() : null]
     }
 }
 ```
@@ -1570,10 +1501,10 @@ Append to `AnthropicProviderTests.groovy`:
         def key = System.getenv("ai_anthropic_key")
         def p = new AnthropicProvider(key, "https://api.anthropic.com", "2023-06-01", 60)
         when:
-        LlmResponse r = p.chat(new LlmRequest(model: "claude-sonnet-4-6",
-            messages: [new LlmMessage("user", "Reply with the single word: pong")]))
+        Map r = p.chat([model: "claude-sonnet-4-6",
+            messages: [[role: "user", content: "Reply with the single word: pong"]]])
         then:
-        r.assistantText?.toLowerCase()?.contains("pong")
+        (r.assistantText as String)?.toLowerCase()?.contains("pong")
     }
 ```
 

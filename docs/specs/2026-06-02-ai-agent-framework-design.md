@@ -139,14 +139,20 @@ run#Agent(agentName, userMessage)
 
 ### `LlmProvider` interface — the only thing a new provider implements
 
+All data is **Map-based** (Moqui idiom, like `ElasticFacade`'s `Map`/`List<Map>`) — no
+data-holder classes. The interface is the only type; requests/responses/messages/tool-calls
+are Groovy map literals.
+
 ```groovy
 interface LlmProvider {
-    String getName()                       // "openai" | "anthropic" | "google" | "mock"
-    LlmResponse chat(LlmRequest request)   // normalized in, normalized out
+    String getName()        // "openai" | "anthropic" | "google" | "mock"
+    Map chat(Map request)   // request Map in, response Map out
 }
-// LlmRequest:  systemContext, List<Message>, List<ToolSchema>, model,
-//              structuredOutputSchema? (nullable)
-// LlmResponse: assistantText? (nullable), List<ToolCall>, tokensIn, tokensOut, finishReason
+// request  Map: [model, systemContext, messages: List<Map>, tools: List<Map>]
+// response Map: [assistantText (null if only tool calls), toolCalls: List<Map>,
+//                tokensIn, tokensOut, finishReason]
+// message  Map: [role, content, toolCalls: List<Map>, toolCallId]
+// toolCall Map: [id, name, arguments: Map]
 ```
 
 Adapters in Phase 1: `OpenAiProvider`, `AnthropicProvider`, `GoogleProvider`, `MockProvider`.
@@ -304,16 +310,17 @@ runtime/component/moqui-ai/
 ├── MoquiConf.xml                        ← registers AiToolFactory
 ├── src/main/groovy/org/moqui/ai/
 │   ├── AiToolFactory.groovy             ← ToolFactory<AiToolFactory>, name "AI", singleton
-│   ├── AgentDefinition.groovy           ← parsed agent (immutable runtime view)
-│   ├── ToolDefinition.groovy            ← parsed tool + generated JSON schema
-│   ├── AgentRunner.groovy               ← the provider-agnostic agentic loop
-│   ├── DefinitionLoader.groovy          ← scan ai/ dirs, validate, upsert entities
+│   ├── LlmProvider.groovy               ← provider interface (Map chat(Map))
+│   ├── ToolSchemaBuilder.groovy         ← service in-params → JSON schema Map
+│   ├── AgentRunner.groovy               ← the provider-agnostic agentic loop (Map-based)
+│   ├── DefinitionLoader.groovy          ← scan ai/ dirs, validate, build catalog Map
 │   └── provider/
-│       ├── LlmProvider.groovy           ← interface
+│       ├── AbstractLlmProvider.groovy   ← RestClient transport base
 │       ├── OpenAiProvider.groovy
 │       ├── AnthropicProvider.groovy
 │       ├── GoogleProvider.groovy
 │       └── MockProvider.groovy
+│   (no data-holder classes — agents/tools/messages/results are Maps + entities)
 ├── schema/                              ← XSD for ai/*.tools.xml and ai/*.agent.xml
 ├── service/ai/AgentServices.xml         ← run#Agent, create#Agent, update#Agent, reload#Definitions
 ├── entity/AiEntities.xml                ← AiTool, AiAgent, AiAgentTool, AiAgentKnowledge,
