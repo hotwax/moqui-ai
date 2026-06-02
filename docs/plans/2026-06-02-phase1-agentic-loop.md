@@ -39,6 +39,7 @@ runtime/component/moqui-ai/
 ├── component.xml                                   ← component metadata (Task 1)
 ├── build.gradle                                    ← test source set + deps (Task 1)
 ├── entity/AiEntities.xml                           ← 6 entities (Task 2)
+├── data/AiStatusData.xml                           ← StatusItem/Flow/Transition install data (Task 2)
 ├── service/ai/AgentServices.xml                    ← run#Agent (Task 8)
 ├── service/moqui/ai/test/TestServices.xml          ← echo tool for tests (Task 7)
 ├── ai/test.tools.xml                               ← test tool catalog file (Task 6)
@@ -280,7 +281,7 @@ class AiEntitiesTests extends Specification {
         when:
         ec.entity.makeValue("moqui.ai.AiAgent")
             .setAll([agentName: "T2Agent", providerName: "mock", modelName: "mock-1",
-                     systemPrompt: "test", maxIterations: 5, statusId: "active"]).createOrUpdate()
+                     systemPrompt: "test", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
         ec.entity.makeValue("moqui.ai.AiTool")
             .setAll([toolName: "get#Echo", serviceName: "moqui.ai.test.TestServices.get#Echo",
                      description: "echo", requiresApproval: "N"]).createOrUpdate()
@@ -303,7 +304,7 @@ class AiEntitiesTests extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: FAIL — entity `moqui.ai.AiAgent` not found.
 
 - [ ] **Step 3: Define the entities**
@@ -324,7 +325,8 @@ Expected: FAIL — entity `moqui.ai.AiAgent` not found.
         <field name="maxTokens" type="number-integer"/>
         <field name="maxCost" type="number-decimal"/>
         <field name="maxToolCallsPerTurn" type="number-integer"/>
-        <field name="statusId" type="text-short"><description>active | disabled</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentStatus: AI_AGENT_ACTIVE | AI_AGENT_DISABLED</description></field>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
     </entity>
 
     <entity entity-name="AiTool" package="moqui.ai">
@@ -349,7 +351,7 @@ Expected: FAIL — entity `moqui.ai.AiAgent` not found.
         <field name="userId" type="id"/>
         <field name="fromDate" type="date-time"/>
         <field name="thruDate" type="date-time"/>
-        <field name="statusId" type="text-short"><description>running|completed|failed|truncated|aborted</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentRunStatus: AI_RUN_RUNNING|AI_RUN_COMPLETED|AI_RUN_FAILED|AI_RUN_TRUNCATED|AI_RUN_ABORTED</description></field>
         <field name="providerName" type="text-short"/>
         <field name="modelName" type="text-medium"/>
         <field name="userMessage" type="text-very-long"/>
@@ -360,6 +362,7 @@ Expected: FAIL — entity `moqui.ai.AiAgent` not found.
         <field name="estimatedCost" type="number-decimal"/>
         <field name="errorText" type="text-very-long"/>
         <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
     </entity>
 
     <entity entity-name="AiAgentRunStep" package="moqui.ai">
@@ -390,17 +393,56 @@ Expected: FAIL — entity `moqui.ai.AiAgent` not found.
 </entities>
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 4: Add status seed data (StatusItem + StatusFlow + StatusFlowTransition)**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
-Expected: PASS (Moqui auto-creates tables for the H2 datasource on first access).
+Per the practices guide §1.5 + §3.7, statuses are framework `StatusItem` records governed by
+`StatusFlow`/`StatusFlowTransition`, loaded as **`install`** data (so they reach existing
+environments on upgrade, not just fresh installs). Field names verified against
+`framework/entity/BasicEntities.xml`.
 
-- [ ] **Step 5: Commit**
+`runtime/component/moqui-ai/data/AiStatusData.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="install">
+    <moqui.basic.StatusType statusTypeId="AiAgentRunStatus" description="AI Agent Run Status"/>
+    <moqui.basic.StatusType statusTypeId="AiAgentStatus" description="AI Agent Status"/>
+
+    <moqui.basic.StatusItem statusId="AI_RUN_RUNNING"   statusTypeId="AiAgentRunStatus" sequenceNum="1" description="Running"/>
+    <moqui.basic.StatusItem statusId="AI_RUN_COMPLETED" statusTypeId="AiAgentRunStatus" sequenceNum="2" description="Completed"/>
+    <moqui.basic.StatusItem statusId="AI_RUN_FAILED"    statusTypeId="AiAgentRunStatus" sequenceNum="3" description="Failed"/>
+    <moqui.basic.StatusItem statusId="AI_RUN_TRUNCATED" statusTypeId="AiAgentRunStatus" sequenceNum="4" description="Truncated"/>
+    <moqui.basic.StatusItem statusId="AI_RUN_ABORTED"   statusTypeId="AiAgentRunStatus" sequenceNum="5" description="Aborted"/>
+
+    <moqui.basic.StatusItem statusId="AI_AGENT_ACTIVE"   statusTypeId="AiAgentStatus" sequenceNum="1" description="Active"/>
+    <moqui.basic.StatusItem statusId="AI_AGENT_DISABLED" statusTypeId="AiAgentStatus" sequenceNum="2" description="Disabled"/>
+
+    <moqui.basic.StatusFlow statusFlowId="AiAgentRunFlow" statusTypeId="AiAgentRunStatus" description="AI agent run lifecycle"/>
+    <moqui.basic.StatusFlow statusFlowId="AiAgentFlow"    statusTypeId="AiAgentStatus"    description="AI agent enable/disable"/>
+
+    <!-- run: RUNNING -> terminal -->
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentRunFlow" statusId="AI_RUN_RUNNING" toStatusId="AI_RUN_COMPLETED" transitionSequence="1" transitionName="Complete"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentRunFlow" statusId="AI_RUN_RUNNING" toStatusId="AI_RUN_FAILED"    transitionSequence="2" transitionName="Fail"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentRunFlow" statusId="AI_RUN_RUNNING" toStatusId="AI_RUN_TRUNCATED" transitionSequence="3" transitionName="Truncate"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentRunFlow" statusId="AI_RUN_RUNNING" toStatusId="AI_RUN_ABORTED"   transitionSequence="4" transitionName="Abort"/>
+
+    <!-- agent: ACTIVE <-> DISABLED -->
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentFlow" statusId="AI_AGENT_ACTIVE"   toStatusId="AI_AGENT_DISABLED" transitionSequence="1" transitionName="Disable"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentFlow" statusId="AI_AGENT_DISABLED" toStatusId="AI_AGENT_ACTIVE"   transitionSequence="2" transitionName="Enable"/>
+</entity-facade-xml>
+```
+
+- [ ] **Step 5: Run the test to verify it passes**
+
+Run: `./gradlew :runtime:component:moqui-ai:test`
+Expected: PASS (Moqui auto-creates tables for the H2 datasource on first access; install data loads the status records).
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add runtime/component/moqui-ai/entity/AiEntities.xml \
+        runtime/component/moqui-ai/data/AiStatusData.xml \
         runtime/component/moqui-ai/src/test/groovy/AiEntitiesTests.groovy
-git commit -m "feat(moqui-ai): add definition + observability entities"
+git commit -m "feat(moqui-ai): definition + observability entities, status data"
 ```
 
 ---
@@ -538,7 +580,7 @@ class MockProviderTests extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: FAIL — `MockProvider` does not exist.
 
 - [ ] **Step 3: Implement MockProvider**
@@ -573,7 +615,7 @@ class MockProvider implements LlmProvider {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -641,7 +683,7 @@ class ToolSchemaBuilderTests extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: FAIL — `ToolSchemaBuilder` does not exist.
 
 - [ ] **Step 3: Implement ToolSchemaBuilder**
@@ -706,7 +748,7 @@ class ToolSchemaBuilder {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -907,7 +949,7 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
 
 - [ ] **Step 5: Run the loader tests**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: PASS (both the catalog-load case and the fail-loud case).
 
 - [ ] **Step 6: Commit**
@@ -949,7 +991,7 @@ class AgentRunnerTests extends Specification {
         ec = Moqui.getExecutionContext()
         ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "EchoAgent", providerName: "mock",
             modelName: "mock-1", systemPrompt: "You echo.", maxIterations: 5,
-            maxToolCallsPerTurn: 10, statusId: "active"]).createOrUpdate()
+            maxToolCallsPerTurn: 10, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
         ec.entity.makeValue("moqui.ai.AiAgentTool")
             .setAll([agentName: "EchoAgent", toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
     }
@@ -969,7 +1011,7 @@ class AgentRunnerTests extends Specification {
         out.assistantMessage == "hello"
         out.truncated == false
         out.agentRunId != null
-        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one().statusId == "completed"
+        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one().statusId == "AI_RUN_COMPLETED"
     }
 
     def "tool call is dispatched and the result is fed back"() {
@@ -992,7 +1034,7 @@ class AgentRunnerTests extends Specification {
         when: def out = runner().run("EchoAgent", "loop")
         then:
         out.truncated == true
-        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one().statusId == "truncated"
+        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one().statusId == "AI_RUN_TRUNCATED"
     }
 
     def "a throwing tool feeds the error back instead of aborting the run"() {
@@ -1011,7 +1053,7 @@ class AgentRunnerTests extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: FAIL — `AgentRunner` does not exist.
 
 - [ ] **Step 3: Implement AgentRunner**
@@ -1034,7 +1076,7 @@ class AgentResult {
     long tokensOut = 0
     int iterations = 0
     boolean truncated = false
-    String statusId = "completed"
+    String statusId = "AI_RUN_COMPLETED"
 }
 
 /** The provider-agnostic agentic loop. Holds NO enclosing transaction: LLM calls happen
@@ -1061,9 +1103,9 @@ class AgentRunner {
         List<LlmToolSchema> toolSchemas = loadToolSchemas(agentName)
 
         String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
-        AgentResult result = new AgentResult(agentRunId: runId, statusId: "running")
+        AgentResult result = new AgentResult(agentRunId: runId, statusId: "AI_RUN_RUNNING")
         persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentName: agentName,
-            userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "running",
+            userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
             providerName: agent.providerName, modelName: agent.modelName, userMessage: userMessage])
 
         List<LlmMessage> messages = [new LlmMessage("user", userMessage)]
@@ -1082,16 +1124,16 @@ class AgentRunner {
                     finishReason: resp.finishReason])
 
                 if (maxTokens > 0 && (result.tokensIn + result.tokensOut) > maxTokens) {
-                    return finish(result, runId, "aborted", "Per-run token ceiling exceeded")
+                    return finish(result, runId, "AI_RUN_ABORTED", "Per-run token ceiling exceeded")
                 }
 
                 if (!resp.toolCalls) {
                     result.assistantMessage = resp.assistantText ?: ""
-                    return finish(result, runId, "completed", null)
+                    return finish(result, runId, "AI_RUN_COMPLETED", null)
                 }
 
                 if (resp.toolCalls.size() > maxToolCalls) {
-                    return finish(result, runId, "aborted", "Tool-calls-per-turn ceiling exceeded")
+                    return finish(result, runId, "AI_RUN_ABORTED", "Tool-calls-per-turn ceiling exceeded")
                 }
 
                 // record the assistant turn that requested tools, then dispatch each
@@ -1103,10 +1145,10 @@ class AgentRunner {
                     messages.add(toolMsg)
                 }
             }
-            return finish(result, runId, "truncated", null)   // ran out of iterations
+            return finish(result, runId, "AI_RUN_TRUNCATED", null)   // ran out of iterations
         } catch (Throwable t) {
             logger.error("Agent run ${runId} failed", t)
-            return finish(result, runId, "failed", t.message)
+            return finish(result, runId, "AI_RUN_FAILED", t.message)
         }
     }
 
@@ -1156,7 +1198,7 @@ class AgentRunner {
 
     private AgentResult finish(AgentResult r, String runId, String statusId, String errorText) {
         r.statusId = statusId
-        r.truncated = (statusId == "truncated")
+        r.truncated = (statusId == "AI_RUN_TRUNCATED")
         persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, thruDate: ec.user.nowTimestamp,
             statusId: statusId, assistantMessage: r.assistantMessage, iterations: r.iterations,
             tokensIn: r.tokensIn, tokensOut: r.tokensOut, errorText: errorText])
@@ -1174,7 +1216,7 @@ class AgentRunner {
 
 - [ ] **Step 4: Run the loop tests to verify they pass**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: PASS (all four cases).
 
 - [ ] **Step 5: Commit**
@@ -1211,7 +1253,7 @@ class RunAgentServiceTests extends Specification {
     def setupSpec() {
         ec = Moqui.getExecutionContext()
         ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SvcAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "active"]).createOrUpdate()
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
     }
     def cleanupSpec() {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SvcAgent").deleteAll()
@@ -1234,7 +1276,7 @@ class RunAgentServiceTests extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: FAIL — service `ai.AgentServices.run#Agent` not found.
 
 - [ ] **Step 3: Implement the service**
@@ -1281,7 +1323,7 @@ Expected: FAIL — service `ai.AgentServices.run#Agent` not found.
 
 - [ ] **Step 4: Run the service test to verify it passes**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1375,7 +1417,7 @@ class AnthropicProviderTests extends Specification {
 
 - [ ] **Step 3: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: FAIL — `AnthropicProvider` does not exist.
 
 - [ ] **Step 4: Implement the abstract base**
@@ -1500,7 +1542,7 @@ class AnthropicProvider extends AbstractLlmProvider {
 
 - [ ] **Step 6: Run the encode/decode tests to verify they pass**
 
-Run: `./gradlew :runtime:component:moqui-ai:test
+Run: `./gradlew :runtime:component:moqui-ai:test`
 Expected: PASS (all three cases — no network used).
 
 - [ ] **Step 7: Register Anthropic in the factory when a key is configured**

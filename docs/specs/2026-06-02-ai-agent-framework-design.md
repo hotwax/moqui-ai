@@ -47,6 +47,13 @@ are completely unaffected.
 - **Configuration only to add providers.** Provider config lives in `MoquiConf.xml`.
 - **JDK 11 compatible.** Use Moqui's built-in `RestClient` for transport — no new HTTP
   dependency, no provider SDKs.
+- **Follow existing Moqui/HotWax conventions — introduce no new code patterns.** The binding
+  reference is the *UDM Domain Object Practices Guide*
+  (`/Users/anilpatel/maarg-sd/docs/udm-domain-object-practices.md`): entity archetypes/PK shape,
+  type-vs-enumeration, status via `StatusItem`/`StatusFlow`/`StatusFlowTransition`, service verb
+  naming (`create#`/`update#`/`store#`/domain verbs), field types, and the test convention
+  (`*Tests.groovy` + `MoquiSuite`). Entities use `package="moqui.ai"` (framework-component
+  style, matching `moqui.basic`/`moqui.security` and the `org.moqui.ai` Groovy package).
 
 ## 3. Architecture overview
 
@@ -188,7 +195,7 @@ Every run, step, and tool call is persisted so "what did the AI do and when" is 
 
 | Entity | One row per | Key fields |
 |---|---|---|
-| `AiAgentRun` | agent invocation | `agentRunId` (PK), `agentName`, `userId`, `fromDate`, `thruDate`, `statusId` (running/completed/failed/truncated), `userMessage`, `assistantMessage`, `provider`, `model`, `iterations`, `tokensIn`, `tokensOut`, `estimatedCost`, `errorText` |
+| `AiAgentRun` | agent invocation | `agentRunId` (PK), `agentName`, `userId`, `fromDate`, `thruDate`, `statusId` → `StatusItem` (`AI_RUN_*`), `userMessage`, `assistantMessage`, `provider`, `model`, `iterations`, `tokensIn`, `tokensOut`, `estimatedCost`, `errorText` |
 | `AiAgentRunStep` | one loop iteration | `agentRunId` + `stepSeqId` (PK), `stepType` (llm_call / tool_call), `fromDate`, `thruDate`, `tokensIn`, `tokensOut`, `finishReason` |
 | `AiToolCall` | one tool dispatch | `agentRunId` + `stepSeqId` + `toolCallId` (PK), `toolName`, `serviceName`, `arguments` (JSON), `result` (JSON), `success`, `errorText`, `durationMs`, `approvalStatus` (reserved for the human-approval phase) |
 
@@ -197,6 +204,13 @@ Every run, step, and tool call is persisted so "what did the AI do and when" is 
 - `arguments` / `result` stored as JSON text fields for full audit fidelity.
 - **Persistence never aborts a run:** writes occur in a guarded block that logs a warning via
   `ec.logger` on failure and continues.
+- **Status fields follow the framework convention** (per the UDM Domain Object Practices Guide
+  §1.5, confirmed in `framework/entity/BasicEntities.xml`): `statusId type="id"` with a
+  `<relationship to moqui.basic.StatusItem>`. Status values are seed `StatusItem` records, with
+  `StatusFlow` + `StatusFlowTransition` defining legal transitions. `AiAgentRun.statusId` ∈
+  {`AI_RUN_RUNNING`, `AI_RUN_COMPLETED`, `AI_RUN_FAILED`, `AI_RUN_TRUNCATED`, `AI_RUN_ABORTED`}
+  (statusTypeId `AiAgentRunStatus`); `AiAgent.statusId` ∈ {`AI_AGENT_ACTIVE`, `AI_AGENT_DISABLED`}
+  (statusTypeId `AiAgentStatus`). No freeform status strings.
 
 ## 10. Permission & security model
 
