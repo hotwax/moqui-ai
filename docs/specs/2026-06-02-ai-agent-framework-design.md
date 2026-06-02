@@ -408,4 +408,3 @@ screens.
 - **UNRESOLVED:** 0
 - **VERDICT:** ENG + DESIGN CLEARED — architecture and dev-console decisions captured; spec
   ready for implementation planning (`writing-plans`).
-```
