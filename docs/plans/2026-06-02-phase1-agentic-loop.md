@@ -1,0 +1,1530 @@
+# Phase 1 (Slice 1): Working Agentic Loop — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Stand up the `moqui-ai` component so an agent defined in DB + a tool defined in an `ai/*.tools.xml` file can be invoked via `ai.AgentServices.run#Agent`, run a provider-agnostic agentic loop (tool calls dispatched through `ec.service.sync()`), persist full observability, and return the answer — proven end-to-end with a deterministic `MockProvider`, plus a real Anthropic adapter.
+
+**Architecture:** Pure component, zero framework-core changes. Registered via Moqui's `ToolFactory` SPI (`AiToolFactory`, name `"AI"`, mirrors `moqui-kie`). File-defined tool catalog held in an immutable in-memory map on the singleton (rebuilt on reload); DB-backed agents read via the entity cache per run. The loop holds **no enclosing transaction** — LLM HTTP calls run outside any tx, each tool call and each observability write runs in its own short tx. A per-run ceiling (tokens / cost / tool-calls-per-turn) guards runaway spend.
+
+**Tech Stack:** Groovy 3, Moqui (hotwax/main, JDK 11), Moqui `RestClient` for transport (no provider SDKs), Spock 2.1 for tests, `groovy.json` for (de)serialization.
+
+**Source of truth:** the design spec at `docs/specs/2026-06-02-ai-agent-framework-design.md` (§19 records the eng-review decisions this plan implements).
+
+**Out of this slice (later plans):** OpenAI + Google adapters; structured output; attached knowledge; developer console screens; cost-aggregation service; human-approval gate; RAG. This slice deliberately ships only the working loop + observability + Mock + Anthropic.
+
+---
+
+## Framework API notes
+
+**Verified against hotwax/main source** (use as-is):
+- `ToolFactory<V>` SPI: `getName()`, `init(ExecutionContextFactory)`, `getInstance(Object...)`, `destroy()` — `framework/.../context/ToolFactory.java`.
+- `ServiceFacadeImpl.getServiceDefinition(name)` → `ServiceDefinition`; `sd.getInParameterNames()` (ArrayList<String>), `sd.getInParameter(name)` (MNode) — `framework/.../service/ServiceDefinition.java`, `ParameterInfo.java`.
+- `RestClient`: `.uri().method('POST').contentType().addHeader().timeout().text().call()`; response `.getStatusCode()`, `.text()`, `.jsonObject()`; non-2xx throws — `framework/.../util/RestClient.java`.
+- Spock bootstrap: `ec = Moqui.getExecutionContext()` in `setupSpec`, `ec.destroy()` in `cleanupSpec` — `framework/src/test/groovy/*Tests.groovy`.
+
+**Confirm on first compile** (standard Moqui APIs used by this plan; if a signature differs, adjust the one call site — the design does not change):
+- `ecf.getComponentBaseLocations()` → `Map<String,String>` of componentName → base location (used in `DefinitionLoader.loadCatalog`). If absent, iterate `ecf.resource` component locations the equivalent way.
+- `MNode.parse(ResourceReference)` and parsing a `<tools>` snippet from text (used in `DefinitionLoader` / `loadToolsFromText`). Use whichever `MNode` factory the framework exposes for text (`MNode.parse(location, text)` or equivalent).
+- `ec.message.hasError()` / `getErrorsString()` / `clearErrors()` (MessageFacade) and `ec.entity.sequencedIdPrimary(seqName, null, null)` (EntityFacade).
+
+These are the only uncertain points; everything else is verified. Resolve them once in Task 1/6 against the framework and reuse.
+
+---
+
+## File Structure
+
+```
+runtime/component/moqui-ai/
+├── MoquiConf.xml                                   ← registers AiToolFactory (Task 1)
+├── component.xml                                   ← component metadata (Task 1)
+├── build.gradle                                    ← test source set + deps (Task 1)
+├── entity/AiEntities.xml                           ← 6 entities (Task 2)
+├── service/ai/AgentServices.xml                    ← run#Agent (Task 8)
+├── service/moqui/ai/test/TestServices.xml          ← echo tool for tests (Task 7)
+├── ai/test.tools.xml                               ← test tool catalog file (Task 6)
+├── src/main/groovy/org/moqui/ai/
+│   ├── AiToolFactory.groovy                        ← SPI singleton + registry (Tasks 1,6,7)
+│   ├── LlmProvider.groovy                          ← interface (Task 3)
+│   ├── LlmModels.groovy                            ← normalized data classes (Task 3)
+│   ├── ToolSchemaBuilder.groovy                    ← service in-params → JSON schema (Task 5)
+│   ├── DefinitionLoader.groovy                     ← scan ai/ dirs, validate, load (Task 6)
+│   ├── AgentRunner.groovy                          ← the agentic loop (Task 7)
+│   └── provider/
+│       ├── MockProvider.groovy                     ← scripted, for tests (Task 4)
+│       ├── AbstractLlmProvider.groovy              ← RestClient transport base (Task 9)
+│       └── AnthropicProvider.groovy                ← Anthropic adapter (Task 9)
+└── src/test/groovy/
+    ├── AiToolFactoryBootSpec.groovy                ← Task 1
+    ├── AiEntitiesSpec.groovy                       ← Task 2
+    ├── MockProviderSpec.groovy                     ← Task 4
+    ├── ToolSchemaBuilderSpec.groovy                ← Task 5
+    ├── DefinitionLoaderSpec.groovy                 ← Task 6
+    ├── AgentRunnerSpec.groovy                      ← Task 7
+    ├── RunAgentServiceSpec.groovy                  ← Task 8
+    └── AnthropicProviderSpec.groovy                ← Task 9
+```
+
+---
+
+## Task 1: Component scaffold + ToolFactory boot
+
+**Files:**
+- Create: `runtime/component/moqui-ai/component.xml`
+- Create: `runtime/component/moqui-ai/MoquiConf.xml`
+- Create: `runtime/component/moqui-ai/build.gradle`
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/AiToolFactoryBootSpec.groovy`
+
+- [ ] **Step 1: Create the component descriptor**
+
+`runtime/component/moqui-ai/component.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<component name="moqui-ai" version="0.1.0"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/component-3.xsd"/>
+```
+
+- [ ] **Step 2: Register the ToolFactory in component MoquiConf**
+
+`runtime/component/moqui-ai/MoquiConf.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<moqui-conf xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/moqui-conf-3.xsd">
+    <tools>
+        <tool-factory class="org.moqui.ai.AiToolFactory" init-priority="30" disabled="false"/>
+    </tools>
+</moqui-conf>
+```
+
+- [ ] **Step 3: Create the component build.gradle (test source set on the framework classpath)**
+
+`runtime/component/moqui-ai/build.gradle`:
+```groovy
+apply plugin: 'groovy'
+
+sourceCompatibility = '11'
+targetCompatibility = '11'
+
+def frameworkDir = file(projectDir.absolutePath + '/../../../framework')
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation project(':framework')
+    testImplementation platform("org.spockframework:spock-bom:2.1-groovy-3.0")
+    testImplementation 'org.spockframework:spock-core:2.1-groovy-3.0'
+}
+
+test {
+    useJUnitPlatform()
+    systemProperty 'moqui.runtime', frameworkDir.absolutePath + '/../runtime'
+    // Spock specs boot Moqui via Moqui.getExecutionContext(); run single-threaded
+    maxParallelForks = 1
+}
+```
+
+Note: Moqui auto-discovers components in `runtime/component/` and auto-loads each component's `MoquiConf.xml`, `entity/`, `service/`, and `src/main/groovy`. The `build.gradle` here exists only so the component's Spock tests compile and run against the framework. Confirm the exact invocation in Step 6.
+
+- [ ] **Step 4: Write the failing boot test**
+
+`runtime/component/moqui-ai/src/test/groovy/AiToolFactoryBootSpec.groovy`:
+```groovy
+import spock.lang.*
+import org.moqui.context.ExecutionContext
+import org.moqui.Moqui
+import org.moqui.ai.AiToolFactory
+
+class AiToolFactoryBootSpec extends Specification {
+    @Shared ExecutionContext ec
+
+    def setupSpec() { ec = Moqui.getExecutionContext() }
+    def cleanupSpec() { if (ec != null) ec.destroy() }
+
+    def "AI tool factory is registered and returns a singleton"() {
+        when:
+        AiToolFactory ai = ec.factory.getTool("AI", AiToolFactory.class)
+        then:
+        ai != null
+        ec.factory.getTool("AI", AiToolFactory.class).is(ai)   // same singleton instance
+    }
+}
+```
+
+- [ ] **Step 5: Write the minimal ToolFactory**
+
+`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy`:
+```groovy
+package org.moqui.ai
+
+import org.moqui.context.ExecutionContextFactory
+import org.moqui.context.ToolFactory
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
+/** Registers `ec.factory.getTool("AI", AiToolFactory.class)`. Singleton holds the
+ *  provider registry and the in-memory tool catalog. Mirrors moqui-kie's KieToolFactory. */
+class AiToolFactory implements ToolFactory<AiToolFactory> {
+    protected final static Logger logger = LoggerFactory.getLogger(AiToolFactory.class)
+
+    protected ExecutionContextFactory ecf = null
+
+    /** No-arg constructor required by the ToolFactory SPI. */
+    AiToolFactory() { }
+
+    @Override String getName() { return "AI" }
+
+    @Override void init(ExecutionContextFactory ecf) {
+        this.ecf = ecf
+        logger.info("AiToolFactory initialized")
+    }
+
+    @Override AiToolFactory getInstance(Object... parameters) {
+        if (ecf == null) throw new IllegalStateException("AiToolFactory not initialized")
+        return this
+    }
+
+    @Override void destroy() {
+        logger.info("AiToolFactory destroyed")
+    }
+}
+```
+
+- [ ] **Step 6: Run the boot test and confirm the test runner**
+
+Run from the framework root (`runtime/component/moqui-ai` is on the Moqui runtime path):
+```bash
+./gradlew :runtime:component:moqui-ai:test --tests AiToolFactoryBootSpec
+```
+Expected: PASS. If the component is not a registered Gradle subproject, run instead:
+```bash
+./gradlew test --tests AiToolFactoryBootSpec
+```
+Record whichever command works — it is the test command for every later task. Booting `Moqui.getExecutionContext()` requires the H2 default datasource (Moqui's out-of-the-box config), which needs no external service.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add runtime/component/moqui-ai/component.xml runtime/component/moqui-ai/MoquiConf.xml \
+        runtime/component/moqui-ai/build.gradle \
+        runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy \
+        runtime/component/moqui-ai/src/test/groovy/AiToolFactoryBootSpec.groovy
+git commit -m "feat(moqui-ai): scaffold component + AiToolFactory boot"
+```
+
+---
+
+## Task 2: Observability + definition entities
+
+**Files:**
+- Create: `runtime/component/moqui-ai/entity/AiEntities.xml`
+- Test: `runtime/component/moqui-ai/src/test/groovy/AiEntitiesSpec.groovy`
+
+- [ ] **Step 1: Write the failing entity test**
+
+`runtime/component/moqui-ai/src/test/groovy/AiEntitiesSpec.groovy`:
+```groovy
+import spock.lang.*
+import org.moqui.context.ExecutionContext
+import org.moqui.Moqui
+import org.moqui.entity.EntityValue
+
+class AiEntitiesSpec extends Specification {
+    @Shared ExecutionContext ec
+
+    def setupSpec() { ec = Moqui.getExecutionContext() }
+    def cleanupSpec() { if (ec != null) ec.destroy() }
+
+    def "can create and read an AiAgent with a tool grant"() {
+        when:
+        ec.entity.makeValue("moqui.ai.AiAgent")
+            .setAll([agentName: "T2Agent", providerName: "mock", modelName: "mock-1",
+                     systemPrompt: "test", maxIterations: 5, statusId: "active"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiTool")
+            .setAll([toolName: "get#Echo", serviceName: "moqui.ai.test.TestServices.get#Echo",
+                     description: "echo", requiresApproval: "N"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentTool")
+            .setAll([agentName: "T2Agent", toolName: "get#Echo"]).createOrUpdate()
+        then:
+        EntityValue a = ec.entity.find("moqui.ai.AiAgent").condition("agentName", "T2Agent").one()
+        a != null
+        a.providerName == "mock"
+        ec.entity.find("moqui.ai.AiAgentTool")
+            .condition("agentName", "T2Agent").list().size() == 1
+
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "T2Agent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "T2Agent").deleteAll()
+        ec.entity.find("moqui.ai.AiTool").condition("toolName", "get#Echo").deleteAll()
+    }
+}
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests AiEntitiesSpec`
+Expected: FAIL — entity `moqui.ai.AiAgent` not found.
+
+- [ ] **Step 3: Define the entities**
+
+`runtime/component/moqui-ai/entity/AiEntities.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
+
+    <!-- ===== Definitions ===== -->
+    <entity entity-name="AiAgent" package="moqui.ai">
+        <field name="agentName" type="id" is-pk="true"/>
+        <field name="providerName" type="text-short"/>
+        <field name="modelName" type="text-medium"/>
+        <field name="systemPrompt" type="text-very-long"/>
+        <field name="maxIterations" type="number-integer"/>
+        <field name="maxTokens" type="number-integer"/>
+        <field name="maxCost" type="number-decimal"/>
+        <field name="maxToolCallsPerTurn" type="number-integer"/>
+        <field name="statusId" type="text-short"><description>active | disabled</description></field>
+    </entity>
+
+    <entity entity-name="AiTool" package="moqui.ai">
+        <field name="toolName" type="id" is-pk="true"/>
+        <field name="serviceName" type="text-medium"/>
+        <field name="description" type="text-long"/>
+        <field name="requiresApproval" type="text-indicator"><description>Y/N (reserved; not enforced this slice)</description></field>
+        <field name="sourceComponent" type="text-medium"/>
+    </entity>
+
+    <entity entity-name="AiAgentTool" package="moqui.ai">
+        <field name="agentName" type="id" is-pk="true"/>
+        <field name="toolName" type="id" is-pk="true"/>
+        <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
+        <relationship type="one" related="moqui.ai.AiTool" short-alias="tool"/>
+    </entity>
+
+    <!-- ===== Observability ===== -->
+    <entity entity-name="AiAgentRun" package="moqui.ai">
+        <field name="agentRunId" type="id" is-pk="true"/>
+        <field name="agentName" type="id"/>
+        <field name="userId" type="id"/>
+        <field name="fromDate" type="date-time"/>
+        <field name="thruDate" type="date-time"/>
+        <field name="statusId" type="text-short"><description>running|completed|failed|truncated|aborted</description></field>
+        <field name="providerName" type="text-short"/>
+        <field name="modelName" type="text-medium"/>
+        <field name="userMessage" type="text-very-long"/>
+        <field name="assistantMessage" type="text-very-long"/>
+        <field name="iterations" type="number-integer"/>
+        <field name="tokensIn" type="number-integer"/>
+        <field name="tokensOut" type="number-integer"/>
+        <field name="estimatedCost" type="number-decimal"/>
+        <field name="errorText" type="text-very-long"/>
+        <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
+    </entity>
+
+    <entity entity-name="AiAgentRunStep" package="moqui.ai">
+        <field name="agentRunId" type="id" is-pk="true"/>
+        <field name="stepSeqId" type="id" is-pk="true"/>
+        <field name="stepType" type="text-short"><description>llm_call | tool_call</description></field>
+        <field name="fromDate" type="date-time"/>
+        <field name="thruDate" type="date-time"/>
+        <field name="tokensIn" type="number-integer"/>
+        <field name="tokensOut" type="number-integer"/>
+        <field name="finishReason" type="text-short"/>
+        <relationship type="one" related="moqui.ai.AiAgentRun" short-alias="run"/>
+    </entity>
+
+    <entity entity-name="AiToolCall" package="moqui.ai">
+        <field name="agentRunId" type="id" is-pk="true"/>
+        <field name="stepSeqId" type="id" is-pk="true"/>
+        <field name="toolCallId" type="id" is-pk="true"/>
+        <field name="toolName" type="text-medium"/>
+        <field name="serviceName" type="text-medium"/>
+        <field name="arguments" type="text-very-long"/>
+        <field name="result" type="text-very-long"/>
+        <field name="success" type="text-indicator"/>
+        <field name="errorText" type="text-very-long"/>
+        <field name="durationMs" type="number-integer"/>
+        <field name="approvalStatus" type="text-short"><description>reserved for human-approval phase</description></field>
+    </entity>
+</entities>
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests AiEntitiesSpec`
+Expected: PASS (Moqui auto-creates tables for the H2 datasource on first access).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add runtime/component/moqui-ai/entity/AiEntities.xml \
+        runtime/component/moqui-ai/src/test/groovy/AiEntitiesSpec.groovy
+git commit -m "feat(moqui-ai): add definition + observability entities"
+```
+
+---
+
+## Task 3: Normalized provider model + LlmProvider interface
+
+**Files:**
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmModels.groovy`
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmProvider.groovy`
+
+No dedicated test (pure data holders exercised by Task 4's `MockProviderSpec`).
+
+- [ ] **Step 1: Define the normalized data classes**
+
+`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmModels.groovy`:
+```groovy
+package org.moqui.ai
+
+import groovy.transform.CompileStatic
+
+/** One message in the normalized conversation. role: "system"|"user"|"assistant"|"tool".
+ *  For an assistant turn that requested tools, toolCalls is non-empty.
+ *  For a tool result message, toolCallId + content (the JSON result) are set. */
+@CompileStatic
+class LlmMessage {
+    String role
+    String content
+    List<LlmToolCall> toolCalls = []
+    String toolCallId          // set when role == "tool"
+    LlmMessage(String role, String content) { this.role = role; this.content = content }
+    LlmMessage() { }
+}
+
+/** A tool the LLM may call: name + description + JSON-schema map for its arguments. */
+@CompileStatic
+class LlmToolSchema {
+    String name
+    String description
+    Map<String, Object> parameters   // JSON Schema object: {type:"object", properties:{...}, required:[...]}
+}
+
+/** A tool call the LLM requested. id correlates the eventual result. */
+@CompileStatic
+class LlmToolCall {
+    String id
+    String name
+    Map<String, Object> arguments = [:]
+}
+
+/** A normalized request to a provider. */
+@CompileStatic
+class LlmRequest {
+    String model
+    String systemContext
+    List<LlmMessage> messages = []
+    List<LlmToolSchema> tools = []
+}
+
+/** A normalized response from a provider. assistantText is null when the model only
+ *  requested tools. finishReason: "stop" | "tool_use" | "length" | other provider value. */
+@CompileStatic
+class LlmResponse {
+    String assistantText
+    List<LlmToolCall> toolCalls = []
+    long tokensIn = 0
+    long tokensOut = 0
+    String finishReason
+}
+```
+
+- [ ] **Step 2: Define the provider interface**
+
+`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmProvider.groovy`:
+```groovy
+package org.moqui.ai
+
+/** The only contract a new provider implements. The agentic loop talks ONLY to this. */
+interface LlmProvider {
+    /** Registry key: "mock" | "anthropic" | "openai" | "google". Matches AiAgent.providerName. */
+    String getName()
+    /** Normalized request in, normalized response out. Implementations make the HTTP call. */
+    LlmResponse chat(LlmRequest request)
+}
+```
+
+- [ ] **Step 3: Compile**
+
+Run: `./gradlew :runtime:component:moqui-ai:compileGroovy`
+Expected: BUILD SUCCESSFUL.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmModels.groovy \
+        runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmProvider.groovy
+git commit -m "feat(moqui-ai): normalized provider model + LlmProvider interface"
+```
+
+---
+
+## Task 4: MockProvider (scripted, for deterministic tests)
+
+**Files:**
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/MockProvider.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/MockProviderSpec.groovy`
+
+- [ ] **Step 1: Write the failing test**
+
+`runtime/component/moqui-ai/src/test/groovy/MockProviderSpec.groovy`:
+```groovy
+import spock.lang.*
+import org.moqui.ai.*
+import org.moqui.ai.provider.MockProvider
+
+class MockProviderSpec extends Specification {
+    def cleanup() { MockProvider.reset() }
+
+    def "returns scripted responses in order then defaults to a stop"() {
+        given:
+        def r1 = new LlmResponse(toolCalls: [new LlmToolCall(id: "c1", name: "get#Echo",
+                    arguments: [text: "hi"])], finishReason: "tool_use", tokensIn: 10, tokensOut: 5)
+        def r2 = new LlmResponse(assistantText: "done", finishReason: "stop", tokensIn: 8, tokensOut: 3)
+        MockProvider.enqueue(r1); MockProvider.enqueue(r2)
+        def provider = new MockProvider()
+
+        expect:
+        provider.name == "mock"
+        provider.chat(new LlmRequest(model: "mock-1")).is(r1)
+        provider.chat(new LlmRequest(model: "mock-1")).is(r2)
+        // queue empty -> a default stop response, never null
+        provider.chat(new LlmRequest(model: "mock-1")).finishReason == "stop"
+    }
+}
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests MockProviderSpec`
+Expected: FAIL — `MockProvider` does not exist.
+
+- [ ] **Step 3: Implement MockProvider**
+
+`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/MockProvider.groovy`:
+```groovy
+package org.moqui.ai.provider
+
+import org.moqui.ai.LlmProvider
+import org.moqui.ai.LlmRequest
+import org.moqui.ai.LlmResponse
+import java.util.concurrent.ConcurrentLinkedQueue
+
+/** Deterministic provider for tests. A test enqueues the responses the loop should
+ *  receive, in order. When the queue is empty, returns a benign "stop" so the loop
+ *  always terminates. Registered under name "mock" (always available, no config). */
+class MockProvider implements LlmProvider {
+    private static final ConcurrentLinkedQueue<LlmResponse> SCRIPT = new ConcurrentLinkedQueue<>()
+
+    static void enqueue(LlmResponse r) { SCRIPT.add(r) }
+    static void reset() { SCRIPT.clear() }
+
+    @Override String getName() { return "mock" }
+
+    @Override LlmResponse chat(LlmRequest request) {
+        LlmResponse r = SCRIPT.poll()
+        if (r != null) return r
+        return new LlmResponse(assistantText: "", finishReason: "stop")
+    }
+}
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests MockProviderSpec`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/MockProvider.groovy \
+        runtime/component/moqui-ai/src/test/groovy/MockProviderSpec.groovy
+git commit -m "feat(moqui-ai): scripted MockProvider for deterministic loop tests"
+```
+
+---
+
+## Task 5: Tool JSON-schema generation from service in-parameters
+
+**Files:**
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/ToolSchemaBuilder.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/ToolSchemaBuilderSpec.groovy`
+
+- [ ] **Step 1: Write the failing test (against a real framework service)**
+
+Uses the always-present framework service `org.moqui.impl.EntityServices.get#DataDocuments`? To avoid coupling to a specific framework service, the test defines its own tiny service file first.
+
+Create `runtime/component/moqui-ai/service/moqui/ai/test/TestServices.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+    <service verb="get" noun="Echo">
+        <in-parameters>
+            <parameter name="text" type="String" required="true"><description>Text to echo back.</description></parameter>
+            <parameter name="repeat" type="Integer"/>
+        </in-parameters>
+        <out-parameters><parameter name="echoed" type="String"/></out-parameters>
+        <actions>
+            <set field="echoed" value="${text}"/>
+            <if condition="repeat"><set field="echoed" value="${echoed * repeat}"/></if>
+        </actions>
+    </service>
+</services>
+```
+
+`runtime/component/moqui-ai/src/test/groovy/ToolSchemaBuilderSpec.groovy`:
+```groovy
+import spock.lang.*
+import org.moqui.context.ExecutionContext
+import org.moqui.Moqui
+import org.moqui.ai.ToolSchemaBuilder
+
+class ToolSchemaBuilderSpec extends Specification {
+    @Shared ExecutionContext ec
+    def setupSpec() { ec = Moqui.getExecutionContext() }
+    def cleanupSpec() { if (ec != null) ec.destroy() }
+
+    def "builds a JSON schema from a service's in-parameters"() {
+        when:
+        Map schema = ToolSchemaBuilder.build(ec.factory, "moqui.ai.test.TestServices.get#Echo")
+        then:
+        schema.type == "object"
+        schema.properties.text.type == "string"
+        schema.properties.repeat.type == "integer"
+        schema.required == ["text"]
+    }
+}
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests ToolSchemaBuilderSpec`
+Expected: FAIL — `ToolSchemaBuilder` does not exist.
+
+- [ ] **Step 3: Implement ToolSchemaBuilder**
+
+`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/ToolSchemaBuilder.groovy`:
+```groovy
+package org.moqui.ai
+
+import org.moqui.context.ExecutionContextFactory
+import org.moqui.impl.service.ServiceFacadeImpl
+import org.moqui.impl.service.ServiceDefinition
+import org.moqui.util.MNode
+
+/** Generates an OpenAPI/JSON-Schema-style object schema for a Moqui service's in-parameters.
+ *  Maps Moqui parameter types to JSON Schema types. Used to tell the LLM how to call a tool. */
+class ToolSchemaBuilder {
+    static Map<String, Object> build(ExecutionContextFactory ecf, String serviceName) {
+        ServiceDefinition sd = ((ServiceFacadeImpl) ecf.service).getServiceDefinition(serviceName)
+        if (sd == null) throw new IllegalArgumentException("Unknown service for tool: ${serviceName}")
+
+        Map<String, Object> properties = [:]
+        List<String> required = []
+        for (String pName in sd.getInParameterNames()) {
+            // Skip Moqui's implicit auth/system parameters
+            if (pName in ['authUsername', 'authPassword', 'authTenantId']) continue
+            MNode p = sd.getInParameter(pName)
+            Map<String, Object> prop = [type: jsonType(p.attribute("type"))]
+            String desc = p.first("description")?.text
+            if (desc) prop.description = desc.trim()
+            properties.put(pName, prop)
+            if (p.attribute("required") == "true") required.add(pName)
+        }
+        Map<String, Object> schema = [type: "object", properties: properties]
+        if (required) schema.required = required
+        return schema
+    }
+
+    /** Moqui parameter type -> JSON Schema type. Defaults to string. */
+    static String jsonType(String moquiType) {
+        if (moquiType == null) return "string"
+        switch (moquiType) {
+            case "Integer": case "java.lang.Integer":
+            case "Long":    case "java.lang.Long":
+            case "BigInteger": case "java.math.BigInteger":
+                return "integer"
+            case "Float":  case "java.lang.Float":
+            case "Double": case "java.lang.Double":
+            case "BigDecimal": case "java.math.BigDecimal":
+                return "number"
+            case "Boolean": case "java.lang.Boolean":
+                return "boolean"
+            case "List": case "java.util.List": case "Collection": case "Set":
+                return "array"
+            case "Map": case "java.util.Map":
+                return "object"
+            default:
+                return "string"   // String, Date, Time, Timestamp -> string
+        }
+    }
+}
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests ToolSchemaBuilderSpec`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add runtime/component/moqui-ai/service/moqui/ai/test/TestServices.xml \
+        runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/ToolSchemaBuilder.groovy \
+        runtime/component/moqui-ai/src/test/groovy/ToolSchemaBuilderSpec.groovy
+git commit -m "feat(moqui-ai): generate tool JSON schema from service in-parameters"
+```
+
+---
+
+## Task 6: DefinitionLoader + provider registry on the factory
+
+This task adds the tool-catalog loader (file scan → in-memory immutable map) and the
+provider registry to `AiToolFactory`. Agents stay in the entity layer (read per run in Task 7).
+
+**Files:**
+- Create: `runtime/component/moqui-ai/ai/test.tools.xml`
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/DefinitionLoader.groovy`
+- Modify: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/DefinitionLoaderSpec.groovy`
+
+- [ ] **Step 1: Create a tool-catalog file the loader will read**
+
+`runtime/component/moqui-ai/ai/test.tools.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<tools>
+    <tool service="moqui.ai.test.TestServices.get#Echo"
+          description="Echoes the given text back, optionally repeated."/>
+</tools>
+```
+
+- [ ] **Step 2: Write the failing loader test**
+
+`runtime/component/moqui-ai/src/test/groovy/DefinitionLoaderSpec.groovy`:
+```groovy
+import spock.lang.*
+import org.moqui.context.ExecutionContext
+import org.moqui.Moqui
+import org.moqui.ai.AiToolFactory
+
+class DefinitionLoaderSpec extends Specification {
+    @Shared ExecutionContext ec
+    def setupSpec() { ec = Moqui.getExecutionContext() }
+    def cleanupSpec() { if (ec != null) ec.destroy() }
+
+    def "tool catalog is loaded from ai/*.tools.xml at boot, with a generated schema"() {
+        when:
+        AiToolFactory ai = ec.factory.getTool("AI", AiToolFactory.class)
+        def tool = ai.getTool("moqui.ai.test.TestServices.get#Echo")
+        then:
+        tool != null
+        tool.toolName == "moqui.ai.test.TestServices.get#Echo"
+        tool.description.contains("Echoes")
+        tool.schema.properties.text.type == "string"
+    }
+
+    def "unknown service reference in a tools file fails loud"() {
+        when:
+        ec.factory.getTool("AI", AiToolFactory.class)
+            .loadToolsFromText('<tools><tool service="no.such.Service.get#Nope" description="x"/></tools>')
+        then:
+        thrown(IllegalArgumentException)
+    }
+}
+```
+
+- [ ] **Step 3: Implement DefinitionLoader**
+
+`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/DefinitionLoader.groovy`:
+```groovy
+package org.moqui.ai
+
+import groovy.transform.CompileStatic
+import org.moqui.context.ExecutionContextFactory
+import org.moqui.util.MNode
+
+/** Immutable parsed tool definition: the service it calls + the LLM-facing description
+ *  + the generated JSON schema. */
+@CompileStatic
+class ToolDefinition {
+    final String toolName        // we key the catalog by the full service name
+    final String serviceName
+    final String description
+    final boolean requiresApproval
+    final Map<String, Object> schema
+    ToolDefinition(String serviceName, String description, boolean requiresApproval, Map<String,Object> schema) {
+        this.toolName = serviceName; this.serviceName = serviceName
+        this.description = description; this.requiresApproval = requiresApproval; this.schema = schema
+    }
+}
+
+/** Scans every component's ai/ directory for *.tools.xml, validates each tool's service
+ *  reference (fail-loud), and builds an immutable catalog map. Reload returns a NEW map;
+ *  callers swap atomically and keep the last-good map on failure. */
+class DefinitionLoader {
+    /** Build the catalog by scanning all components' ai/ dirs. Throws on any bad reference. */
+    static Map<String, ToolDefinition> loadCatalog(ExecutionContextFactory ecf) {
+        Map<String, ToolDefinition> catalog = [:]
+        for (String componentName in ecf.getComponentBaseLocations().keySet()) {
+            String base = ecf.getComponentBaseLocations().get(componentName)
+            org.moqui.resource.ResourceReference aiDir = ecf.resource.getLocationReference(base + "/ai")
+            if (aiDir == null || !aiDir.getExists() || !aiDir.isDirectory()) continue
+            for (org.moqui.resource.ResourceReference rr in aiDir.getDirectoryEntries()) {
+                if (!rr.fileName.endsWith(".tools.xml")) continue
+                MNode toolsNode = MNode.parse(rr)
+                parseToolsNode(ecf, toolsNode, catalog)
+            }
+        }
+        return catalog
+    }
+
+    /** Parse one <tools> node into the catalog, validating each service ref. */
+    static void parseToolsNode(ExecutionContextFactory ecf, MNode toolsNode, Map<String, ToolDefinition> catalog) {
+        for (MNode toolNode in toolsNode.children("tool")) {
+            String serviceName = toolNode.attribute("service")
+            String description = toolNode.attribute("description")
+            boolean approval = toolNode.attribute("requires-approval") == "true"
+            // Fail-loud: ToolSchemaBuilder.build throws IllegalArgumentException on unknown service
+            Map<String, Object> schema = ToolSchemaBuilder.build(ecf, serviceName)
+            catalog.put(serviceName, new ToolDefinition(serviceName, description, approval, schema))
+        }
+    }
+}
+```
+
+- [ ] **Step 4: Wire the loader + provider registry into AiToolFactory**
+
+Replace `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy` with:
+```groovy
+package org.moqui.ai
+
+import org.moqui.context.ExecutionContextFactory
+import org.moqui.context.ToolFactory
+import org.moqui.ai.provider.MockProvider
+import org.moqui.util.MNode
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
+/** Registers `ec.factory.getTool("AI", AiToolFactory.class)`. Holds the provider registry
+ *  and the immutable, file-defined tool catalog (rebuilt on reload). Agents/knowledge are
+ *  NOT held here — they are read from entities per run (see AgentRunner). */
+class AiToolFactory implements ToolFactory<AiToolFactory> {
+    protected final static Logger logger = LoggerFactory.getLogger(AiToolFactory.class)
+
+    protected ExecutionContextFactory ecf = null
+    private volatile Map<String, ToolDefinition> toolCatalog = [:]
+    private final Map<String, LlmProvider> providers = [:]
+
+    AiToolFactory() { }
+
+    @Override String getName() { return "AI" }
+
+    @Override void init(ExecutionContextFactory ecf) {
+        this.ecf = ecf
+        // Register providers. Mock is always available (no config). Real providers added in Task 9.
+        registerProvider(new MockProvider())
+        // Fail-loud at boot: a bad service ref in any ai/*.tools.xml stops startup.
+        this.toolCatalog = DefinitionLoader.loadCatalog(ecf)
+        logger.info("AiToolFactory initialized: ${toolCatalog.size()} tools, ${providers.size()} providers")
+    }
+
+    @Override AiToolFactory getInstance(Object... parameters) {
+        if (ecf == null) throw new IllegalStateException("AiToolFactory not initialized")
+        return this
+    }
+
+    @Override void destroy() { logger.info("AiToolFactory destroyed") }
+
+    // ---- provider registry ----
+    void registerProvider(LlmProvider p) { providers.put(p.name, p) }
+    LlmProvider getProvider(String name) {
+        LlmProvider p = providers.get(name)
+        if (p == null) throw new IllegalArgumentException("No AI provider registered: ${name}")
+        return p
+    }
+
+    // ---- tool catalog ----
+    ToolDefinition getTool(String serviceName) { return toolCatalog.get(serviceName) }
+    Map<String, ToolDefinition> getToolCatalog() { return toolCatalog }
+
+    /** Reload the catalog from disk. On any validation error, keep the last-good catalog and rethrow. */
+    void reloadCatalog() { this.toolCatalog = DefinitionLoader.loadCatalog(ecf) }
+
+    /** Test/util helper: validate + merge a <tools> snippet (used by tests; fail-loud). */
+    void loadToolsFromText(String toolsXml) {
+        Map<String, ToolDefinition> merged = new LinkedHashMap<>(toolCatalog)
+        DefinitionLoader.parseToolsNode(ecf, MNode.parseText("tools.xml", toolsXml), merged)
+        this.toolCatalog = merged
+    }
+
+    ExecutionContextFactory getEcf() { return ecf }
+}
+```
+
+- [ ] **Step 5: Run the loader tests**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests DefinitionLoaderSpec`
+Expected: PASS (both the catalog-load case and the fail-loud case).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add runtime/component/moqui-ai/ai/test.tools.xml \
+        runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/DefinitionLoader.groovy \
+        runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy \
+        runtime/component/moqui-ai/src/test/groovy/DefinitionLoaderSpec.groovy
+git commit -m "feat(moqui-ai): tool-catalog loader (fail-loud) + provider registry"
+```
+
+---
+
+## Task 7: AgentRunner — the agentic loop
+
+The heart. No enclosing transaction; tool calls via `ec.service.sync()` (own tx each);
+observability writes via entity-auto create services (own tx each), guarded so a write
+failure never aborts the run. Per-run ceiling enforced.
+
+**Files:**
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AgentRunner.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/AgentRunnerSpec.groovy`
+
+- [ ] **Step 1: Write the failing loop tests (Mock-driven)**
+
+`runtime/component/moqui-ai/src/test/groovy/AgentRunnerSpec.groovy`:
+```groovy
+import spock.lang.*
+import org.moqui.context.ExecutionContext
+import org.moqui.Moqui
+import org.moqui.ai.*
+import org.moqui.ai.provider.MockProvider
+
+class AgentRunnerSpec extends Specification {
+    @Shared ExecutionContext ec
+
+    def setupSpec() {
+        ec = Moqui.getExecutionContext()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "EchoAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "You echo.", maxIterations: 5,
+            maxToolCallsPerTurn: 10, statusId: "active"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentTool")
+            .setAll([agentName: "EchoAgent", toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
+    }
+    def cleanupSpec() {
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "EchoAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "EchoAgent").deleteAll()
+        ec.destroy()
+    }
+    def cleanup() { MockProvider.reset() }
+
+    private AgentRunner runner() { new AgentRunner(ec, ec.factory.getTool("AI", AiToolFactory.class)) }
+
+    def "text-only response returns the assistant message"() {
+        given: MockProvider.enqueue(new LlmResponse(assistantText: "hello", finishReason: "stop", tokensIn: 4, tokensOut: 2))
+        when: def out = runner().run("EchoAgent", "hi")
+        then:
+        out.assistantMessage == "hello"
+        out.truncated == false
+        out.agentRunId != null
+        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one().statusId == "completed"
+    }
+
+    def "tool call is dispatched and the result is fed back"() {
+        given:
+        MockProvider.enqueue(new LlmResponse(toolCalls: [new LlmToolCall(id: "c1",
+            name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "boom"])], finishReason: "tool_use"))
+        MockProvider.enqueue(new LlmResponse(assistantText: "echoed boom", finishReason: "stop"))
+        when: def out = runner().run("EchoAgent", "echo boom")
+        then:
+        out.assistantMessage == "echoed boom"
+        def call = ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).list()[0]
+        call.toolName == "moqui.ai.test.TestServices.get#Echo"
+        call.success == "Y"
+        call.result.contains("boom")
+    }
+
+    def "hitting max-iterations returns truncated"() {
+        given: 6.times { MockProvider.enqueue(new LlmResponse(toolCalls: [new LlmToolCall(id: "c$it",
+            name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "x"])], finishReason: "tool_use")) }
+        when: def out = runner().run("EchoAgent", "loop")
+        then:
+        out.truncated == true
+        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one().statusId == "truncated"
+    }
+
+    def "a throwing tool feeds the error back instead of aborting the run"() {
+        given:
+        MockProvider.enqueue(new LlmResponse(toolCalls: [new LlmToolCall(id: "c1",
+            name: "moqui.ai.test.TestServices.get#Echo", arguments: [repeat: -1])], finishReason: "tool_use"))
+        MockProvider.enqueue(new LlmResponse(assistantText: "recovered", finishReason: "stop"))
+        when: def out = runner().run("EchoAgent", "bad")
+        then:
+        out.assistantMessage == "recovered"   // loop continued after the tool error
+    }
+}
+```
+
+(Note: the `repeat: -1` case relies on `get#Echo` throwing on a negative repeat. Add that guard to `TestServices.xml`'s `get#Echo` actions: `<if condition="repeat != null &amp;&amp; repeat &lt; 0"><return error="true" message="repeat must be >= 0"/></if>` before the echo `<set>`.)
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests AgentRunnerSpec`
+Expected: FAIL — `AgentRunner` does not exist.
+
+- [ ] **Step 3: Implement AgentRunner**
+
+`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AgentRunner.groovy`:
+```groovy
+package org.moqui.ai
+
+import groovy.json.JsonOutput
+import org.moqui.context.ExecutionContext
+import org.moqui.entity.EntityValue
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
+/** Result of a run, returned to the run#Agent service. */
+class AgentResult {
+    String assistantMessage
+    String agentRunId
+    long tokensIn = 0
+    long tokensOut = 0
+    int iterations = 0
+    boolean truncated = false
+    String statusId = "completed"
+}
+
+/** The provider-agnostic agentic loop. Holds NO enclosing transaction: LLM calls happen
+ *  outside any tx; each tool call runs in its own tx (ec.service.sync default); each
+ *  observability write runs in its own tx via persist(), guarded so failures only warn. */
+class AgentRunner {
+    protected final static Logger logger = LoggerFactory.getLogger(AgentRunner.class)
+
+    private final ExecutionContext ec
+    private final AiToolFactory ai
+
+    AgentRunner(ExecutionContext ec, AiToolFactory ai) { this.ec = ec; this.ai = ai }
+
+    AgentResult run(String agentName, String userMessage) {
+        EntityValue agent = ec.entity.find("moqui.ai.AiAgent")
+            .condition("agentName", agentName).useCache(true).one()
+        if (agent == null) throw new IllegalArgumentException("Unknown agent: ${agentName}")
+
+        int maxIter = (agent.maxIterations ?: 8) as int
+        long maxTokens = (agent.maxTokens ?: 0L) as long          // 0 = no limit
+        int maxToolCalls = (agent.maxToolCallsPerTurn ?: 20) as int
+
+        LlmProvider provider = ai.getProvider(agent.providerName as String)
+        List<LlmToolSchema> toolSchemas = loadToolSchemas(agentName)
+
+        String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
+        AgentResult result = new AgentResult(agentRunId: runId, statusId: "running")
+        persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentName: agentName,
+            userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "running",
+            providerName: agent.providerName, modelName: agent.modelName, userMessage: userMessage])
+
+        List<LlmMessage> messages = [new LlmMessage("user", userMessage)]
+        int stepSeq = 0
+        try {
+            for (int i = 0; i < maxIter; i++) {
+                result.iterations = i + 1
+                LlmRequest req = new LlmRequest(model: agent.modelName as String,
+                    systemContext: agent.systemPrompt as String, messages: messages, tools: toolSchemas)
+
+                LlmResponse resp = provider.chat(req)          // <-- external HTTP, no tx held
+                result.tokensIn += resp.tokensIn; result.tokensOut += resp.tokensOut
+                stepSeq++
+                persist("create#moqui.ai.AiAgentRunStep", [agentRunId: runId, stepSeqId: stepSeq as String,
+                    stepType: "llm_call", tokensIn: resp.tokensIn, tokensOut: resp.tokensOut,
+                    finishReason: resp.finishReason])
+
+                if (maxTokens > 0 && (result.tokensIn + result.tokensOut) > maxTokens) {
+                    return finish(result, runId, "aborted", "Per-run token ceiling exceeded")
+                }
+
+                if (!resp.toolCalls) {
+                    result.assistantMessage = resp.assistantText ?: ""
+                    return finish(result, runId, "completed", null)
+                }
+
+                if (resp.toolCalls.size() > maxToolCalls) {
+                    return finish(result, runId, "aborted", "Tool-calls-per-turn ceiling exceeded")
+                }
+
+                // record the assistant turn that requested tools, then dispatch each
+                messages.add(new LlmMessage(role: "assistant", toolCalls: resp.toolCalls))
+                for (LlmToolCall tc in resp.toolCalls) {
+                    String resultJson = dispatchTool(runId, stepSeq, tc)
+                    LlmMessage toolMsg = new LlmMessage("tool", resultJson)
+                    toolMsg.toolCallId = tc.id
+                    messages.add(toolMsg)
+                }
+            }
+            return finish(result, runId, "truncated", null)   // ran out of iterations
+        } catch (Throwable t) {
+            logger.error("Agent run ${runId} failed", t)
+            return finish(result, runId, "failed", t.message)
+        }
+    }
+
+    /** Dispatch one tool call via ec.service.sync (its own tx; Moqui authz applies). Tool
+     *  errors are caught and returned as a JSON error so the loop can recover. */
+    private String dispatchTool(String runId, int stepSeq, LlmToolCall tc) {
+        ToolDefinition td = ai.getTool(tc.name)
+        long start = System.currentTimeMillis()
+        String resultJson; boolean success; String errorText = null
+        if (td == null) {
+            success = false; errorText = "Tool not in catalog: ${tc.name}"
+            resultJson = JsonOutput.toJson([error: errorText])
+        } else {
+            try {
+                Map out = ec.service.sync().name(td.serviceName).parameters(tc.arguments).call()
+                if (ec.message.hasError()) {
+                    success = false; errorText = ec.message.errorsString; ec.message.clearErrors()
+                    resultJson = JsonOutput.toJson([error: errorText])
+                } else {
+                    success = true; resultJson = JsonOutput.toJson(out ?: [:])
+                }
+            } catch (Throwable t) {
+                success = false; errorText = t.message; resultJson = JsonOutput.toJson([error: t.message])
+            }
+        }
+        persist("create#moqui.ai.AiToolCall", [agentRunId: runId, stepSeqId: stepSeq as String,
+            toolCallId: tc.id, toolName: tc.name, serviceName: td?.serviceName,
+            arguments: JsonOutput.toJson(tc.arguments), result: resultJson,
+            success: success ? "Y" : "N", errorText: errorText,
+            durationMs: (System.currentTimeMillis() - start) as int])
+        return resultJson
+    }
+
+    private List<LlmToolSchema> loadToolSchemas(String agentName) {
+        List<LlmToolSchema> schemas = []
+        for (EntityValue grant in ec.entity.find("moqui.ai.AiAgentTool")
+                .condition("agentName", agentName).useCache(true).list()) {
+            ToolDefinition td = ai.getTool(grant.toolName as String)
+            if (td == null) {
+                logger.warn("Agent ${agentName} grants unknown tool ${grant.toolName}; skipping")
+                continue
+            }
+            schemas.add(new LlmToolSchema(name: td.toolName, description: td.description, parameters: td.schema))
+        }
+        return schemas
+    }
+
+    private AgentResult finish(AgentResult r, String runId, String statusId, String errorText) {
+        r.statusId = statusId
+        r.truncated = (statusId == "truncated")
+        persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, thruDate: ec.user.nowTimestamp,
+            statusId: statusId, assistantMessage: r.assistantMessage, iterations: r.iterations,
+            tokensIn: r.tokensIn, tokensOut: r.tokensOut, errorText: errorText])
+        return r
+    }
+
+    /** Persistence never aborts the run: each write is its own service call (own tx); on
+     *  failure we log a warning and continue. */
+    private void persist(String serviceName, Map params) {
+        try { ec.service.sync().name(serviceName).parameters(params).call() }
+        catch (Throwable t) { logger.warn("Observability write ${serviceName} failed (continuing): ${t.message}") }
+    }
+}
+```
+
+- [ ] **Step 4: Run the loop tests to verify they pass**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests AgentRunnerSpec`
+Expected: PASS (all four cases).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AgentRunner.groovy \
+        runtime/component/moqui-ai/service/moqui/ai/test/TestServices.xml \
+        runtime/component/moqui-ai/src/test/groovy/AgentRunnerSpec.groovy
+git commit -m "feat(moqui-ai): agentic loop with tool dispatch, ceilings, observability"
+```
+
+---
+
+## Task 8: `run#Agent` service
+
+Expose the runner as the Moqui-native entry point, with **no enclosing transaction**.
+
+**Files:**
+- Create: `runtime/component/moqui-ai/service/ai/AgentServices.xml`
+- Test: `runtime/component/moqui-ai/src/test/groovy/RunAgentServiceSpec.groovy`
+
+- [ ] **Step 1: Write the failing service test**
+
+`runtime/component/moqui-ai/src/test/groovy/RunAgentServiceSpec.groovy`:
+```groovy
+import spock.lang.*
+import org.moqui.context.ExecutionContext
+import org.moqui.Moqui
+import org.moqui.ai.LlmResponse
+import org.moqui.ai.provider.MockProvider
+
+class RunAgentServiceSpec extends Specification {
+    @Shared ExecutionContext ec
+    def setupSpec() {
+        ec = Moqui.getExecutionContext()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SvcAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "active"]).createOrUpdate()
+    }
+    def cleanupSpec() {
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SvcAgent").deleteAll()
+        ec.destroy()
+    }
+    def cleanup() { MockProvider.reset() }
+
+    def "run#Agent returns the assistant message and run id"() {
+        given: MockProvider.enqueue(new LlmResponse(assistantText: "service ok", finishReason: "stop", tokensOut: 3))
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "SvcAgent", userMessage: "ping"]).call()
+        then:
+        out.assistantMessage == "service ok"
+        out.agentRunId != null
+        out.truncated == false
+    }
+}
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests RunAgentServiceSpec`
+Expected: FAIL — service `ai.AgentServices.run#Agent` not found.
+
+- [ ] **Step 3: Implement the service**
+
+`runtime/component/moqui-ai/service/ai/AgentServices.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- transaction="ignore": the loop holds NO enclosing tx; tool calls + observability
+         writes each manage their own tx (see AgentRunner). -->
+    <service verb="run" noun="Agent" transaction="ignore" authenticate="true">
+        <in-parameters>
+            <parameter name="agentName" required="true"/>
+            <parameter name="userMessage" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="assistantMessage"/>
+            <parameter name="agentRunId"/>
+            <parameter name="tokensIn" type="Long"/>
+            <parameter name="tokensOut" type="Long"/>
+            <parameter name="iterations" type="Integer"/>
+            <parameter name="truncated" type="Boolean"/>
+            <parameter name="statusId"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
+                def runner = new org.moqui.ai.AgentRunner(ec, ai)
+                def r = runner.run(agentName, userMessage)
+                assistantMessage = r.assistantMessage
+                agentRunId = r.agentRunId
+                tokensIn = r.tokensIn
+                tokensOut = r.tokensOut
+                iterations = r.iterations
+                truncated = r.truncated
+                statusId = r.statusId
+            ]]></script>
+        </actions>
+    </service>
+</services>
+```
+
+- [ ] **Step 4: Run the service test to verify it passes**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests RunAgentServiceSpec`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add runtime/component/moqui-ai/service/ai/AgentServices.xml \
+        runtime/component/moqui-ai/src/test/groovy/RunAgentServiceSpec.groovy
+git commit -m "feat(moqui-ai): ai.AgentServices.run#Agent entry point (no enclosing tx)"
+```
+
+---
+
+## Task 9: AbstractLlmProvider base + AnthropicProvider
+
+Shared transport/error/token logic in a base; the Anthropic adapter implements only
+encode/decode. Network test uses a stubbed `RestClient` request factory; an opt-in live
+smoke test runs only when `ai_anthropic_key` is set.
+
+**Files:**
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/AbstractLlmProvider.groovy`
+- Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/AnthropicProvider.groovy`
+- Modify: `runtime/component/moqui-ai/MoquiConf.xml` (provider key default-properties)
+- Modify: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy` (register Anthropic when keyed)
+- Test: `runtime/component/moqui-ai/src/test/groovy/AnthropicProviderSpec.groovy`
+
+- [ ] **Step 1: Add provider key default-properties to MoquiConf**
+
+Edit `runtime/component/moqui-ai/MoquiConf.xml` — add inside `<moqui-conf>`, before `<tools>`:
+```xml
+    <default-property name="ai_anthropic_key" value="" is-secret="true"/>
+    <default-property name="ai_anthropic_base_url" value="https://api.anthropic.com"/>
+    <default-property name="ai_anthropic_version" value="2023-06-01"/>
+    <default-property name="ai_timeout_seconds" value="60"/>
+```
+
+- [ ] **Step 2: Write the failing encode/decode test (no network)**
+
+`runtime/component/moqui-ai/src/test/groovy/AnthropicProviderSpec.groovy`:
+```groovy
+import spock.lang.*
+import org.moqui.ai.*
+import org.moqui.ai.provider.AnthropicProvider
+import groovy.json.JsonSlurper
+
+class AnthropicProviderSpec extends Specification {
+
+    def "encodes a request body with system, messages, and tools"() {
+        given:
+        def p = new AnthropicProvider("k", "https://api.anthropic.com", "2023-06-01", 60)
+        def req = new LlmRequest(model: "claude-sonnet-4-6", systemContext: "be terse",
+            messages: [new LlmMessage("user", "hi")],
+            tools: [new LlmToolSchema(name: "get#Echo", description: "echo",
+                parameters: [type: "object", properties: [text: [type: "string"]], required: ["text"]])])
+        when:
+        Map body = new JsonSlurper().parseText(p.encodeRequest(req)) as Map
+        then:
+        body.model == "claude-sonnet-4-6"
+        body.system == "be terse"
+        body.messages[0].role == "user"
+        body.tools[0].name == "get#Echo"
+        body.tools[0].input_schema.properties.text.type == "string"
+    }
+
+    def "decodes a tool_use response into normalized tool calls"() {
+        given:
+        def p = new AnthropicProvider("k", "https://api.anthropic.com", "2023-06-01", 60)
+        String raw = '''{"stop_reason":"tool_use","usage":{"input_tokens":12,"output_tokens":7},
+            "content":[{"type":"text","text":"calling"},
+            {"type":"tool_use","id":"tu_1","name":"get#Echo","input":{"text":"hi"}}]}'''
+        when:
+        LlmResponse r = p.decodeResponse(raw)
+        then:
+        r.finishReason == "tool_use"
+        r.tokensIn == 12 && r.tokensOut == 7
+        r.toolCalls.size() == 1
+        r.toolCalls[0].name == "get#Echo"
+        r.toolCalls[0].arguments.text == "hi"
+    }
+
+    def "decodes a plain text response"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        when:
+        LlmResponse r = p.decodeResponse('{"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":2},"content":[{"type":"text","text":"hello"}]}')
+        then:
+        r.assistantText == "hello"
+        r.toolCalls.isEmpty()
+        r.finishReason == "end_turn"
+    }
+}
+```
+
+- [ ] **Step 3: Run it to verify it fails**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests AnthropicProviderSpec`
+Expected: FAIL — `AnthropicProvider` does not exist.
+
+- [ ] **Step 4: Implement the abstract base**
+
+`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/AbstractLlmProvider.groovy`:
+```groovy
+package org.moqui.ai.provider
+
+import org.moqui.ai.LlmProvider
+import org.moqui.ai.LlmRequest
+import org.moqui.ai.LlmResponse
+import org.moqui.util.RestClient
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
+/** Shared transport for HTTP providers: RestClient POST of an encoded body, error mapping,
+ *  and the encode/decode template. Concrete adapters implement only the wire format. */
+abstract class AbstractLlmProvider implements LlmProvider {
+    protected final static Logger logger = LoggerFactory.getLogger(AbstractLlmProvider.class)
+
+    protected final String apiKey
+    protected final String baseUrl
+    protected final int timeoutSeconds
+
+    AbstractLlmProvider(String apiKey, String baseUrl, int timeoutSeconds) {
+        this.apiKey = apiKey; this.baseUrl = baseUrl; this.timeoutSeconds = timeoutSeconds
+    }
+
+    /** The endpoint path appended to baseUrl, e.g. "/v1/messages". */
+    protected abstract String endpointPath()
+    /** Provider-specific auth/version headers. */
+    protected abstract Map<String, String> authHeaders()
+    /** Encode the normalized request into the provider's JSON body. */
+    abstract String encodeRequest(LlmRequest request)
+    /** Decode the provider's JSON response text into the normalized response. */
+    abstract LlmResponse decodeResponse(String responseText)
+
+    @Override
+    LlmResponse chat(LlmRequest request) {
+        String body = encodeRequest(request)
+        RestClient rc = new RestClient().uri(baseUrl + endpointPath())
+            .method('POST').contentType("application/json").timeout(timeoutSeconds).text(body)
+        authHeaders().each { k, v -> rc.addHeader(k, v) }
+        def resp
+        try {
+            resp = rc.call()   // RestClient throws on non-2xx (and on network errors)
+        } catch (Exception e) {
+            throw new RuntimeException("LLM provider ${name} HTTP error: ${e.message}", e)
+        }
+        return decodeResponse(resp.text())
+    }
+}
+```
+
+- [ ] **Step 5: Implement AnthropicProvider**
+
+`runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/AnthropicProvider.groovy`:
+```groovy
+package org.moqui.ai.provider
+
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import org.moqui.ai.LlmMessage
+import org.moqui.ai.LlmRequest
+import org.moqui.ai.LlmResponse
+import org.moqui.ai.LlmToolCall
+
+/** Anthropic Messages API adapter. Maps the normalized shape to/from tool_use/tool_result blocks. */
+class AnthropicProvider extends AbstractLlmProvider {
+    private final String anthropicVersion
+
+    AnthropicProvider(String apiKey, String baseUrl, String anthropicVersion, int timeoutSeconds) {
+        super(apiKey, baseUrl, timeoutSeconds); this.anthropicVersion = anthropicVersion
+    }
+
+    @Override String getName() { return "anthropic" }
+    @Override protected String endpointPath() { return "/v1/messages" }
+    @Override protected Map<String, String> authHeaders() {
+        return ["x-api-key": apiKey, "anthropic-version": anthropicVersion]
+    }
+
+    @Override
+    String encodeRequest(LlmRequest request) {
+        List<Map> apiMessages = []
+        for (LlmMessage m in request.messages) {
+            if (m.role == "tool") {
+                apiMessages.add([role: "user", content: [[type: "tool_result",
+                    tool_use_id: m.toolCallId, content: m.content]]])
+            } else if (m.role == "assistant" && m.toolCalls) {
+                apiMessages.add([role: "assistant", content: m.toolCalls.collect { tc ->
+                    [type: "tool_use", id: tc.id, name: tc.name, input: tc.arguments] }])
+            } else {
+                apiMessages.add([role: m.role, content: m.content])
+            }
+        }
+        Map body = [model: request.model, max_tokens: 4096, messages: apiMessages]
+        if (request.systemContext) body.system = request.systemContext
+        if (request.tools) body.tools = request.tools.collect { t ->
+            [name: t.name, description: t.description, input_schema: t.parameters] }
+        return JsonOutput.toJson(body)
+    }
+
+    @Override
+    LlmResponse decodeResponse(String responseText) {
+        Map json = new JsonSlurper().parseText(responseText) as Map
+        LlmResponse r = new LlmResponse()
+        r.finishReason = json.stop_reason
+        Map usage = json.usage as Map
+        if (usage) { r.tokensIn = (usage.input_tokens ?: 0L) as long; r.tokensOut = (usage.output_tokens ?: 0L) as long }
+        StringBuilder text = new StringBuilder()
+        for (Map block in (json.content as List<Map>)) {
+            if (block.type == "text") text.append(block.text as String)
+            else if (block.type == "tool_use") r.toolCalls.add(new LlmToolCall(
+                id: block.id as String, name: block.name as String,
+                arguments: (block.input ?: [:]) as Map))
+        }
+        if (text.length() > 0) r.assistantText = text.toString()
+        return r
+    }
+}
+```
+
+- [ ] **Step 6: Run the encode/decode tests to verify they pass**
+
+Run: `./gradlew :runtime:component:moqui-ai:test --tests AnthropicProviderSpec`
+Expected: PASS (all three cases — no network used).
+
+- [ ] **Step 7: Register Anthropic in the factory when a key is configured**
+
+In `AiToolFactory.init(...)`, after `registerProvider(new MockProvider())`, add:
+```groovy
+        String anthKey = ecf.resource.expand('${ai_anthropic_key}', null)
+        if (anthKey) {
+            registerProvider(new org.moqui.ai.provider.AnthropicProvider(anthKey,
+                ecf.resource.expand('${ai_anthropic_base_url}', null),
+                ecf.resource.expand('${ai_anthropic_version}', null),
+                (ecf.resource.expand('${ai_timeout_seconds}', null) ?: "60") as int))
+            logger.info("AI: registered Anthropic provider")
+        }
+```
+(Provider-init failure isolation, per spec §21: register a provider only when its key is present; a missing key for an unused provider does not block boot. An agent referencing an unconfigured provider fails at run time via `getProvider`'s clear error.)
+
+- [ ] **Step 8: Add an opt-in live smoke test**
+
+Append to `AnthropicProviderSpec.groovy`:
+```groovy
+    @Requires({ System.getenv("ai_anthropic_key") })
+    def "live: a real Anthropic call returns text"() {
+        given:
+        def key = System.getenv("ai_anthropic_key")
+        def p = new AnthropicProvider(key, "https://api.anthropic.com", "2023-06-01", 60)
+        when:
+        LlmResponse r = p.chat(new LlmRequest(model: "claude-sonnet-4-6",
+            messages: [new LlmMessage("user", "Reply with the single word: pong")]))
+        then:
+        r.assistantText?.toLowerCase()?.contains("pong")
+    }
+```
+
+- [ ] **Step 9: Run the full suite**
+
+Run: `./gradlew :runtime:component:moqui-ai:test`
+Expected: PASS for all specs. The live smoke test is skipped unless `ai_anthropic_key` is exported.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add runtime/component/moqui-ai/MoquiConf.xml \
+        runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/AbstractLlmProvider.groovy \
+        runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/AnthropicProvider.groovy \
+        runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy \
+        runtime/component/moqui-ai/src/test/groovy/AnthropicProviderSpec.groovy
+git commit -m "feat(moqui-ai): AbstractLlmProvider base + Anthropic adapter (key-gated)"
+```
+
+---
+
+## Slice Done — Definition of Done
+
+- `./gradlew :runtime:component:moqui-ai:test` is green (live smoke skipped without a key).
+- An agent (DB record) + a tool (`ai/*.tools.xml`) can be invoked via `ai.AgentServices.run#Agent` and returns an answer, dispatching tools through `ec.service.sync()`.
+- Every run/step/tool-call is persisted; a persistence failure logs a warning and does not abort the run.
+- Bad tool service reference fails the boot loudly; per-run ceilings stop runaway loops.
+- Loop holds no enclosing transaction; Anthropic adapter works against the real API when keyed.
+
+## NOT in this slice (next plans)
+- OpenAI + Google adapters (mirror Task 9 on the shared base).
+- Structured output (agent-declared output schema + validation + one re-ask).
+- Attached knowledge (`AiAgentKnowledge` entity + injection into `systemContext`).
+- Developer console screens (Agents, Tools, Playground, Runs).
+- `reload#Definitions`, `create#Agent`, `update#Agent` admin services + restricted-user permission E2E.
+- Cost-aggregation service, human-approval gate, RAG.
