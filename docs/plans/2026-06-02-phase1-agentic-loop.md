@@ -54,15 +54,24 @@ runtime/component/moqui-ai/
 │       ├── AbstractLlmProvider.groovy              ← RestClient transport base (Task 9)
 │       └── AnthropicProvider.groovy                ← Anthropic adapter (Task 9)
 └── src/test/groovy/
-    ├── AiToolFactoryBootSpec.groovy                ← Task 1
-    ├── AiEntitiesSpec.groovy                       ← Task 2
-    ├── MockProviderSpec.groovy                     ← Task 4
-    ├── ToolSchemaBuilderSpec.groovy                ← Task 5
-    ├── DefinitionLoaderSpec.groovy                 ← Task 6
-    ├── AgentRunnerSpec.groovy                      ← Task 7
-    ├── RunAgentServiceSpec.groovy                  ← Task 8
-    └── AnthropicProviderSpec.groovy                ← Task 9
+    ├── MoquiSuite.groovy                            ← @Suite @SelectClasses runner (Task 1; append each Tests class)
+    ├── AiToolFactoryBootTests.groovy                ← Task 1
+    ├── AiEntitiesTests.groovy                       ← Task 2
+    ├── MockProviderTests.groovy                     ← Task 4
+    ├── ToolSchemaBuilderTests.groovy               ← Task 5
+    ├── DefinitionLoaderTests.groovy                 ← Task 6
+    ├── AgentRunnerTests.groovy                      ← Task 7
+    ├── RunAgentServiceTests.groovy                  ← Task 8
+    └── AnthropicProviderTests.groovy               ← Task 9
 ```
+
+Tests follow the framework convention exactly (`framework/src/test/groovy/`): classes named
+`*Tests` extending `spock.lang.Specification`, aggregated by a single `MoquiSuite`
+(`@Suite @SelectClasses([...])`, JUnit Platform) that owns factory teardown. The Gradle
+`test` task runs only `**/*MoquiSuite.class` — so there is no per-class run flag; you run the
+whole suite and **append each new `*Tests` class to `MoquiSuite`'s `@SelectClasses` as you add
+it**. Per spec each test gets its EC via `Moqui.getExecutionContext()` in `setupSpec` and
+`ec.destroy()` in `cleanupSpec`; the suite destroys the factory once at the end.
 
 ---
 
@@ -73,7 +82,7 @@ runtime/component/moqui-ai/
 - Create: `runtime/component/moqui-ai/MoquiConf.xml`
 - Create: `runtime/component/moqui-ai/build.gradle`
 - Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy`
-- Test: `runtime/component/moqui-ai/src/test/groovy/AiToolFactoryBootSpec.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/AiToolFactoryBootTests.groovy`
 
 - [ ] **Step 1: Create the component descriptor**
 
@@ -98,7 +107,12 @@ runtime/component/moqui-ai/
 </moqui-conf>
 ```
 
-- [ ] **Step 3: Create the component build.gradle (test source set on the framework classpath)**
+- [ ] **Step 3: Create the component build.gradle (mirrors framework/build.gradle's test block)**
+
+Having a `build.gradle` is what makes settings.gradle auto-include this component as the
+`:runtime:component:moqui-ai` Gradle subproject. The `test {}` block is copied from
+`framework/build.gradle` (same `include '**/*MoquiSuite.class'`, same `moqui.*` system
+properties) so tests run exactly like the framework's.
 
 `runtime/component/moqui-ai/build.gradle`:
 ```groovy
@@ -107,7 +121,8 @@ apply plugin: 'groovy'
 sourceCompatibility = '11'
 targetCompatibility = '11'
 
-def frameworkDir = file(projectDir.absolutePath + '/../../../framework')
+// projectDir = runtime/component/moqui-ai ; runtime dir is two levels up
+def runtimeDir = file("${projectDir}/../..")
 
 repositories { mavenCentral() }
 
@@ -115,28 +130,56 @@ dependencies {
     implementation project(':framework')
     testImplementation platform("org.spockframework:spock-bom:2.1-groovy-3.0")
     testImplementation 'org.spockframework:spock-core:2.1-groovy-3.0'
+    testImplementation 'org.spockframework:spock-junit4:2.1-groovy-3.0'
 }
 
 test {
     useJUnitPlatform()
-    systemProperty 'moqui.runtime', frameworkDir.absolutePath + '/../runtime'
-    // Spock specs boot Moqui via Moqui.getExecutionContext(); run single-threaded
-    maxParallelForks = 1
+    testLogging { events "passed", "skipped", "failed" }
+    testLogging.showStandardStreams = true; testLogging.showExceptions = true
+    maxParallelForks 1
+    // run only the suite, exactly like framework/build.gradle
+    include '**/*MoquiSuite.class'
+    systemProperty 'moqui.runtime', runtimeDir.absolutePath
+    systemProperty 'moqui.conf', 'conf/MoquiDevConf.xml'
+    systemProperty 'moqui.init.static', 'true'
+    classpath += files(sourceSets.main.output.classesDirs)
+    classpath += files(projectDir.absolutePath)
+    classpath = classpath.filter { it.exists() }
 }
 ```
 
-Note: Moqui auto-discovers components in `runtime/component/` and auto-loads each component's `MoquiConf.xml`, `entity/`, `service/`, and `src/main/groovy`. The `build.gradle` here exists only so the component's Spock tests compile and run against the framework. Confirm the exact invocation in Step 6.
+Note: Moqui auto-discovers components in `runtime/component/` and auto-loads each component's `MoquiConf.xml`, `entity/`, `service/`, and `src/main/groovy`. This `build.gradle` only adds the component to the Gradle build so its Spock tests compile and run against the framework, the same way the framework's own tests run.
 
-- [ ] **Step 4: Write the failing boot test**
+- [ ] **Step 4: Create the test suite (the only class Gradle runs directly)**
 
-`runtime/component/moqui-ai/src/test/groovy/AiToolFactoryBootSpec.groovy`:
+`runtime/component/moqui-ai/src/test/groovy/MoquiSuite.groovy` — identical pattern to
+`framework/src/test/groovy/MoquiSuite.groovy`. **Append each task's `*Tests` class to
+`@SelectClasses` as you create it.**
+```groovy
+import org.junit.jupiter.api.AfterAll
+import org.junit.platform.suite.api.SelectClasses
+import org.junit.platform.suite.api.Suite
+import org.moqui.Moqui
+
+@Suite
+@SelectClasses([ AiToolFactoryBootTests.class ])   // add AiEntitiesTests.class, MockProviderTests.class, ... per task
+class MoquiSuite {
+    @AfterAll
+    static void destroyMoqui() { Moqui.destroyActiveExecutionContextFactory() }
+}
+```
+
+- [ ] **Step 5: Write the failing boot test**
+
+`runtime/component/moqui-ai/src/test/groovy/AiToolFactoryBootTests.groovy`:
 ```groovy
 import spock.lang.*
 import org.moqui.context.ExecutionContext
 import org.moqui.Moqui
 import org.moqui.ai.AiToolFactory
 
-class AiToolFactoryBootSpec extends Specification {
+class AiToolFactoryBootTests extends Specification {
     @Shared ExecutionContext ec
 
     def setupSpec() { ec = Moqui.getExecutionContext() }
@@ -152,7 +195,7 @@ class AiToolFactoryBootSpec extends Specification {
 }
 ```
 
-- [ ] **Step 5: Write the minimal ToolFactory**
+- [ ] **Step 6: Write the minimal ToolFactory**
 
 `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy`:
 ```groovy
@@ -191,25 +234,22 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
 }
 ```
 
-- [ ] **Step 6: Run the boot test and confirm the test runner**
+- [ ] **Step 7: Run the suite**
 
-Run from the framework root (`runtime/component/moqui-ai` is on the Moqui runtime path):
+From the framework root (settings.gradle auto-includes the component once `build.gradle` exists):
 ```bash
-./gradlew :runtime:component:moqui-ai:test --tests AiToolFactoryBootSpec
+./gradlew :runtime:component:moqui-ai:test
 ```
-Expected: PASS. If the component is not a registered Gradle subproject, run instead:
-```bash
-./gradlew test --tests AiToolFactoryBootSpec
-```
-Record whichever command works — it is the test command for every later task. Booting `Moqui.getExecutionContext()` requires the H2 default datasource (Moqui's out-of-the-box config), which needs no external service.
+Expected: PASS — Gradle runs `MoquiSuite`, which runs `AiToolFactoryBootTests`. This is the test command for every later task (each task first appends its new `*Tests` class to `MoquiSuite`'s `@SelectClasses`). Booting `Moqui.getExecutionContext()` uses Moqui's default H2 datasource — no external service needed.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add runtime/component/moqui-ai/component.xml runtime/component/moqui-ai/MoquiConf.xml \
         runtime/component/moqui-ai/build.gradle \
         runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy \
-        runtime/component/moqui-ai/src/test/groovy/AiToolFactoryBootSpec.groovy
+        runtime/component/moqui-ai/src/test/groovy/MoquiSuite.groovy \
+        runtime/component/moqui-ai/src/test/groovy/AiToolFactoryBootTests.groovy
 git commit -m "feat(moqui-ai): scaffold component + AiToolFactory boot"
 ```
 
@@ -219,18 +259,18 @@ git commit -m "feat(moqui-ai): scaffold component + AiToolFactory boot"
 
 **Files:**
 - Create: `runtime/component/moqui-ai/entity/AiEntities.xml`
-- Test: `runtime/component/moqui-ai/src/test/groovy/AiEntitiesSpec.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/AiEntitiesTests.groovy`
 
 - [ ] **Step 1: Write the failing entity test**
 
-`runtime/component/moqui-ai/src/test/groovy/AiEntitiesSpec.groovy`:
+`runtime/component/moqui-ai/src/test/groovy/AiEntitiesTests.groovy`:
 ```groovy
 import spock.lang.*
 import org.moqui.context.ExecutionContext
 import org.moqui.Moqui
 import org.moqui.entity.EntityValue
 
-class AiEntitiesSpec extends Specification {
+class AiEntitiesTests extends Specification {
     @Shared ExecutionContext ec
 
     def setupSpec() { ec = Moqui.getExecutionContext() }
@@ -263,7 +303,7 @@ class AiEntitiesSpec extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests AiEntitiesSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: FAIL — entity `moqui.ai.AiAgent` not found.
 
 - [ ] **Step 3: Define the entities**
@@ -352,14 +392,14 @@ Expected: FAIL — entity `moqui.ai.AiAgent` not found.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests AiEntitiesSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: PASS (Moqui auto-creates tables for the H2 datasource on first access).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add runtime/component/moqui-ai/entity/AiEntities.xml \
-        runtime/component/moqui-ai/src/test/groovy/AiEntitiesSpec.groovy
+        runtime/component/moqui-ai/src/test/groovy/AiEntitiesTests.groovy
 git commit -m "feat(moqui-ai): add definition + observability entities"
 ```
 
@@ -371,7 +411,7 @@ git commit -m "feat(moqui-ai): add definition + observability entities"
 - Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmModels.groovy`
 - Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/LlmProvider.groovy`
 
-No dedicated test (pure data holders exercised by Task 4's `MockProviderSpec`).
+No dedicated test (pure data holders exercised by Task 4's `MockProviderTests`).
 
 - [ ] **Step 1: Define the normalized data classes**
 
@@ -465,17 +505,17 @@ git commit -m "feat(moqui-ai): normalized provider model + LlmProvider interface
 
 **Files:**
 - Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/MockProvider.groovy`
-- Test: `runtime/component/moqui-ai/src/test/groovy/MockProviderSpec.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/MockProviderTests.groovy`
 
 - [ ] **Step 1: Write the failing test**
 
-`runtime/component/moqui-ai/src/test/groovy/MockProviderSpec.groovy`:
+`runtime/component/moqui-ai/src/test/groovy/MockProviderTests.groovy`:
 ```groovy
 import spock.lang.*
 import org.moqui.ai.*
 import org.moqui.ai.provider.MockProvider
 
-class MockProviderSpec extends Specification {
+class MockProviderTests extends Specification {
     def cleanup() { MockProvider.reset() }
 
     def "returns scripted responses in order then defaults to a stop"() {
@@ -498,7 +538,7 @@ class MockProviderSpec extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests MockProviderSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: FAIL — `MockProvider` does not exist.
 
 - [ ] **Step 3: Implement MockProvider**
@@ -533,14 +573,14 @@ class MockProvider implements LlmProvider {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests MockProviderSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/MockProvider.groovy \
-        runtime/component/moqui-ai/src/test/groovy/MockProviderSpec.groovy
+        runtime/component/moqui-ai/src/test/groovy/MockProviderTests.groovy
 git commit -m "feat(moqui-ai): scripted MockProvider for deterministic loop tests"
 ```
 
@@ -550,7 +590,7 @@ git commit -m "feat(moqui-ai): scripted MockProvider for deterministic loop test
 
 **Files:**
 - Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/ToolSchemaBuilder.groovy`
-- Test: `runtime/component/moqui-ai/src/test/groovy/ToolSchemaBuilderSpec.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/ToolSchemaBuilderTests.groovy`
 
 - [ ] **Step 1: Write the failing test (against a real framework service)**
 
@@ -575,14 +615,14 @@ Create `runtime/component/moqui-ai/service/moqui/ai/test/TestServices.xml`:
 </services>
 ```
 
-`runtime/component/moqui-ai/src/test/groovy/ToolSchemaBuilderSpec.groovy`:
+`runtime/component/moqui-ai/src/test/groovy/ToolSchemaBuilderTests.groovy`:
 ```groovy
 import spock.lang.*
 import org.moqui.context.ExecutionContext
 import org.moqui.Moqui
 import org.moqui.ai.ToolSchemaBuilder
 
-class ToolSchemaBuilderSpec extends Specification {
+class ToolSchemaBuilderTests extends Specification {
     @Shared ExecutionContext ec
     def setupSpec() { ec = Moqui.getExecutionContext() }
     def cleanupSpec() { if (ec != null) ec.destroy() }
@@ -601,7 +641,7 @@ class ToolSchemaBuilderSpec extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests ToolSchemaBuilderSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: FAIL — `ToolSchemaBuilder` does not exist.
 
 - [ ] **Step 3: Implement ToolSchemaBuilder**
@@ -666,7 +706,7 @@ class ToolSchemaBuilder {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests ToolSchemaBuilderSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -674,7 +714,7 @@ Expected: PASS.
 ```bash
 git add runtime/component/moqui-ai/service/moqui/ai/test/TestServices.xml \
         runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/ToolSchemaBuilder.groovy \
-        runtime/component/moqui-ai/src/test/groovy/ToolSchemaBuilderSpec.groovy
+        runtime/component/moqui-ai/src/test/groovy/ToolSchemaBuilderTests.groovy
 git commit -m "feat(moqui-ai): generate tool JSON schema from service in-parameters"
 ```
 
@@ -689,7 +729,7 @@ provider registry to `AiToolFactory`. Agents stay in the entity layer (read per 
 - Create: `runtime/component/moqui-ai/ai/test.tools.xml`
 - Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/DefinitionLoader.groovy`
 - Modify: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy`
-- Test: `runtime/component/moqui-ai/src/test/groovy/DefinitionLoaderSpec.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/DefinitionLoaderTests.groovy`
 
 - [ ] **Step 1: Create a tool-catalog file the loader will read**
 
@@ -704,14 +744,14 @@ provider registry to `AiToolFactory`. Agents stay in the entity layer (read per 
 
 - [ ] **Step 2: Write the failing loader test**
 
-`runtime/component/moqui-ai/src/test/groovy/DefinitionLoaderSpec.groovy`:
+`runtime/component/moqui-ai/src/test/groovy/DefinitionLoaderTests.groovy`:
 ```groovy
 import spock.lang.*
 import org.moqui.context.ExecutionContext
 import org.moqui.Moqui
 import org.moqui.ai.AiToolFactory
 
-class DefinitionLoaderSpec extends Specification {
+class DefinitionLoaderTests extends Specification {
     @Shared ExecutionContext ec
     def setupSpec() { ec = Moqui.getExecutionContext() }
     def cleanupSpec() { if (ec != null) ec.destroy() }
@@ -867,7 +907,7 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
 
 - [ ] **Step 5: Run the loader tests**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests DefinitionLoaderSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: PASS (both the catalog-load case and the fail-loud case).
 
 - [ ] **Step 6: Commit**
@@ -876,7 +916,7 @@ Expected: PASS (both the catalog-load case and the fail-loud case).
 git add runtime/component/moqui-ai/ai/test.tools.xml \
         runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/DefinitionLoader.groovy \
         runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy \
-        runtime/component/moqui-ai/src/test/groovy/DefinitionLoaderSpec.groovy
+        runtime/component/moqui-ai/src/test/groovy/DefinitionLoaderTests.groovy
 git commit -m "feat(moqui-ai): tool-catalog loader (fail-loud) + provider registry"
 ```
 
@@ -890,11 +930,11 @@ failure never aborts the run. Per-run ceiling enforced.
 
 **Files:**
 - Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AgentRunner.groovy`
-- Test: `runtime/component/moqui-ai/src/test/groovy/AgentRunnerSpec.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/AgentRunnerTests.groovy`
 
 - [ ] **Step 1: Write the failing loop tests (Mock-driven)**
 
-`runtime/component/moqui-ai/src/test/groovy/AgentRunnerSpec.groovy`:
+`runtime/component/moqui-ai/src/test/groovy/AgentRunnerTests.groovy`:
 ```groovy
 import spock.lang.*
 import org.moqui.context.ExecutionContext
@@ -902,7 +942,7 @@ import org.moqui.Moqui
 import org.moqui.ai.*
 import org.moqui.ai.provider.MockProvider
 
-class AgentRunnerSpec extends Specification {
+class AgentRunnerTests extends Specification {
     @Shared ExecutionContext ec
 
     def setupSpec() {
@@ -971,7 +1011,7 @@ class AgentRunnerSpec extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests AgentRunnerSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: FAIL — `AgentRunner` does not exist.
 
 - [ ] **Step 3: Implement AgentRunner**
@@ -1134,7 +1174,7 @@ class AgentRunner {
 
 - [ ] **Step 4: Run the loop tests to verify they pass**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests AgentRunnerSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: PASS (all four cases).
 
 - [ ] **Step 5: Commit**
@@ -1142,7 +1182,7 @@ Expected: PASS (all four cases).
 ```bash
 git add runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AgentRunner.groovy \
         runtime/component/moqui-ai/service/moqui/ai/test/TestServices.xml \
-        runtime/component/moqui-ai/src/test/groovy/AgentRunnerSpec.groovy
+        runtime/component/moqui-ai/src/test/groovy/AgentRunnerTests.groovy
 git commit -m "feat(moqui-ai): agentic loop with tool dispatch, ceilings, observability"
 ```
 
@@ -1154,11 +1194,11 @@ Expose the runner as the Moqui-native entry point, with **no enclosing transacti
 
 **Files:**
 - Create: `runtime/component/moqui-ai/service/ai/AgentServices.xml`
-- Test: `runtime/component/moqui-ai/src/test/groovy/RunAgentServiceSpec.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/RunAgentServiceTests.groovy`
 
 - [ ] **Step 1: Write the failing service test**
 
-`runtime/component/moqui-ai/src/test/groovy/RunAgentServiceSpec.groovy`:
+`runtime/component/moqui-ai/src/test/groovy/RunAgentServiceTests.groovy`:
 ```groovy
 import spock.lang.*
 import org.moqui.context.ExecutionContext
@@ -1166,7 +1206,7 @@ import org.moqui.Moqui
 import org.moqui.ai.LlmResponse
 import org.moqui.ai.provider.MockProvider
 
-class RunAgentServiceSpec extends Specification {
+class RunAgentServiceTests extends Specification {
     @Shared ExecutionContext ec
     def setupSpec() {
         ec = Moqui.getExecutionContext()
@@ -1194,7 +1234,7 @@ class RunAgentServiceSpec extends Specification {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests RunAgentServiceSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: FAIL — service `ai.AgentServices.run#Agent` not found.
 
 - [ ] **Step 3: Implement the service**
@@ -1241,14 +1281,14 @@ Expected: FAIL — service `ai.AgentServices.run#Agent` not found.
 
 - [ ] **Step 4: Run the service test to verify it passes**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests RunAgentServiceSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add runtime/component/moqui-ai/service/ai/AgentServices.xml \
-        runtime/component/moqui-ai/src/test/groovy/RunAgentServiceSpec.groovy
+        runtime/component/moqui-ai/src/test/groovy/RunAgentServiceTests.groovy
 git commit -m "feat(moqui-ai): ai.AgentServices.run#Agent entry point (no enclosing tx)"
 ```
 
@@ -1265,7 +1305,7 @@ smoke test runs only when `ai_anthropic_key` is set.
 - Create: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/AnthropicProvider.groovy`
 - Modify: `runtime/component/moqui-ai/MoquiConf.xml` (provider key default-properties)
 - Modify: `runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy` (register Anthropic when keyed)
-- Test: `runtime/component/moqui-ai/src/test/groovy/AnthropicProviderSpec.groovy`
+- Test: `runtime/component/moqui-ai/src/test/groovy/AnthropicProviderTests.groovy`
 
 - [ ] **Step 1: Add provider key default-properties to MoquiConf**
 
@@ -1279,14 +1319,14 @@ Edit `runtime/component/moqui-ai/MoquiConf.xml` — add inside `<moqui-conf>`, b
 
 - [ ] **Step 2: Write the failing encode/decode test (no network)**
 
-`runtime/component/moqui-ai/src/test/groovy/AnthropicProviderSpec.groovy`:
+`runtime/component/moqui-ai/src/test/groovy/AnthropicProviderTests.groovy`:
 ```groovy
 import spock.lang.*
 import org.moqui.ai.*
 import org.moqui.ai.provider.AnthropicProvider
 import groovy.json.JsonSlurper
 
-class AnthropicProviderSpec extends Specification {
+class AnthropicProviderTests extends Specification {
 
     def "encodes a request body with system, messages, and tools"() {
         given:
@@ -1335,7 +1375,7 @@ class AnthropicProviderSpec extends Specification {
 
 - [ ] **Step 3: Run it to verify it fails**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests AnthropicProviderSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: FAIL — `AnthropicProvider` does not exist.
 
 - [ ] **Step 4: Implement the abstract base**
@@ -1460,7 +1500,7 @@ class AnthropicProvider extends AbstractLlmProvider {
 
 - [ ] **Step 6: Run the encode/decode tests to verify they pass**
 
-Run: `./gradlew :runtime:component:moqui-ai:test --tests AnthropicProviderSpec`
+Run: `./gradlew :runtime:component:moqui-ai:test
 Expected: PASS (all three cases — no network used).
 
 - [ ] **Step 7: Register Anthropic in the factory when a key is configured**
@@ -1480,7 +1520,7 @@ In `AiToolFactory.init(...)`, after `registerProvider(new MockProvider())`, add:
 
 - [ ] **Step 8: Add an opt-in live smoke test**
 
-Append to `AnthropicProviderSpec.groovy`:
+Append to `AnthropicProviderTests.groovy`:
 ```groovy
     @Requires({ System.getenv("ai_anthropic_key") })
     def "live: a real Anthropic call returns text"() {
@@ -1507,7 +1547,7 @@ git add runtime/component/moqui-ai/MoquiConf.xml \
         runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/AbstractLlmProvider.groovy \
         runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/provider/AnthropicProvider.groovy \
         runtime/component/moqui-ai/src/main/groovy/org/moqui/ai/AiToolFactory.groovy \
-        runtime/component/moqui-ai/src/test/groovy/AnthropicProviderSpec.groovy
+        runtime/component/moqui-ai/src/test/groovy/AnthropicProviderTests.groovy
 git commit -m "feat(moqui-ai): AbstractLlmProvider base + Anthropic adapter (key-gated)"
 ```
 
