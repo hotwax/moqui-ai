@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moqui-conf xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/moqui-conf-3.xsd">
+    <tools>
+        <tool-factory class="org.moqui.ai.AiToolFactory" init-priority="30" disabled="false"/>
+    </tools>
+</moqui-conf>
