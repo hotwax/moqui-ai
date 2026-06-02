@@ -28,7 +28,10 @@
         <field name="agentName" type="id" is-pk="true"/>
         <field name="toolName" type="id" is-pk="true"/>
         <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
-        <relationship type="one" related="moqui.ai.AiTool" short-alias="tool"/>
+        <!-- one-nofk: in slice-1 the tool catalog is in-memory (from ai/*.tools.xml); the AiTool
+             entity is not populated from files yet, so the grant references the catalog logically
+             (integrity enforced at save-time against the catalog, not via a DB FK). -->
+        <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="tool"/>
     </entity>
 
     <!-- ===== Observability ===== -->
@@ -48,7 +51,8 @@
         <field name="tokensOut" type="number-integer"/>
         <field name="estimatedCost" type="number-decimal"/>
         <field name="errorText" type="text-very-long"/>
-        <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
+        <!-- one-nofk: AiAgentRun is append-only audit; it must not block the agent lifecycle -->
+        <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
     </entity>
 
