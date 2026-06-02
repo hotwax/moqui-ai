@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
+
+    <!-- ===== Definitions ===== -->
+    <entity entity-name="AiAgent" package="moqui.ai">
+        <field name="agentName" type="id" is-pk="true"/>
+        <field name="providerName" type="text-short"/>
+        <field name="modelName" type="text-medium"/>
+        <field name="systemPrompt" type="text-very-long"/>
+        <field name="maxIterations" type="number-integer"/>
+        <field name="maxTokens" type="number-integer"/>
+        <field name="maxCost" type="number-decimal"/>
+        <field name="maxToolCallsPerTurn" type="number-integer"/>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentStatus: AI_AGENT_ACTIVE | AI_AGENT_DISABLED</description></field>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+    </entity>
+
+    <entity entity-name="AiTool" package="moqui.ai">
+        <field name="toolName" type="id" is-pk="true"/>
+        <field name="serviceName" type="text-medium"/>
+        <field name="description" type="text-long"/>
+        <field name="requiresApproval" type="text-indicator"><description>Y/N (reserved; not enforced this slice)</description></field>
+        <field name="sourceComponent" type="text-medium"/>
+    </entity>
+
+    <entity entity-name="AiAgentTool" package="moqui.ai">
+        <field name="agentName" type="id" is-pk="true"/>
+        <field name="toolName" type="id" is-pk="true"/>
+        <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
+        <relationship type="one" related="moqui.ai.AiTool" short-alias="tool"/>
+    </entity>
+
+    <!-- ===== Observability ===== -->
+    <entity entity-name="AiAgentRun" package="moqui.ai">
+        <field name="agentRunId" type="id" is-pk="true"/>
+        <field name="agentName" type="id"/>
+        <field name="userId" type="id"/>
+        <field name="fromDate" type="date-time"/>
+        <field name="thruDate" type="date-time"/>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentRunStatus: AI_RUN_RUNNING|AI_RUN_COMPLETED|AI_RUN_FAILED|AI_RUN_TRUNCATED|AI_RUN_ABORTED</description></field>
+        <field name="providerName" type="text-short"/>
+        <field name="modelName" type="text-medium"/>
+        <field name="userMessage" type="text-very-long"/>
+        <field name="assistantMessage" type="text-very-long"/>
+        <field name="iterations" type="number-integer"/>
+        <field name="tokensIn" type="number-integer"/>
+        <field name="tokensOut" type="number-integer"/>
+        <field name="estimatedCost" type="number-decimal"/>
+        <field name="errorText" type="text-very-long"/>
+        <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+    </entity>
+
+    <entity entity-name="AiAgentRunStep" package="moqui.ai">
+        <field name="agentRunId" type="id" is-pk="true"/>
+        <field name="stepSeqId" type="id" is-pk="true"/>
+        <field name="stepType" type="text-short"><description>llm_call | tool_call</description></field>
+        <field name="fromDate" type="date-time"/>
+        <field name="thruDate" type="date-time"/>
+        <field name="tokensIn" type="number-integer"/>
+        <field name="tokensOut" type="number-integer"/>
+        <field name="finishReason" type="text-short"/>
+        <relationship type="one" related="moqui.ai.AiAgentRun" short-alias="run"/>
+    </entity>
+
+    <entity entity-name="AiToolCall" package="moqui.ai">
+        <field name="agentRunId" type="id" is-pk="true"/>
+        <field name="stepSeqId" type="id" is-pk="true"/>
+        <field name="toolCallId" type="id" is-pk="true"/>
+        <field name="toolName" type="text-medium"/>
+        <field name="serviceName" type="text-medium"/>
+        <field name="arguments" type="text-very-long"/>
+        <field name="result" type="text-very-long"/>
+        <field name="success" type="text-indicator"/>
+        <field name="errorText" type="text-very-long"/>
+        <field name="durationMs" type="number-integer"/>
+        <field name="approvalStatus" type="text-short"><description>reserved for human-approval phase</description></field>
+    </entity>
+</entities>
