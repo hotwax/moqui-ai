@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+    <service verb="get" noun="Echo">
+        <in-parameters>
+            <parameter name="text" type="String" required="true"><description>Text to echo back.</description></parameter>
+            <parameter name="repeat" type="Integer"/>
+        </in-parameters>
+        <out-parameters><parameter name="echoed" type="String"/></out-parameters>
+        <actions>
+            <if condition="repeat != null &amp;&amp; repeat &lt; 0"><return error="true" message="repeat must be >= 0"/></if>
+            <set field="echoed" value="${text}"/>
+            <if condition="repeat"><set field="echoed" value="${echoed * repeat}"/></if>
+        </actions>
+    </service>
+</services>
