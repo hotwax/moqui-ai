@@ -18,8 +18,14 @@ class AgentRunner {
 
     AgentRunner(ExecutionContext ec, AiToolFactory ai) { this.ec = ec; this.ai = ai }
 
-    /** @return runResult Map: [assistantMessage, agentRunId, tokensIn, tokensOut, iterations, truncated, statusId] */
-    Map run(String agentName, String userMessage) {
+    /** Phase 1 entry — stateless single turn. */
+    Map run(String agentName, String userMessage) { return run(agentName, userMessage, null) }
+
+    /** @param conversationId optional; when set, prior conversation messages are replayed and
+     *  this turn's messages are persisted back.
+     *  @return runResult Map: [assistantMessage, agentRunId, conversationId, tokensIn, tokensOut,
+     *  iterations, truncated, statusId] */
+    Map run(String agentName, String userMessage, String conversationId) {
         EntityValue agent = ec.entity.find("moqui.ai.AiAgent")
             .condition("agentName", agentName).useCache(true).one()
         if (agent == null) throw new IllegalArgumentException("Unknown agent: ${agentName}")
@@ -32,13 +38,17 @@ class AgentRunner {
         List<Map> toolSchemas = loadToolSchemas(agentName)
 
         String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
-        Map result = [agentRunId: runId, assistantMessage: null, tokensIn: 0L, tokensOut: 0L,
-                      iterations: 0, truncated: false, statusId: "AI_RUN_RUNNING"]
-        persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentName: agentName,
+        Map result = [agentRunId: runId, conversationId: conversationId, assistantMessage: null,
+                      tokensIn: 0L, tokensOut: 0L, iterations: 0, truncated: false, statusId: "AI_RUN_RUNNING"]
+        persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentName: agentName, conversationId: conversationId,
             userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
             providerName: agent.providerName, modelName: agent.modelName, userMessage: userMessage])
 
-        List<Map> messages = [[role: "user", content: userMessage]]
+        // history replay: prior conversation messages, then this turn's user message
+        List<Map> messages = conversationId ? loadConversationMessages(conversationId) : []
+        messages.add([role: "user", content: userMessage])
+        if (conversationId) persistConversationMessage(conversationId, runId, [role: "user", content: userMessage])
+
         int stepSeq = 0
         try {
             for (int i = 0; i < maxIter; i++) {
@@ -54,27 +64,33 @@ class AgentRunner {
                     stepType: "llm_call", tokensIn: inTok, tokensOut: outTok, finishReason: resp.finishReason])
 
                 if (maxTokens > 0 && ((result.tokensIn as long) + (result.tokensOut as long)) > maxTokens)
-                    return finish(result, runId, "AI_RUN_ABORTED", "Per-run token ceiling exceeded")
+                    return finish(result, runId, conversationId, "AI_RUN_ABORTED", "Per-run token ceiling exceeded")
 
                 List toolCalls = (resp.toolCalls ?: []) as List
                 if (!toolCalls) {
                     result.assistantMessage = resp.assistantText ?: ""
-                    return finish(result, runId, "AI_RUN_COMPLETED", null)
+                    if (conversationId) persistConversationMessage(conversationId, runId,
+                        [role: "assistant", content: result.assistantMessage])
+                    return finish(result, runId, conversationId, "AI_RUN_COMPLETED", null)
                 }
                 if (toolCalls.size() > maxToolCalls)
-                    return finish(result, runId, "AI_RUN_ABORTED", "Tool-calls-per-turn ceiling exceeded")
+                    return finish(result, runId, conversationId, "AI_RUN_ABORTED", "Tool-calls-per-turn ceiling exceeded")
 
                 // record the assistant turn that requested tools, then dispatch each
-                messages.add([role: "assistant", toolCalls: toolCalls])
+                Map assistantTurn = [role: "assistant", toolCalls: toolCalls]
+                messages.add(assistantTurn)
+                if (conversationId) persistConversationMessage(conversationId, runId, assistantTurn)
                 for (Map tc in toolCalls) {
                     String resultJson = dispatchTool(runId, stepSeq, tc)
-                    messages.add([role: "tool", toolCallId: tc.id, content: resultJson])
+                    Map toolMsg = [role: "tool", toolCallId: tc.id, content: resultJson]
+                    messages.add(toolMsg)
+                    if (conversationId) persistConversationMessage(conversationId, runId, toolMsg)
                 }
             }
-            return finish(result, runId, "AI_RUN_TRUNCATED", null)   // ran out of iterations
+            return finish(result, runId, conversationId, "AI_RUN_TRUNCATED", null)   // ran out of iterations
         } catch (Throwable t) {
             logger.error("Agent run ${runId} failed", t)
-            return finish(result, runId, "AI_RUN_FAILED", t.message)
+            return finish(result, runId, conversationId, "AI_RUN_FAILED", t.message)
         }
     }
 
@@ -125,14 +141,43 @@ class AgentRunner {
         return schemas
     }
 
-    /** Finalize: set status + truncated on the result Map, persist the run update, return it. */
-    private Map finish(Map result, String runId, String statusId, String errorText) {
+    /** Finalize: set status + truncated on the result Map, persist the run update, bump the
+     *  conversation's lastActivityDate when present, return it. */
+    private Map finish(Map result, String runId, String conversationId, String statusId, String errorText) {
         result.statusId = statusId
         result.truncated = (statusId == "AI_RUN_TRUNCATED")
         persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, thruDate: ec.user.nowTimestamp,
             statusId: statusId, assistantMessage: result.assistantMessage, iterations: result.iterations,
             tokensIn: result.tokensIn, tokensOut: result.tokensOut, errorText: errorText])
+        if (conversationId) persist("update#moqui.ai.AiConversation",
+            [conversationId: conversationId, lastActivityDate: ec.user.nowTimestamp])
         return result
+    }
+
+    /** Load persisted conversation messages, in order, as a List of message Maps. */
+    private List<Map> loadConversationMessages(String conversationId) {
+        List<Map> out = []
+        for (EntityValue m in ec.entity.find("moqui.ai.AiConversationMessage")
+                .condition("conversationId", conversationId).orderBy("messageSeqId").list()) {
+            Map msg = [role: m.role, content: m.content]
+            if (m.toolCallId) msg.toolCallId = m.toolCallId
+            if (m.toolCalls) msg.toolCalls = new groovy.json.JsonSlurper().parseText(m.toolCalls as String)
+            out.add(msg)
+        }
+        return out
+    }
+
+    /** Persist one message to the conversation (own short tx; guarded — never aborts the run). */
+    private void persistConversationMessage(String conversationId, String runId, Map msg) {
+        try {
+            EntityValue v = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+            v.set("conversationId", conversationId)
+            v.setSequencedIdSecondary()
+            v.setAll([role: msg.role, content: msg.content, toolCallId: msg.toolCallId,
+                toolCalls: msg.toolCalls != null ? JsonOutput.toJson(msg.toolCalls) : null,
+                agentRunId: runId, fromDate: ec.user.nowTimestamp])
+            v.create()
+        } catch (Throwable t) { logger.warn("Conversation message persist failed (continuing): ${t.message}") }
     }
 
     /** Persistence never aborts the run: each write is its own service call (own tx); on

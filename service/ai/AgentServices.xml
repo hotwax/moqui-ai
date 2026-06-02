@@ -8,10 +8,12 @@
         <in-parameters>
             <parameter name="agentName" required="true"/>
             <parameter name="userMessage" required="true"/>
+            <parameter name="conversationId"><description>Optional. When set, prior turns are replayed and this turn is persisted.</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="assistantMessage"/>
             <parameter name="agentRunId"/>
+            <parameter name="conversationId"/>
             <parameter name="tokensIn" type="Long"/>
             <parameter name="tokensOut" type="Long"/>
             <parameter name="iterations" type="Integer"/>
@@ -21,15 +23,30 @@
         <actions>
             <script><![CDATA[
                 def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentName, userMessage)
+                def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentName, userMessage, conversationId)
                 assistantMessage = r.assistantMessage
                 agentRunId = r.agentRunId
+                conversationId = r.conversationId
                 tokensIn = r.tokensIn
                 tokensOut = r.tokensOut
                 iterations = r.iterations
                 truncated = r.truncated
                 statusId = r.statusId
             ]]></script>
+        </actions>
+    </service>
+
+    <service verb="create" noun="Conversation" authenticate="true">
+        <in-parameters>
+            <parameter name="agentName" required="true"/>
+            <parameter name="title"/>
+        </in-parameters>
+        <out-parameters><parameter name="conversationId"/></out-parameters>
+        <actions>
+            <set field="conversationId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiConversation', null, null)"/>
+            <service-call name="create#moqui.ai.AiConversation" in-map="[conversationId: conversationId,
+                agentName: agentName, title: title, userId: ec.user.userId,
+                fromDate: ec.user.nowTimestamp, statusId: 'AI_CONV_ACTIVE']"/>
         </actions>
     </service>
 </services>
