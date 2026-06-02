@@ -23,8 +23,21 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
 
     @Override void init(ExecutionContextFactory ecf) {
         this.ecf = ecf
-        // Register providers. Mock is always available (no config). Real providers added in Task 9.
+        // Register providers. Mock is always available (no config).
         registerProvider(new MockProvider())
+        // Provider-init failure isolation: register a real provider only when its key is configured,
+        // and never let provider setup break boot. Read config via System props/env (no ec exists
+        // yet at ToolFactory.init, so ecf.resource.expand is unavailable here).
+        try {
+            String anthKey = prop("ai_anthropic_key")
+            if (anthKey) {
+                registerProvider(new org.moqui.ai.provider.AnthropicProvider(anthKey,
+                    prop("ai_anthropic_base_url") ?: "https://api.anthropic.com",
+                    prop("ai_anthropic_version") ?: "2023-06-01",
+                    (prop("ai_timeout_seconds") ?: "60") as int))
+                logger.info("AI: registered Anthropic provider")
+            }
+        } catch (Throwable t) { logger.warn("AI: skipped Anthropic provider init: ${t.message}") }
         // Fail-loud at boot: a bad service ref in any ai/*.tools.xml stops startup.
         this.toolCatalog = DefinitionLoader.loadCatalog(ecf)
         logger.info("AiToolFactory initialized: ${toolCatalog.size()} tools, ${providers.size()} providers")
@@ -36,6 +49,13 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
     }
 
     @Override void destroy() { logger.info("AiToolFactory destroyed") }
+
+    /** Read a config value from System property then environment (Moqui default-property exposes both). */
+    private static String prop(String name) {
+        String v = System.getProperty(name)
+        if (v == null || v.isEmpty()) v = System.getenv(name)
+        return (v == null || v.isEmpty()) ? null : v
+    }
 
     // ---- provider registry ----
     void registerProvider(LlmProvider p) { providers.put(p.name, p) }
