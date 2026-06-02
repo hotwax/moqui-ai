@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- transaction="ignore": the loop holds NO enclosing tx; tool calls + observability
+         writes each manage their own tx (see AgentRunner). -->
+    <service verb="run" noun="Agent" transaction="ignore" authenticate="true">
+        <in-parameters>
+            <parameter name="agentName" required="true"/>
+            <parameter name="userMessage" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="assistantMessage"/>
+            <parameter name="agentRunId"/>
+            <parameter name="tokensIn" type="Long"/>
+            <parameter name="tokensOut" type="Long"/>
+            <parameter name="iterations" type="Integer"/>
+            <parameter name="truncated" type="Boolean"/>
+            <parameter name="statusId"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
+                def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentName, userMessage)
+                assistantMessage = r.assistantMessage
+                agentRunId = r.agentRunId
+                tokensIn = r.tokensIn
+                tokensOut = r.tokensOut
+                iterations = r.iterations
+                truncated = r.truncated
+                statusId = r.statusId
+            ]]></script>
+        </actions>
+    </service>
+</services>
