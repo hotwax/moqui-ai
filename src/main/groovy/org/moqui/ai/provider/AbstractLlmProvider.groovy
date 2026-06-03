@@ -36,10 +36,15 @@ abstract class AbstractLlmProvider implements LlmProvider {
         authHeaders().each { k, v -> rc.addHeader(k, v) }
         def resp
         try {
-            resp = rc.call()   // RestClient throws on non-2xx (and on network errors)
+            resp = rc.call()
         } catch (Exception e) {
             throw new RuntimeException("LLM provider ${name} HTTP error: ${e.message}", e)
         }
-        return decodeResponse(resp.text())
+        int sc = resp.getStatusCode()
+        String text = resp.text()
+        // Fail loudly on a non-2xx — otherwise an error body parses as an empty completion and the
+        // run silently "completes" with no answer (masking real errors, e.g. a 400 bad request).
+        if (sc < 200 || sc >= 300) throw new RuntimeException("LLM provider ${name} HTTP ${sc}: ${text}")
+        return decodeResponse(text)
     }
 }

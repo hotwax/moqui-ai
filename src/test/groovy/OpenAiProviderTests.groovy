@@ -23,7 +23,7 @@ class OpenAiProviderTests extends Specification {
         body.messages[0].role == "system"          // system is a message, not a field
         body.messages[1].role == "user"
         body.tools[0].type == "function"
-        body.tools[0].function.name == "get#Echo"
+        body.tools[0].function.name == "get_Echo"   // sanitized: OpenAI names must match ^[a-zA-Z0-9_-]+$
         body.tools[0].function.parameters.properties.text.type == "string"
     }
 
@@ -85,7 +85,8 @@ class OpenAiProviderTests extends Specification {
             maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
         ec.entity.makeValue("moqui.ai.AiAgentTool")
             .setAll([agentName: "OpenAiEcho", toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
-        ec.artifactExecution.enableAuthz()
+        // keep authz disabled through the run#Agent call (the test user has no service permission);
+        // login supplies the authenticated user the tool needs (authenticate=true) — distinct from authz
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()
         when:

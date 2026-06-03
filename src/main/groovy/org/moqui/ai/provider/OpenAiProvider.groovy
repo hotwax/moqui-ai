@@ -14,6 +14,19 @@ class OpenAiProvider extends AbstractLlmProvider {
     @Override protected String endpointPath() { return "/chat/completions" }
     @Override protected Map<String, String> authHeaders() { return ["Authorization": "Bearer ${apiKey}".toString()] }
 
+    /** OpenAI function names must match ^[a-zA-Z0-9_-]+$, but Moqui service names contain '.' and
+     *  '#'. Sanitize for the wire; map back to the real name when a tool call comes back. */
+    static String sanitizeName(String n) { n == null ? null : n.replaceAll('[^a-zA-Z0-9_-]', '_') }
+
+    @Override
+    Map chat(Map request) {
+        Map<String, String> backToReal = [:]
+        for (Map t in (request.tools ?: []) as List<Map>) backToReal[sanitizeName(t.name as String)] = t.name as String
+        Map resp = super.chat(request)   // encodeRequest sanitizes; transport + status check in base
+        for (Map tc in (resp.toolCalls ?: []) as List<Map>) tc.name = backToReal[tc.name as String] ?: tc.name
+        return resp
+    }
+
     @Override
     String encodeRequest(Map request) {
         List<Map> apiMessages = []
@@ -26,14 +39,14 @@ class OpenAiProvider extends AbstractLlmProvider {
                 apiMessages.add([role: "assistant", content: null,
                     tool_calls: (m.toolCalls as List<Map>).collect { tc ->
                         [id: tc.id, type: "function",
-                         function: [name: tc.name, arguments: JsonOutput.toJson(tc.arguments ?: [:])]] }])
+                         function: [name: sanitizeName(tc.name as String), arguments: JsonOutput.toJson(tc.arguments ?: [:])]] }])
             } else {
                 apiMessages.add([role: m.role, content: m.content])
             }
         }
         Map body = [model: request.model, messages: apiMessages]
         if (request.tools) body.tools = (request.tools as List<Map>).collect { t ->
-            [type: "function", function: [name: t.name, description: t.description, parameters: t.parameters]] }
+            [type: "function", function: [name: sanitizeName(t.name as String), description: t.description, parameters: t.parameters]] }
         return JsonOutput.toJson(body)
     }
 
