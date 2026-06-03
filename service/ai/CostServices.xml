@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- Idempotent price upsert (store# = create-or-update). Defaults fromDate to now, currency to USD. -->
+    <service verb="store" noun="AiModelPrice" authenticate="true">
+        <in-parameters>
+            <parameter name="providerName" required="true"/>
+            <parameter name="modelName" required="true"/>
+            <parameter name="fromDate" type="Timestamp"/>
+            <parameter name="inputPricePerMillion" type="BigDecimal" required="true"/>
+            <parameter name="outputPricePerMillion" type="BigDecimal" required="true"/>
+            <parameter name="currencyUomId"><default-value>USD</default-value></parameter>
+        </in-parameters>
+        <out-parameters><parameter name="fromDate" type="Timestamp"/></out-parameters>
+        <actions>
+            <if condition="!fromDate"><set field="fromDate" from="ec.user.nowTimestamp"/></if>
+            <service-call name="store#moqui.ai.AiModelPrice" in-map="context"/>
+        </actions>
+    </service>
+
+    <!-- Queryable estimated spend. All filters optional. Aggregates in Groovy over AiAgentRun;
+         groupBy = none | agent | user returns optional per-group rows. -->
+    <service verb="get" noun="AiSpend" authenticate="true">
+        <in-parameters>
+            <parameter name="agentName"/>
+            <parameter name="userId"/>
+            <parameter name="fromDate" type="Timestamp"/>
+            <parameter name="thruDate" type="Timestamp"/>
+            <parameter name="groupBy"><description>none | agent | user</description><default-value>none</default-value></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="totalCost" type="BigDecimal"/>
+            <parameter name="totalTokensIn" type="Long"/>
+            <parameter name="totalTokensOut" type="Long"/>
+            <parameter name="runCount" type="Long"/>
+            <parameter name="rows" type="List"><description>when grouped: [[key, totalCost, totalTokensIn, totalTokensOut, runCount], ...]</description></parameter>
+        </out-parameters>
+        <actions>
+            <entity-find entity-name="moqui.ai.AiAgentRun" list="runs">
+                <econdition field-name="agentName" ignore-if-empty="true"/>
+                <econdition field-name="userId" ignore-if-empty="true"/>
+                <econdition field-name="fromDate" operator="greater-equals" from="fromDate" ignore-if-empty="true"/>
+                <econdition field-name="fromDate" operator="less" from="thruDate" ignore-if-empty="true"/>
+            </entity-find>
+            <script><![CDATA[
+                totalCost = (runs.sum { (it.estimatedCost ?: 0G) as BigDecimal } ?: 0G) as BigDecimal
+                totalTokensIn = (runs.sum { (it.tokensIn ?: 0L) as long } ?: 0L) as Long
+                totalTokensOut = (runs.sum { (it.tokensOut ?: 0L) as long } ?: 0L) as Long
+                runCount = runs.size() as Long
+                rows = []
+                if (groupBy == 'agent' || groupBy == 'user') {
+                    String keyField = groupBy == 'agent' ? 'agentName' : 'userId'
+                    runs.groupBy { it.get(keyField) }.each { k, groupRuns ->
+                        rows.add([key: k,
+                            totalCost: (groupRuns.sum { (it.estimatedCost ?: 0G) as BigDecimal } ?: 0G) as BigDecimal,
+                            totalTokensIn: (groupRuns.sum { (it.tokensIn ?: 0L) as long } ?: 0L) as Long,
+                            totalTokensOut: (groupRuns.sum { (it.tokensOut ?: 0L) as long } ?: 0L) as Long,
+                            runCount: groupRuns.size() as Long])
+                    }
+                }
+            ]]></script>
+        </actions>
+    </service>
+</services>
