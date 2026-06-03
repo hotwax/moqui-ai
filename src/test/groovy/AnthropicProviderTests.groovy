@@ -22,7 +22,7 @@ class AnthropicProviderTests extends Specification {
         body.model == "claude-sonnet-4-6"
         body.system == "be terse"
         body.messages[0].role == "user"
-        body.tools[0].name == "get#Echo"
+        body.tools[0].name == "get_Echo"   // sanitized: Anthropic names must match ^[a-zA-Z0-9_-]{1,128}$
         body.tools[0].input_schema.properties.text.type == "string"
     }
 

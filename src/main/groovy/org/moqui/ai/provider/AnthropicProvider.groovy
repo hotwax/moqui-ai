@@ -27,7 +27,7 @@ class AnthropicProvider extends AbstractLlmProvider {
                     tool_use_id: m.toolCallId, content: m.content]]])
             } else if (m.role == "assistant" && m.toolCalls) {
                 apiMessages.add([role: "assistant", content: (m.toolCalls as List<Map>).collect { tc ->
-                    [type: "tool_use", id: tc.id, name: tc.name, input: tc.arguments] }])
+                    [type: "tool_use", id: tc.id, name: sanitizeName(tc.name as String), input: tc.arguments] }])
             } else {
                 apiMessages.add([role: m.role, content: m.content])
             }
@@ -35,7 +35,7 @@ class AnthropicProvider extends AbstractLlmProvider {
         Map body = [model: request.model, max_tokens: 4096, messages: apiMessages]
         if (request.systemContext) body.system = request.systemContext
         if (request.tools) body.tools = (request.tools as List<Map>).collect { t ->
-            [name: t.name, description: t.description, input_schema: t.parameters] }
+            [name: sanitizeName(t.name as String), description: t.description, input_schema: t.parameters] }
         return JsonOutput.toJson(body)
     }
 

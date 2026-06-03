@@ -28,8 +28,20 @@ abstract class AbstractLlmProvider implements LlmProvider {
     /** Decode the provider's JSON response text into a normalized response Map. */
     abstract Map decodeResponse(String responseText)
 
+    /** Provider function/tool names must match ^[a-zA-Z0-9_-]+$, but Moqui service names contain
+     *  '.' and '#'. Sanitize for the wire; map back when a tool call returns. Shared by all HTTP
+     *  providers (OpenAI, Anthropic, ...). */
+    static String sanitizeName(String n) { n == null ? null : n.replaceAll('[^a-zA-Z0-9_-]', '_') }
+
+    /** Optional hook: after decode, a provider may normalize a structured-output answer into
+     *  resp.structuredResult. Default no-op. Called only when request.responseSchema is set. */
+    protected void applyStructured(Map resp, Map request) { }
+
     @Override
     Map chat(Map request) {
+        Map<String, String> backToReal = [:]
+        for (Map t in (request.tools ?: []) as List<Map>) backToReal[sanitizeName(t.name as String)] = t.name as String
+
         String body = encodeRequest(request)
         RestClient rc = new RestClient().uri(baseUrl + endpointPath())
             .method('POST').contentType("application/json").timeout(timeoutSeconds).text(body)
@@ -45,6 +57,10 @@ abstract class AbstractLlmProvider implements LlmProvider {
         // Fail loudly on a non-2xx — otherwise an error body parses as an empty completion and the
         // run silently "completes" with no answer (masking real errors, e.g. a 400 bad request).
         if (sc < 200 || sc >= 300) throw new RuntimeException("LLM provider ${name} HTTP ${sc}: ${text}")
-        return decodeResponse(text)
+
+        Map decoded = decodeResponse(text)
+        for (Map tc in (decoded.toolCalls ?: []) as List<Map>) tc.name = backToReal[tc.name as String] ?: tc.name
+        if (request.responseSchema) applyStructured(decoded, request)
+        return decoded
     }
 }
