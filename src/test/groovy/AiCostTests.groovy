@@ -51,6 +51,7 @@ class AiCostTests extends Specification {
         given:
         ec.artifactExecution.disableAuthz()
         ec.message.clearErrors()
+        purgeCostAgentRuns()
         MockProvider.reset()
         MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1000L, tokensOut: 500L])
         when:
