@@ -129,7 +129,7 @@ class AgentRunner {
                 for (Map tc in toolCalls) {
                     String resultJson
                     if (tc.name == REMEMBER_TOOL) {
-                        resultJson = rememberFact(runId, conversationId, (tc.arguments ?: [:]) as Map)
+                        resultJson = rememberFact(runId, stepSeq, conversationId, tc)
                     } else {
                         resultJson = dispatchTool(runId, stepSeq, tc)
                     }
@@ -190,19 +190,37 @@ class AgentRunner {
     }
 
     /** Handle the built-in `remember` tool: persist a keyed fact with the run's conversationId
-     *  injected server-side (never model-supplied). Returns a JSON confirmation for the model. */
-    private String rememberFact(String runId, String conversationId, Map args) {
-        if (!conversationId) return JsonOutput.toJson([error: "no conversation to remember into"])
-        try {
-            ec.message.clearErrors()
-            ec.service.sync().name("ai.FactServices.remember#Fact").parameters([
-                conversationId: conversationId, agentRunId: runId,
-                factKey: args.factKey, factValue: args.factValue]).call()
-            return JsonOutput.toJson([remembered: args.factKey])
-        } catch (Throwable t) {
-            logger.warn("remember failed (continuing): ${t.message}")
-            return JsonOutput.toJson([error: t.message])
+     *  injected server-side (never model-supplied), and record an AiToolCall audit row like any
+     *  tool. Returns a JSON confirmation/error for the model. */
+    private String rememberFact(String runId, int stepSeq, String conversationId, Map tc) {
+        Map args = (tc.arguments ?: [:]) as Map
+        long start = System.currentTimeMillis()
+        String resultJson; boolean success; String errorText = null
+        if (!conversationId) {
+            success = false; errorText = "no conversation to remember into"
+            resultJson = JsonOutput.toJson([error: errorText])
+        } else {
+            try {
+                ec.message.clearErrors()
+                ec.service.sync().name("ai.FactServices.remember#Fact").parameters([
+                    conversationId: conversationId, agentRunId: runId,
+                    factKey: args.factKey, factValue: args.factValue]).call()
+                if (ec.message.hasError()) {
+                    success = false; errorText = ec.message.errorsString; ec.message.clearErrors()
+                    resultJson = JsonOutput.toJson([error: errorText])
+                } else {
+                    success = true; resultJson = JsonOutput.toJson([remembered: args.factKey])
+                }
+            } catch (Throwable t) {
+                success = false; errorText = t.message; resultJson = JsonOutput.toJson([error: t.message])
+            }
         }
+        persist("create#moqui.ai.AiToolCall", [agentRunId: runId, stepSeqId: stepSeq as String,
+            toolCallId: tc.id, toolName: tc.name, serviceName: "ai.FactServices.remember#Fact",
+            arguments: JsonOutput.toJson(args), result: resultJson,
+            success: success ? "Y" : "N", errorText: errorText,
+            durationMs: (System.currentTimeMillis() - start) as int])
+        return resultJson
     }
 
     /** Pinned facts for a conversation (ADR 0001 fidelity store), as [factKey, factValue] Maps.

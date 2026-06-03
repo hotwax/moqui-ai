@@ -152,6 +152,44 @@ class AiContextTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
+    def "remembering the same factKey supersedes the value and preserves createdDate"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SupAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
+            contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SupAgent",
+            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        // run 1: remember order_total = first value
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "order_total", factValue: "\$100.00"]]], tokensIn: 1L, tokensOut: 1L])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        Map run1 = new org.moqui.ai.AgentRunner(ec, ai).run("SupAgent", "total is \$100", convId)
+        def created = ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).condition("factKey", "order_total").one().createdDate
+        when:
+        // run 2: remember the SAME key with a corrected value
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "r2", name: "remember", arguments: [factKey: "order_total", factValue: "\$250.00"]]], tokensIn: 1L, tokensOut: 1L])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "updated", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        Map run2 = new org.moqui.ai.AgentRunner(ec, ai).run("SupAgent", "correction: total is \$250", convId)
+        EntityValue fact = ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).condition("factKey", "order_total").one()
+        then:
+        ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).list().size() == 1   // superseded, not duplicated
+        fact.factValue == "\$250.00"                       // value updated
+        fact.agentRunId == run2.agentRunId                 // agentRunId advanced to the newer run
+        fact.createdDate == created                         // createdDate preserved across the update
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SupAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
     def "context management OFF replays the full history unchanged (no regression)"() {
         given:
         ec.artifactExecution.disableAuthz()
