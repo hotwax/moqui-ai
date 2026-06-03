@@ -44,6 +44,8 @@
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentRunStatus: AI_RUN_RUNNING|AI_RUN_COMPLETED|AI_RUN_FAILED|AI_RUN_TRUNCATED|AI_RUN_ABORTED</description></field>
         <field name="providerName" type="text-short"/>
         <field name="modelName" type="text-medium"/>
+        <field name="servedByModelId" type="text-medium"><description>The model that actually served the run (= modelName until fallback exists)</description></field>
+        <field name="providerRunId" type="text-medium"><description>The provider's own response id (OpenAI id / Anthropic message id), for support correlation</description></field>
         <field name="userMessage" type="text-very-long"/>
         <field name="assistantMessage" type="text-very-long"/>
         <field name="iterations" type="number-integer"/>

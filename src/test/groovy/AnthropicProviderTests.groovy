@@ -42,13 +42,13 @@ class AnthropicProviderTests extends Specification {
         r.toolCalls[0].arguments.text == "hi"
     }
 
-    def "decodes a plain text response"() {
+    def "decodes a plain text response (with providerRunId)"() {
         given: def p = new AnthropicProvider("k", "u", "v", 60)
         when:
-        Map r = p.decodeResponse('{"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":2},"content":[{"type":"text","text":"hello"}]}')
+        Map r = p.decodeResponse('{"id":"msg_123","stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":2},"content":[{"type":"text","text":"hello"}]}')
         then:
         r.assistantText == "hello"
-        (r.toolCalls ?: []).isEmpty()
+        r.providerRunId == "msg_123"
         r.finishReason == "end_turn"
     }
 

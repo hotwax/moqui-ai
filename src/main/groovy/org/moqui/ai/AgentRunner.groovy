@@ -39,7 +39,8 @@ class AgentRunner {
 
         String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
         Map result = [agentRunId: runId, conversationId: conversationId, assistantMessage: null,
-                      tokensIn: 0L, tokensOut: 0L, iterations: 0, truncated: false, statusId: "AI_RUN_RUNNING"]
+                      tokensIn: 0L, tokensOut: 0L, iterations: 0, truncated: false, statusId: "AI_RUN_RUNNING",
+                      structuredResult: null, servedByModelId: agent.modelName as String, providerRunId: null]
         persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentName: agentName, conversationId: conversationId,
             userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
             providerName: agent.providerName, modelName: agent.modelName, userMessage: userMessage])
@@ -59,6 +60,7 @@ class AgentRunner {
                 long inTok = (resp.tokensIn ?: 0L) as long
                 long outTok = (resp.tokensOut ?: 0L) as long
                 result.tokensIn += inTok; result.tokensOut += outTok
+                if (resp.providerRunId) result.providerRunId = resp.providerRunId
                 stepSeq++
                 persist("create#moqui.ai.AiAgentRunStep", [agentRunId: runId, stepSeqId: stepSeq as String,
                     stepType: "llm_call", tokensIn: inTok, tokensOut: outTok, finishReason: resp.finishReason])
@@ -148,7 +150,8 @@ class AgentRunner {
         result.truncated = (statusId == "AI_RUN_TRUNCATED")
         persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, thruDate: ec.user.nowTimestamp,
             statusId: statusId, assistantMessage: result.assistantMessage, iterations: result.iterations,
-            tokensIn: result.tokensIn, tokensOut: result.tokensOut, errorText: errorText])
+            tokensIn: result.tokensIn, tokensOut: result.tokensOut, errorText: errorText,
+            servedByModelId: result.servedByModelId, providerRunId: result.providerRunId])
         if (conversationId) persist("update#moqui.ai.AiConversation",
             [conversationId: conversationId, lastActivityDate: ec.user.nowTimestamp])
         return result

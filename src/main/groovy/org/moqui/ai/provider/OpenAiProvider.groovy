@@ -52,6 +52,7 @@ class OpenAiProvider extends AbstractLlmProvider {
             toolCalls.add([id: tc.id, name: fn.name, arguments: args])
         }
         return [finishReason: choice?.finish_reason,
+                providerRunId: json.id,
                 tokensIn: (usage.prompt_tokens ?: 0L) as long,
                 tokensOut: (usage.completion_tokens ?: 0L) as long,
                 toolCalls: toolCalls,

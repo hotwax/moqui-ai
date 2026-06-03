@@ -4,6 +4,7 @@ import org.moqui.Moqui
 import org.moqui.ai.AiToolFactory
 import org.moqui.ai.AgentRunner
 import org.moqui.ai.provider.MockProvider
+import org.moqui.entity.EntityValue
 
 class AgentRunnerTests extends Specification {
     @Shared ExecutionContext ec
@@ -70,6 +71,24 @@ class AgentRunnerTests extends Specification {
         then:
         out.truncated == true
         ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one().statusId == "AI_RUN_TRUNCATED"
+    }
+
+    def "records servedByModelId and providerRunId on the run"() {
+        given:
+        MockProvider.reset()
+        MockProvider.enqueue([assistantText: "done", finishReason: "stop",
+            toolCalls: [], tokensIn: 5L, tokensOut: 2L, providerRunId: "prov-xyz"])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "CorrAgent", providerName: "mock",
+            modelName: "mock-model-1", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        when:
+        Map out = runner().run("CorrAgent", "hi", null)
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        run.servedByModelId == "mock-model-1"
+        run.providerRunId == "prov-xyz"
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "CorrAgent").deleteAll()
     }
 
     def "a throwing tool feeds the error back instead of aborting the run"() {

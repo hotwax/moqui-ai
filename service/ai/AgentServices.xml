@@ -19,6 +19,8 @@
             <parameter name="iterations" type="Integer"/>
             <parameter name="truncated" type="Boolean"/>
             <parameter name="statusId"/>
+            <parameter name="servedByModelId"/>
+            <parameter name="providerRunId"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
@@ -32,6 +34,8 @@
                 iterations = r.iterations
                 truncated = r.truncated
                 statusId = r.statusId
+                servedByModelId = r.servedByModelId
+                providerRunId = r.providerRunId
             ]]></script>
         </actions>
     </service>

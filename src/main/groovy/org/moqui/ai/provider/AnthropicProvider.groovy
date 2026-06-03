@@ -51,6 +51,7 @@ class AnthropicProvider extends AbstractLlmProvider {
                 [id: block.id, name: block.name, arguments: (block.input ?: [:])])
         }
         return [finishReason: json.stop_reason,
+                providerRunId: json.id,
                 tokensIn: (usage.input_tokens ?: 0L) as long,
                 tokensOut: (usage.output_tokens ?: 0L) as long,
                 toolCalls: toolCalls,

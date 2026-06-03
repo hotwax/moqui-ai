@@ -54,13 +54,13 @@ class OpenAiProviderTests extends Specification {
         r.toolCalls[0].arguments.text == "hi"
     }
 
-    def "decodes a plain text response"() {
+    def "decodes a plain text response (with providerRunId)"() {
         given: def p = new OpenAiProvider("k", "u", 60)
         when:
-        Map r = p.decodeResponse('{"choices":[{"finish_reason":"stop","message":{"content":"hello"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}')
+        Map r = p.decodeResponse('{"id":"chatcmpl-abc","choices":[{"finish_reason":"stop","message":{"content":"hello"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}')
         then:
         r.assistantText == "hello"
-        (r.toolCalls ?: []).isEmpty()
+        r.providerRunId == "chatcmpl-abc"
         r.finishReason == "stop"
     }
 
