@@ -30,6 +30,7 @@ handled by convention.
 | **5 structured output (agent-defined, locked)** | ✅ **SHIPPED** — agent-defined `responseSchema` → normalized `structuredResult`; verified live on OpenAI + Anthropic |
 | 6 reasoning — OpenAI | ✅ **closed for v1** — works today via `modelName` (o-series), no framework change; normalized flag deferred |
 | **7 multi-provider fallback chain** | ✅ **SHIPPED** — `AiAgentModel` priority chain + sticky failover on provider-call failures; run records served provider/model; failed attempts logged as `llm_call_failed` steps |
+| **cost awareness — stamping + query** | ✅ **SHIPPED** — `estimatedCost` stamped per run from an effective-dated `AiModelPrice` (priced off the *served* model, post-fallback); `get#AiSpend` aggregates by agent / user / time window; `store#AiModelPrice` upserts prices. `maxCost` *enforcement* still ⏳ **deferred** (later policy task) — field intentionally unused |
 | 2 context management · 9 tool-result caps · 11 masking hooks | ⏳ **deferred** (post-v1) |
 | 4 streaming · 10 tenantId / multi-tenancy | 🚫 **not building** |
 
@@ -48,11 +49,11 @@ handled by convention.
 | **7** | Multi-provider fallback chain | **SHIPPED** | `AiAgentModel` priority chain + sticky failover on provider-call failures; run records served provider/model; failed attempts logged as `llm_call_failed` steps. `servedByModelId` + `providerName` exposed as `run#Agent` out-params. | **done (v1)** |
 | **8** | Tool argument validation | **ALIGNED** | Moqui validates service in-params; `dispatchTool` returns a **structured JSON error** to the model (not an exception) on invalid args, on tool error, and on unknown tool ("Tool not in catalog"). All logged to `AiToolCall`. | none |
 | **9** | Tool-result size — cap + overflow | **MISSING** | `dispatchTool` serializes the full result with no cap. No `maxResultTokens`/`overflowStrategy` on `AiTool`. | **defer** — design-around via convention (below) |
-| **10** | Metadata/correlation in our entities; none to provider | **DIVERGES → narrowed** | Provider side: no metadata sent (ALIGNED). Entity side: have `agentRunId`, `agentName`, `userId`, `fromDate`/`thruDate`, `providerName`, `modelName`, `tokensIn/Out`, `estimatedCost`, `conversationId`. **`tenantId` removed from scope** (single-business). `servedByModelId` + `providerRunId` correlation fields **shipped** — populated on `AiAgentRun` and exposed as `run#Agent` out-params. | none for v1 |
+| **10** | Metadata/correlation in our entities; none to provider | **DIVERGES → narrowed** | Provider side: no metadata sent (ALIGNED). Entity side: have `agentRunId`, `agentName`, `userId`, `fromDate`/`thruDate`, `providerName`, `modelName`, `tokensIn/Out`, `estimatedCost`, `conversationId`. **`tenantId` removed from scope** (single-business). `servedByModelId` + `providerRunId` correlation fields **shipped** — populated on `AiAgentRun` and exposed as `run#Agent` out-params. **Cost stamping + query shipped:** `estimatedCost` is now stamped per run from an effective-dated `AiModelPrice` (priced off the *served* model, post-fallback); `get#AiSpend` aggregates spend by agent / user / time window; `store#AiModelPrice` upserts prices. `maxCost` *enforcement* remains **deferred** (later policy task) — the field is intentionally still unused. | none for v1 |
 | **11** | PII/masking — hook-based | **MISSING** | No `preRequestHook`/`postResponseHook`; no hook points in `AgentRunner`. | **defer** — tools own AI-safe output (below) |
 
-**Tally:** 3 ALIGNED (1, 3, 8) · 1 narrowed (10) · shipped 2 (5, 7) · defer 3 (2, 9, 11) ·
-not building 2 (4, 10-tenantId) · closed-for-v1 1 (6).
+**Tally:** 3 ALIGNED (1, 3, 8) · 1 narrowed (10) · shipped 2 (5, 7) + cost stamping/query (under 10) ·
+defer 3 (2, 9, 11) + `maxCost` enforcement · not building 2 (4, 10-tenantId) · closed-for-v1 1 (6).
 
 ---
 
