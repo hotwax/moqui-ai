@@ -80,4 +80,20 @@ class AiEntitiesTests extends Specification {
         ec.entity.find("moqui.ai.AiModelPrice").condition("providerName", "openai").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "AiConversationFact stores a conversation-scoped keyed fact"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeValue("moqui.ai.AiConversationFact").setAll([conversationId: "CONVFACT1", factKey: "order_total",
+            factValue: "\$4,812.50", agentRunId: "RUN1", createdDate: ec.user.nowTimestamp]).create()
+        when:
+        def f = ec.entity.find("moqui.ai.AiConversationFact")
+            .condition("conversationId", "CONVFACT1").condition("factKey", "order_total").one()
+        then:
+        f.factValue == "\$4,812.50"
+        f.agentRunId == "RUN1"
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", "CONVFACT1").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }

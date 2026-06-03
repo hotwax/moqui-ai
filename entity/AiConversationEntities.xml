@@ -27,6 +27,18 @@
         <relationship type="one" related="moqui.ai.AiConversation" short-alias="conversation"/>
     </entity>
 
+    <!-- Pinned facts (ADR 0001 fidelity guarantee): durable confirmed business values an agent
+         records via the `remember` tool. Conversation-scoped, keyed, store-or-update (a new value
+         supersedes the old). Injected into every call's systemContext; never compressed/dropped. -->
+    <entity entity-name="AiConversationFact" package="moqui.ai">
+        <field name="conversationId" type="id" is-pk="true"/>
+        <field name="factKey" type="text-medium" is-pk="true"/>
+        <field name="factValue" type="text-very-long"/>
+        <field name="agentRunId" type="id"><description>The run that last recorded this fact</description></field>
+        <field name="createdDate" type="date-time"/>
+        <!-- Moqui auto-adds lastUpdatedStamp = when the fact was last set (supersession time) -->
+    </entity>
+
     <!-- NOTE: AiAgentRun.conversationId is defined directly on the entity in AiEntities.xml.
          We own these entities and are pre-release, so we edit definitions in place rather than
          using extend-entity (which is for extending base/platform entities we don't own, §1.7). -->
