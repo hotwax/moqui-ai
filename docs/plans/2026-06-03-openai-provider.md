@@ -308,6 +308,16 @@ tool calling, not just a bare completion.
   OpenAI and returns an answer** (`AI_RUN_COMPLETED`).
 - No changes to the loop, entities, or services — provider-only addition (the abstraction holds).
 
+## Implementation findings (verified end-to-end against real OpenAI)
+- **Function-name constraint:** OpenAI requires `tools[].function.name` to match `^[a-zA-Z0-9_-]+$`,
+  but Moqui service names contain `.` and `#` (e.g. `moqui.ai.test.TestServices.get#Echo`). The
+  adapter sanitizes names on the wire (`. # → _`) and maps the sanitized name back to the real
+  service name when decoding tool calls. **Google/Gemini will need the same treatment.** (Anthropic
+  does not enforce this.)
+- **Fail loudly on non-2xx:** `AbstractLlmProvider` now throws on a non-2xx response. Previously an
+  error body (e.g. a 400 from the bad function name) was parsed as an empty completion and the run
+  silently "completed" with no answer — masking the real error. (Applies to all providers.)
+
 ## NOT in scope
 - Google/Gemini adapter (the remaining fast-follow — mirror this plan).
 - OpenAI structured-output / JSON mode (Phase 1 structured-output is a separate slice).
