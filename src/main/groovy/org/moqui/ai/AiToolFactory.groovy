@@ -38,6 +38,15 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
                 logger.info("AI: registered Anthropic provider")
             }
         } catch (Throwable t) { logger.warn("AI: skipped Anthropic provider init: ${t.message}") }
+        try {
+            String openaiKey = prop("ai_openai_key")
+            if (openaiKey) {
+                registerProvider(new org.moqui.ai.provider.OpenAiProvider(openaiKey,
+                    prop("ai_openai_base_url") ?: "https://api.openai.com/v1",
+                    (prop("ai_timeout_seconds") ?: "60") as int))
+                logger.info("AI: registered OpenAI provider")
+            }
+        } catch (Throwable t) { logger.warn("AI: skipped OpenAI provider init: ${t.message}") }
         // Fail-loud at boot: a bad service ref in any ai/*.tools.xml stops startup.
         this.toolCatalog = DefinitionLoader.loadCatalog(ecf)
         logger.info("AiToolFactory initialized: ${toolCatalog.size()} tools, ${providers.size()} providers")
