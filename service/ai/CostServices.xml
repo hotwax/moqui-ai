@@ -34,7 +34,7 @@
             <parameter name="totalTokensIn" type="Long"/>
             <parameter name="totalTokensOut" type="Long"/>
             <parameter name="runCount" type="Long"/>
-            <parameter name="rows" type="List"><description>when grouped: [[key, totalCost, totalTokensIn, totalTokensOut, runCount], ...]</description></parameter>
+            <parameter name="rows" type="List"><description>when grouped: [[key:..., totalCost:..., totalTokensIn:..., totalTokensOut:..., runCount:...], ...]</description></parameter>
         </out-parameters>
         <actions>
             <entity-find entity-name="moqui.ai.AiAgentRun" list="runs">
