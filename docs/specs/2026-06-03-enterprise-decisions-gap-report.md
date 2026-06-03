@@ -110,6 +110,10 @@ works with what it gets from the available agent.")
   fine. **Anthropic's** structured-output mechanism *is* a forced tool call, which competes with
   the agent's business tools — so the adapter must allow business tools across the loop, then force
   the structured-output tool on the closing turn.
+- **v1 caveat — `responseSchema` + tool grants on the same agent:** validated only on **Anthropic**
+  (business tools run across the loop, then the forced `structured_output` tool fires on the closing
+  turn). On **OpenAI** the strict `response_format` is sent on every turn and can suppress function
+  tool calls, so v1 targets **single-turn** structured output (no tool grants) for OpenAI.
 
 - **Bug found & fixed via the live tool loop:** the funded Anthropic live tool-loop test surfaced a
   tool-name sanitization bug (Anthropic rejects tool names that don't match its allowed character set).

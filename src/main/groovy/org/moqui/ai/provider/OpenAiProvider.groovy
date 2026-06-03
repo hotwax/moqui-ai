@@ -34,6 +34,10 @@ class OpenAiProvider extends AbstractLlmProvider {
         Map body = [model: request.model, messages: apiMessages]
         if (request.tools) body.tools = (request.tools as List<Map>).collect { t ->
             [type: "function", function: [name: sanitizeName(t.name as String), description: t.description, parameters: t.parameters]] }
+        // NOTE (v1): response_format is sent on every turn. With OpenAI strict json_schema this
+        // biases the model to emit schema-conforming JSON immediately, which can suppress function
+        // tool calls. v1 structured-output agents are single-turn (no tool grants), so this is fine.
+        // If an agent ever needs BOTH tools and a responseSchema, gate this to the final turn.
         if (request.responseSchema) body.response_format = [type: "json_schema",
             json_schema: [name: "structured_output", schema: request.responseSchema, strict: true]]
         return JsonOutput.toJson(body)
