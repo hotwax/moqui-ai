@@ -112,6 +112,27 @@ class AgentRunnerTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
+    def "uses the AiAgentModel chain (primary candidate) when present"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "ChainAgent", providerName: "mock",
+            modelName: "legacy-single", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentModel")
+            .setAll([agentName: "ChainAgent", priority: 0, providerName: "mock", modelName: "primary-from-chain"]).createOrUpdate()
+        when:
+        Map out = runner().run("ChainAgent", "hi", null)
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        run.servedByModelId == "primary-from-chain"   // chain primary, not the legacy single field
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "ChainAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ChainAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
     def "a throwing tool feeds the error back instead of aborting the run"() {
         given:
         MockProvider.enqueue([toolCalls: [[id: "c1",

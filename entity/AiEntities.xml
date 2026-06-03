@@ -35,6 +35,15 @@
         <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="tool"/>
     </entity>
 
+    <entity entity-name="AiAgentModel" package="moqui.ai">
+        <field name="agentName" type="id" is-pk="true"/>
+        <field name="priority" type="number-integer" is-pk="true"><description>Lower is tried first (0,1,2,...). Sticky failover advances on provider-call failure.</description></field>
+        <field name="providerName" type="text-short"/>
+        <field name="modelName" type="text-medium"/>
+        <!-- one-nofk: config child; keep agent delete/test-cleanup unencumbered (mirrors AiAgentRun) -->
+        <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
+    </entity>
+
     <!-- ===== Observability ===== -->
     <entity entity-name="AiAgentRun" package="moqui.ai">
         <field name="agentRunId" type="id" is-pk="true"/>

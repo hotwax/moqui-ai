@@ -44,4 +44,22 @@ class AiEntitiesTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "T2Agent").deleteAll()
         ec.entity.find("moqui.ai.AiTool").condition("toolName", "get#Echo").deleteAll()
     }
+
+    def "AiAgentModel stores priority-ordered provider/model candidates"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeValue("moqui.ai.AiAgentModel")
+            .setAll([agentName: "EntAgent", priority: 0, providerName: "openai", modelName: "gpt-4o-mini"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentModel")
+            .setAll([agentName: "EntAgent", priority: 1, providerName: "anthropic", modelName: "claude-sonnet-4-6"]).createOrUpdate()
+        when:
+        List rows = ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "EntAgent").orderBy("priority").list()
+        then:
+        rows.size() == 2
+        rows[0].providerName == "openai"
+        rows[1].modelName == "claude-sonnet-4-6"
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "EntAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }

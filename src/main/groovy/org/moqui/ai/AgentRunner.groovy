@@ -37,16 +37,19 @@ class AgentRunner {
         Map responseSchema = agent.responseSchema ?
             new groovy.json.JsonSlurper().parseText(agent.responseSchema as String) as Map : null
 
-        LlmProvider provider = ai.getProvider(agent.providerName as String)
+        List<Map> candidates = loadModelCandidates(agentName, agent)
+        Map primary = candidates[0]
+        LlmProvider provider = ai.getProvider(primary.providerName as String)
         List<Map> toolSchemas = loadToolSchemas(agentName)
 
         String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
         Map result = [agentRunId: runId, conversationId: conversationId, assistantMessage: null,
                       tokensIn: 0L, tokensOut: 0L, iterations: 0, truncated: false, statusId: "AI_RUN_RUNNING",
-                      structuredResult: null, servedByModelId: agent.modelName as String, providerRunId: null]
+                      structuredResult: null, servedByModelId: primary.modelName as String,
+                      servedProviderName: primary.providerName as String, providerRunId: null]
         persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentName: agentName, conversationId: conversationId,
             userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
-            providerName: agent.providerName, modelName: agent.modelName, userMessage: userMessage])
+            providerName: primary.providerName, modelName: primary.modelName, userMessage: userMessage])
 
         // history replay: prior conversation messages, then this turn's user message
         List<Map> messages = conversationId ? loadConversationMessages(conversationId) : []
@@ -58,7 +61,7 @@ class AgentRunner {
             for (int i = 0; i < maxIter; i++) {
                 result.iterations = i + 1
                 // request Map in, response Map out -- external HTTP, no tx held
-                Map resp = provider.chat([model: agent.modelName, systemContext: agent.systemPrompt,
+                Map resp = provider.chat([model: primary.modelName, systemContext: agent.systemPrompt,
                         messages: messages, tools: toolSchemas, responseSchema: responseSchema])
                 long inTok = (resp.tokensIn ?: 0L) as long
                 long outTok = (resp.tokensOut ?: 0L) as long
@@ -131,6 +134,18 @@ class AgentRunner {
             success: success ? "Y" : "N", errorText: errorText,
             durationMs: (System.currentTimeMillis() - start) as int])
         return resultJson
+    }
+
+    /** Ordered provider/model candidates for failover: AiAgentModel rows by priority, or the agent's
+     *  own providerName/modelName when no chain is defined (backward-compatible). */
+    private List<Map> loadModelCandidates(String agentName, EntityValue agent) {
+        List<Map> candidates = []
+        for (EntityValue m in ec.entity.find("moqui.ai.AiAgentModel")
+                .condition("agentName", agentName).orderBy("priority").useCache(true).list())
+            candidates.add([providerName: m.providerName, modelName: m.modelName])
+        if (candidates.isEmpty())
+            candidates.add([providerName: agent.providerName, modelName: agent.modelName])
+        return candidates
     }
 
     /** Build the agent's granted tools as a List of toolSchema Maps. */
