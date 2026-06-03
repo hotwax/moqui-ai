@@ -27,9 +27,7 @@
         <relationship type="one" related="moqui.ai.AiConversation" short-alias="conversation"/>
     </entity>
 
-    <!-- Link each run to its conversation WITHOUT editing the Phase 1 entity (practices guide §1.7). -->
-    <extend-entity entity-name="AiAgentRun" package="moqui.ai">
-        <field name="conversationId" type="id"/>
-        <relationship type="one-nofk" related="moqui.ai.AiConversation" short-alias="conversation"/>
-    </extend-entity>
+    <!-- NOTE: AiAgentRun.conversationId is defined directly on the entity in AiEntities.xml.
+         We own these entities and are pre-release, so we edit definitions in place rather than
+         using extend-entity (which is for extending base/platform entities we don't own, §1.7). -->
 </entities>

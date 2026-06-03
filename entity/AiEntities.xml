@@ -51,8 +51,10 @@
         <field name="tokensOut" type="number-integer"/>
         <field name="estimatedCost" type="number-decimal"/>
         <field name="errorText" type="text-very-long"/>
-        <!-- one-nofk: AiAgentRun is append-only audit; it must not block the agent lifecycle -->
+        <field name="conversationId" type="id"><description>Phase 2: the conversation this run belongs to (optional)</description></field>
+        <!-- one-nofk: AiAgentRun is append-only audit; it must not block the agent / conversation lifecycle -->
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
+        <relationship type="one-nofk" related="moqui.ai.AiConversation" short-alias="conversation"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
     </entity>
 
