@@ -73,7 +73,7 @@
     <entity entity-name="AiAgentRunStep" package="moqui.ai">
         <field name="agentRunId" type="id" is-pk="true"/>
         <field name="stepSeqId" type="id" is-pk="true"/>
-        <field name="stepType" type="text-short"><description>llm_call | tool_call</description></field>
+        <field name="stepType" type="text-short"><description>llm_call | tool_call | llm_call_failed</description></field>
         <field name="fromDate" type="date-time"/>
         <field name="thruDate" type="date-time"/>
         <field name="tokensIn" type="number-integer"/>

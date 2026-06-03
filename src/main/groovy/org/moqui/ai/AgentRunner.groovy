@@ -172,7 +172,7 @@ class AgentRunner {
             } catch (RuntimeException e) {
                 last = e
                 logger.warn("Agent run ${runId} candidate ${c.providerName}:${c.modelName} failed, trying next: ${e.message}")
-                failed.add([providerName: c.providerName, modelName: c.modelName, error: e.message])
+                failed.add([providerName: c.providerName, modelName: c.modelName])
             }
         }
         throw (last ?: new RuntimeException("No model candidates configured for agent run ${runId}"))
