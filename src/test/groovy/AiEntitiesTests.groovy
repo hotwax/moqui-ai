@@ -62,4 +62,22 @@ class AiEntitiesTests extends Specification {
         ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "EntAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "AiModelPrice stores an effective-dated per-model price"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeValue("moqui.ai.AiModelPrice").setAll([providerName: "openai", modelName: "gpt-4o-mini",
+            fromDate: ec.user.nowTimestamp, inputPricePerMillion: 0.150G, outputPricePerMillion: 0.600G,
+            currencyUomId: "USD"]).create()
+        when:
+        def p = ec.entity.find("moqui.ai.AiModelPrice").condition("providerName", "openai")
+            .condition("modelName", "gpt-4o-mini").list().getFirst()
+        then:
+        (p.inputPricePerMillion as BigDecimal) == 0.150G
+        (p.outputPricePerMillion as BigDecimal) == 0.600G
+        p.currencyUomId == "USD"
+        cleanup:
+        ec.entity.find("moqui.ai.AiModelPrice").condition("providerName", "openai").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }
