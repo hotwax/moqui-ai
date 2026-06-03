@@ -128,7 +128,7 @@ class AgentRunner {
                 if (conversationId) persistConversationMessage(conversationId, runId, assistantTurn)
                 for (Map tc in toolCalls) {
                     String resultJson
-                    if (tc.name == REMEMBER_TOOL) {
+                    if (ctxOn && tc.name == REMEMBER_TOOL) {
                         resultJson = rememberFact(runId, stepSeq, conversationId, tc)
                     } else {
                         resultJson = dispatchTool(runId, stepSeq, tc)
