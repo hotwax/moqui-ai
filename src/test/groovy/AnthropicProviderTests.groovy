@@ -52,6 +52,73 @@ class AnthropicProviderTests extends Specification {
         r.finishReason == "end_turn"
     }
 
+    def "adds structured_output tool and forces tool_choice when there are no business tools"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        Map schema = [type: "object", properties: [sentiment: [type: "string"]], required: ["sentiment"]]
+        when:
+        Map body = new JsonSlurper().parseText(p.encodeRequest(
+            [model: "m", messages: [[role: "user", content: "hi"]], responseSchema: schema])) as Map
+        then:
+        body.tools.find { it.name == "structured_output" }.input_schema.properties.sentiment.type == "string"
+        body.tool_choice.type == "tool"
+        body.tool_choice.name == "structured_output"
+    }
+
+    def "adds structured_output alongside business tools without forcing choice"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        when:
+        Map body = new JsonSlurper().parseText(p.encodeRequest([model: "m",
+            messages: [[role: "user", content: "hi"]],
+            tools: [[name: "get#Echo", description: "echo", parameters: [type: "object", properties: [:]]]],
+            responseSchema: [type: "object", properties: [sentiment: [type: "string"]], required: ["sentiment"]]])) as Map
+        then:
+        body.tools.size() == 2
+        body.tools.find { it.name == "structured_output" } != null
+        body.tools.find { it.name == "get_Echo" } != null   // business tool still sanitized
+        body.tool_choice == null
+    }
+
+    def "applyStructured lifts the structured_output tool-call into structuredResult"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        Map resp = [toolCalls: [[id: "t1", name: "structured_output", arguments: [sentiment: "positive"]]],
+                    assistantText: null, finishReason: "tool_use"]
+        when:
+        p.applyStructured(resp, [responseSchema: [type: "object"]])
+        then:
+        resp.structuredResult.sentiment == "positive"
+        (resp.toolCalls as List).isEmpty()
+        resp.finishReason == "structured_output"
+    }
+
+    @Requires({ System.getenv("ai_anthropic_key") })
+    def "live: Anthropic returns structured output matching the agent schema"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.security.UserAccount")
+            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicSentiment", providerName: "anthropic",
+            modelName: "claude-sonnet-4-6", systemPrompt: "Classify the sentiment of the user's message.",
+            responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"}},"required":["sentiment"]}',
+            maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "AnthropicSentiment", userMessage: "This is wonderful, I love it!"]).call()
+        if (out.statusId == "AI_RUN_FAILED") {
+            def err = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()?.errorText
+            if (noCredits(err as String)) throw new org.opentest4j.TestAbortedException("Anthropic account has no credits — skipping")
+        }
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        (out.structuredResult.sentiment as String)?.toLowerCase()?.contains("pos")
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "AnthropicSentiment").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
     /** Live tests run against the real account; skip (don't fail) when it's just out of credits. */
     private static boolean noCredits(String msg) { msg?.toLowerCase()?.contains("credit balance") }
 

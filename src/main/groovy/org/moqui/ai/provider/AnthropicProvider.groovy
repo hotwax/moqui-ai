@@ -36,7 +36,28 @@ class AnthropicProvider extends AbstractLlmProvider {
         if (request.systemContext) body.system = request.systemContext
         if (request.tools) body.tools = (request.tools as List<Map>).collect { t ->
             [name: sanitizeName(t.name as String), description: t.description, input_schema: t.parameters] }
+        if (request.responseSchema) {
+            List<Map> toolsList = (body.tools ?: []) as List<Map>
+            toolsList.add([name: "structured_output",
+                description: "Return your final answer as structured data matching this schema. Call this tool exactly once, only when you have the final answer.",
+                input_schema: request.responseSchema])
+            body.tools = toolsList
+            // No business tools => force the structured tool for a deterministic one-shot answer.
+            // With business tools, leave tool_choice auto so the model can use them first.
+            if (!request.tools) body.tool_choice = [type: "tool", name: "structured_output"]
+        }
         return JsonOutput.toJson(body)
+    }
+
+    @Override
+    protected void applyStructured(Map resp, Map request) {
+        List<Map> tcs = (resp.toolCalls ?: []) as List<Map>
+        Map structured = tcs.find { it.name == "structured_output" }
+        if (structured != null) {
+            resp.structuredResult = structured.arguments
+            resp.toolCalls = tcs.findAll { it.name != "structured_output" }
+            resp.finishReason = "structured_output"
+        }
     }
 
     @Override
