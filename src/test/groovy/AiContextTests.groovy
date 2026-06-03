@@ -120,6 +120,38 @@ class AiContextTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
+    def "agent records a fact via the remember tool"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "MemAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
+            contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "MemAgent",
+            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "order_total", factValue: "\$4,812.50"]]],
+            tokensIn: 1L, tokensOut: 1L])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "noted", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = new org.moqui.ai.AgentRunner(ec, ai).run("MemAgent", "the total is \$4,812.50", convId)
+        EntityValue fact = ec.entity.find("moqui.ai.AiConversationFact")
+            .condition("conversationId", convId).condition("factKey", "order_total").one()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        fact != null
+        fact.factValue == "\$4,812.50"
+        fact.agentRunId == out.agentRunId
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "MemAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
     def "context management OFF replays the full history unchanged (no regression)"() {
         given:
         ec.artifactExecution.disableAuthz()

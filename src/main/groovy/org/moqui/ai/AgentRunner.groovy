@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory
  *  guarded so failures only warn. run() returns a runResult Map (see "Canonical Map shapes"). */
 class AgentRunner {
     protected final static Logger logger = LoggerFactory.getLogger(AgentRunner.class)
+    private static final String REMEMBER_TOOL = "remember"
 
     private final ExecutionContext ec
     private final AiToolFactory ai
@@ -44,6 +45,11 @@ class AgentRunner {
         List<Map> candidates = loadModelCandidates(agentName, agent)
         Map primary = candidates[0]
         List<Map> toolSchemas = loadToolSchemas(agentName)
+        if (ctxOn && conversationId) toolSchemas = toolSchemas + [[name: REMEMBER_TOOL,
+            description: "Record a durable, confirmed value (e.g. a confirmed order total, address, or decision) so it is never lost from context. Call this the moment you confirm a value that must persist across the conversation.",
+            parameters: [type: "object", required: ["factKey", "factValue"], properties: [
+                factKey: [type: "string", description: "short stable identifier, e.g. order_total"],
+                factValue: [type: "string", description: "the confirmed value"]]]]]
 
         String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
         Map result = [agentRunId: runId, conversationId: conversationId, assistantMessage: null,
@@ -121,7 +127,12 @@ class AgentRunner {
                 messages.add(assistantTurn)
                 if (conversationId) persistConversationMessage(conversationId, runId, assistantTurn)
                 for (Map tc in toolCalls) {
-                    String resultJson = dispatchTool(runId, stepSeq, tc)
+                    String resultJson
+                    if (tc.name == REMEMBER_TOOL) {
+                        resultJson = rememberFact(runId, conversationId, (tc.arguments ?: [:]) as Map)
+                    } else {
+                        resultJson = dispatchTool(runId, stepSeq, tc)
+                    }
                     Map toolMsg = [role: "tool", toolCallId: tc.id, content: resultJson]
                     messages.add(toolMsg)
                     if (conversationId) persistConversationMessage(conversationId, runId, toolMsg)
@@ -176,6 +187,22 @@ class AgentRunner {
         if (candidates.isEmpty())
             candidates.add([providerName: agent.providerName, modelName: agent.modelName])
         return candidates
+    }
+
+    /** Handle the built-in `remember` tool: persist a keyed fact with the run's conversationId
+     *  injected server-side (never model-supplied). Returns a JSON confirmation for the model. */
+    private String rememberFact(String runId, String conversationId, Map args) {
+        if (!conversationId) return JsonOutput.toJson([error: "no conversation to remember into"])
+        try {
+            ec.message.clearErrors()
+            ec.service.sync().name("ai.FactServices.remember#Fact").parameters([
+                conversationId: conversationId, agentRunId: runId,
+                factKey: args.factKey, factValue: args.factValue]).call()
+            return JsonOutput.toJson([remembered: args.factKey])
+        } catch (Throwable t) {
+            logger.warn("remember failed (continuing): ${t.message}")
+            return JsonOutput.toJson([error: t.message])
+        }
     }
 
     /** Pinned facts for a conversation (ADR 0001 fidelity store), as [factKey, factValue] Maps.

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- Record/supersede a conversation-scoped pinned fact (ADR 0001). Keyed by (conversationId,
+         factKey): existing key updates in place (preserving createdDate); new key creates. -->
+    <service verb="remember" noun="Fact" authenticate="true">
+        <in-parameters>
+            <parameter name="conversationId" required="true"/>
+            <parameter name="factKey" required="true"/>
+            <parameter name="factValue" required="true"/>
+            <parameter name="agentRunId"/>
+        </in-parameters>
+        <out-parameters><parameter name="factKey"/></out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiConversationFact" value-field="existing"/>
+            <if condition="existing != null">
+                <then>
+                    <set field="existing.factValue" from="factValue"/>
+                    <set field="existing.agentRunId" from="agentRunId"/>
+                    <entity-update value-field="existing"/>
+                </then>
+                <else>
+                    <service-call name="create#moqui.ai.AiConversationFact" in-map="[conversationId: conversationId,
+                        factKey: factKey, factValue: factValue, agentRunId: agentRunId, createdDate: ec.user.nowTimestamp]"/>
+                </else>
+            </if>
+        </actions>
+    </service>
+</services>
