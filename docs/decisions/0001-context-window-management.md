@@ -1,6 +1,6 @@
 # ADR 0001 — Context-Window Management for AI Agents
 
-- **Status:** Proposed (awaiting approval)
+- **Status:** Accepted (eng-review locked 2026-06-03)
 - **Date:** 2026-06-03
 - **Deciders:** Product owner + framework team (moqui-ai)
 - **Implements:** Decision 2 of the enterprise gap report (`docs/specs/2026-06-03-enterprise-decisions-gap-report.md`)
@@ -102,6 +102,17 @@ To avoid a big-bang and to never ship the *unsafe* version first, the fidelity f
 2. **Compaction** — summarize dropped older turns for gist preservation (quality add-on).
 3. **Tool-result clearing** — in-run relief.
 (Retrieval = Phase 6, later.)
+
+## Engineering review refinements (locked 2026-06-03)
+
+`/plan-eng-review` refined the decision before implementation:
+- **First plan = Phase 1 only** (window + `remember` tool + fact store + inject + log). Compaction (Phase 2) and tool-result clearing (Phase 3) are separate follow-on plans. (Complexity gate: the full build is >8 files / multiple services — phase it.)
+- **Trim budget = message-count window + char-estimate guard** (`chars/4 ≈ tokens`). No tokenizer dependency (we have no pre-send token count; provider `usage` is post-hoc). Deterministic, provider-agnostic. Fidelity held by the fact store regardless of budget accuracy.
+- **Fact injection = append to `systemContext`** as a `## Known facts` block. Provider-agnostic, highest-signal placement, and the system prefix only changes when a new fact is added (keeps prompt caching warm during stable stretches).
+- **Tool-pair safety (correctness constraint):** windowing trims at message-group boundaries — it must never orphan an assistant `tool_call` from its `tool_result`, and must never trim the *current run's* in-progress messages (only prior-turn replayed history).
+- **`remember` semantics:** requires a `conversationId` (stateless single-turn runs → logged no-op); facts are **keyed and store-or-update** (a new confirmed value supersedes the old).
+- **Structure:** extract a focused `ContextAssembler` unit (inject + window) rather than growing `AgentRunner.run()`.
+- **Degrade, don't block:** a failed fact-load proceeds without injection (logged); a stateless `remember` is a no-op — neither errors the run.
 
 ## Confirmation (how we validate the decision holds)
 
