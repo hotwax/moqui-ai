@@ -86,6 +86,15 @@ class OpenAiProviderTests extends Specification {
         resp.structuredResult.sentiment == "positive"
     }
 
+    def "applyStructured leaves structuredResult unset on a tool-call turn"() {
+        given: def p = new OpenAiProvider("k", "u", 60)
+        Map resp = [assistantText: null, toolCalls: [[id: "t1", name: "x"]]]
+        when:
+        p.applyStructured(resp, [responseSchema: [type: "object"]])
+        then:
+        !resp.containsKey("structuredResult")
+    }
+
     @Requires({ System.getenv("ai_openai_key") })
     def "live: a real OpenAI call returns text"() {
         given: def p = new OpenAiProvider(System.getenv("ai_openai_key"), "https://api.openai.com/v1", 60)
