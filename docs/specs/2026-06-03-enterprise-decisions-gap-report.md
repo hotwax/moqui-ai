@@ -29,7 +29,8 @@ handled by convention.
 | 1 own state · 3 no built-in tools · 8 tool-arg validation | ✅ **already implemented** |
 | **5 structured output (agent-defined, locked)** | ✅ **SHIPPED** — agent-defined `responseSchema` → normalized `structuredResult`; verified live on OpenAI + Anthropic |
 | 6 reasoning — OpenAI | ✅ **closed for v1** — works today via `modelName` (o-series), no framework change; normalized flag deferred |
-| 2 context management · 7 fallback chain · 9 tool-result caps · 11 masking hooks | ⏳ **deferred** (post-v1) |
+| **7 multi-provider fallback chain** | ✅ **SHIPPED** — `AiAgentModel` priority chain + sticky failover on provider-call failures; run records served provider/model; failed attempts logged as `llm_call_failed` steps |
+| 2 context management · 9 tool-result caps · 11 masking hooks | ⏳ **deferred** (post-v1) |
 | 4 streaming · 10 tenantId / multi-tenancy | 🚫 **not building** |
 
 ---
@@ -44,13 +45,13 @@ handled by convention.
 | **4** | Streaming — optional, off by default | **MISSING** | `provider.chat()` is sync-only; no `stream` flag, no SSE. "Off by default" satisfied trivially. | **not building** |
 | **5** | Structured output — normalized, schema-driven | **SHIPPED** | Agent-defined `AiAgent.responseSchema` → normalized `structuredResult` out-param. OpenAI via `response_format` json_schema (strict); Anthropic via forced synthetic `structured_output` tool on the closing turn. Verified live on both providers. | **done (v1)** — see Decision Record below |
 | **6** | Reasoning / thinking | **MISSING (flag)** | No `reasoning`/`reasoningBudgetTokens` on `AiAgent`; no thinking storage. **But** OpenAI reasoning needs zero framework work — it's model selection (`modelName` = o-series). | **defer flag**; document OpenAI-via-`modelName` |
-| **7** | Multi-provider fallback chain | **MISSING** | Single `providerName`+`modelName` per agent; no chain, priority, on-error/timeout, or `servedByModelId`. | **defer** |
+| **7** | Multi-provider fallback chain | **SHIPPED** | `AiAgentModel` priority chain + sticky failover on provider-call failures; run records served provider/model; failed attempts logged as `llm_call_failed` steps. `servedByModelId` + `providerName` exposed as `run#Agent` out-params. | **done (v1)** |
 | **8** | Tool argument validation | **ALIGNED** | Moqui validates service in-params; `dispatchTool` returns a **structured JSON error** to the model (not an exception) on invalid args, on tool error, and on unknown tool ("Tool not in catalog"). All logged to `AiToolCall`. | none |
 | **9** | Tool-result size — cap + overflow | **MISSING** | `dispatchTool` serializes the full result with no cap. No `maxResultTokens`/`overflowStrategy` on `AiTool`. | **defer** — design-around via convention (below) |
 | **10** | Metadata/correlation in our entities; none to provider | **DIVERGES → narrowed** | Provider side: no metadata sent (ALIGNED). Entity side: have `agentRunId`, `agentName`, `userId`, `fromDate`/`thruDate`, `providerName`, `modelName`, `tokensIn/Out`, `estimatedCost`, `conversationId`. **`tenantId` removed from scope** (single-business). `servedByModelId` + `providerRunId` correlation fields **shipped** — populated on `AiAgentRun` and exposed as `run#Agent` out-params. | none for v1 |
 | **11** | PII/masking — hook-based | **MISSING** | No `preRequestHook`/`postResponseHook`; no hook points in `AgentRunner`. | **defer** — tools own AI-safe output (below) |
 
-**Tally:** 3 ALIGNED (1, 3, 8) · 1 narrowed (10) · shipped 1 (5) · defer 4 (2, 7, 9, 11) ·
+**Tally:** 3 ALIGNED (1, 3, 8) · 1 narrowed (10) · shipped 2 (5, 7) · defer 3 (2, 9, 11) ·
 not building 2 (4, 10-tenantId) · closed-for-v1 1 (6).
 
 ---
@@ -78,14 +79,16 @@ not building 2 (4, 10-tenantId) · closed-for-v1 1 (6).
    (lookups, status, extraction). OpenAI reasoning already works via `modelName`; the normalized
    `reasoning`/`reasoningBudgetTokens` flag (which only adds Anthropic/Google parity) is deferred
    and will be bundled with #7's adapter work.
-7. **Fallback chain — deferred** (good-to-have, not v1).
+7. **Fallback chain — SHIPPED in v1.** `AiAgentModel` priority chain + sticky failover on
+   provider-call failures; run records served provider/model; failed attempts logged as
+   `llm_call_failed` steps.
 8. **Tool-arg validation — confirmed, Moqui handles it.** Already aligned.
 9. **Tool-result size — deferred; design-around now.** Convention: author `get#` tools to return
    LLM-sized output (paginate, summarize, top-N) — never raw row dumps. To be added to the
    practices guide.
 10. **No tenantId / multi-tenancy.** One business owns the instance; Moqui user/authz scopes data.
     `servedByModelId` + `providerRunId` correlation fields **shipped** — populated on `AiAgentRun` and
-    exposed as `run#Agent` out-params (the broader fallback-chain work remains deferred with #7).
+    exposed as `run#Agent` out-params (alongside `providerName`; the broader fallback-chain work shipped under #7).
 11. **Masking — deferred.** The tool/service owns AI-safe output; `get#` services intended for AI
     use are designed accordingly. No hook machinery in v1.
 

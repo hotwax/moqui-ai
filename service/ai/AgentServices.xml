@@ -20,6 +20,7 @@
             <parameter name="truncated" type="Boolean"/>
             <parameter name="statusId"/>
             <parameter name="servedByModelId"/>
+            <parameter name="providerName"/>
             <parameter name="providerRunId"/>
             <parameter name="structuredResult" type="Map"/>
         </out-parameters>
@@ -36,6 +37,7 @@
                 truncated = r.truncated
                 statusId = r.statusId
                 servedByModelId = r.servedByModelId
+                providerName = r.servedProviderName
                 providerRunId = r.providerRunId
                 structuredResult = r.structuredResult
             ]]></script>

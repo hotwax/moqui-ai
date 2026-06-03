@@ -61,4 +61,25 @@ class RunAgentServiceTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SvcSchemaAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "run#Agent surfaces the served providerName"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SvcProvAgent", providerName: "mock",
+            modelName: "m1", systemPrompt: "x", maxIterations: 2, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.message.clearErrors()
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "SvcProvAgent", userMessage: "q"]).call()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        out.providerName == "mock"
+        out.servedByModelId == "m1"
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SvcProvAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }
