@@ -45,7 +45,7 @@ class AgentRunner {
         Map result = [agentRunId: runId, conversationId: conversationId, assistantMessage: null,
                       tokensIn: 0L, tokensOut: 0L, iterations: 0, truncated: false, statusId: "AI_RUN_RUNNING",
                       structuredResult: null, servedByModelId: primary.modelName as String,
-                      servedProviderName: primary.providerName as String, providerRunId: null]
+                      servedProviderName: primary.providerName as String, providerRunId: null, estimatedCost: 0G]
         persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentName: agentName, conversationId: conversationId,
             userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
             providerName: primary.providerName, modelName: primary.modelName, userMessage: userMessage])
@@ -157,6 +157,18 @@ class AgentRunner {
         return candidates
     }
 
+    /** Effective price for (provider, model) at now → estimated cost from token counts, or 0 when
+     *  no price is configured (cost stays 0; never blocks a run). */
+    private BigDecimal estimateCost(String providerName, String modelName, long tokensIn, long tokensOut) {
+        EntityValue price = ec.entity.find("moqui.ai.AiModelPrice")
+            .condition("providerName", providerName).condition("modelName", modelName)
+            .conditionDate("fromDate", "thruDate", ec.user.nowTimestamp)
+            .orderBy("-fromDate").useCache(true).list().getFirst()
+        if (price == null) return 0G
+        return CostCalc.cost(tokensIn, tokensOut,
+            price.inputPricePerMillion as BigDecimal, price.outputPricePerMillion as BigDecimal)
+    }
+
     /** Sticky failover: try candidates from startIdx in order; the first whose provider.chat()
      *  succeeds wins. Returns [resp, idx, providerName, modelName, failedAttempts]; throws the last
      *  error if every remaining candidate fails. Pure (no persistence) — the caller records steps. */
@@ -198,10 +210,13 @@ class AgentRunner {
     private Map finish(Map result, String runId, String conversationId, String statusId, String errorText) {
         result.statusId = statusId
         result.truncated = (statusId == "AI_RUN_TRUNCATED")
+        result.estimatedCost = estimateCost(result.servedProviderName as String, result.servedByModelId as String,
+            result.tokensIn as long, result.tokensOut as long)
         persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, thruDate: ec.user.nowTimestamp,
             statusId: statusId, assistantMessage: result.assistantMessage, iterations: result.iterations,
             tokensIn: result.tokensIn, tokensOut: result.tokensOut, errorText: errorText,
-            providerName: result.servedProviderName, servedByModelId: result.servedByModelId, providerRunId: result.providerRunId])
+            providerName: result.servedProviderName, servedByModelId: result.servedByModelId,
+            providerRunId: result.providerRunId, estimatedCost: result.estimatedCost])
         if (conversationId) persist("update#moqui.ai.AiConversation",
             [conversationId: conversationId, lastActivityDate: ec.user.nowTimestamp])
         return result
