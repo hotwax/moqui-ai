@@ -68,6 +68,8 @@ class AgentRunner {
                 // request Map in, response Map out -- external HTTP, no tx held
                 String sysCtx = agent.systemPrompt as String
                 List<Map> sendMessages = messages
+                // Re-assembled every iteration on purpose: a tool may call `remember` mid-run, so a
+                // later iteration must see the new fact (and re-window the grown history). Do not hoist.
                 if (ctxOn) {
                     int rc = Math.min(replayCount, messages.size())
                     Map asm = ContextAssembler.windowHistory(messages.subList(0, rc),
