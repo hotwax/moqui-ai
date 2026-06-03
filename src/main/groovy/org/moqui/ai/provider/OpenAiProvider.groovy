@@ -34,7 +34,18 @@ class OpenAiProvider extends AbstractLlmProvider {
         Map body = [model: request.model, messages: apiMessages]
         if (request.tools) body.tools = (request.tools as List<Map>).collect { t ->
             [type: "function", function: [name: sanitizeName(t.name as String), description: t.description, parameters: t.parameters]] }
+        if (request.responseSchema) body.response_format = [type: "json_schema",
+            json_schema: [name: "structured_output", schema: request.responseSchema, strict: true]]
         return JsonOutput.toJson(body)
+    }
+
+    @Override
+    protected void applyStructured(Map resp, Map request) {
+        String t = resp.assistantText as String
+        if (t) {
+            try { resp.structuredResult = new JsonSlurper().parseText(t) }
+            catch (Exception ignored) { }   // tool-call turns / non-JSON content: leave structuredResult unset
+        }
     }
 
     @Override

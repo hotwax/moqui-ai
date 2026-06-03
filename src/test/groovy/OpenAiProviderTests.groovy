@@ -64,6 +64,28 @@ class OpenAiProviderTests extends Specification {
         r.finishReason == "stop"
     }
 
+    def "adds response_format json_schema when responseSchema is present"() {
+        given: def p = new OpenAiProvider("k", "u", 60)
+        Map schema = [type: "object", properties: [sentiment: [type: "string"]],
+                      required: ["sentiment"], additionalProperties: false]
+        when:
+        Map body = new JsonSlurper().parseText(p.encodeRequest(
+            [model: "m", messages: [[role: "user", content: "hi"]], responseSchema: schema])) as Map
+        then:
+        body.response_format.type == "json_schema"
+        body.response_format.json_schema.strict == true
+        body.response_format.json_schema.schema.properties.sentiment.type == "string"
+    }
+
+    def "applyStructured parses assistant JSON into structuredResult"() {
+        given: def p = new OpenAiProvider("k", "u", 60)
+        Map resp = [assistantText: '{"sentiment":"positive"}', toolCalls: []]
+        when:
+        p.applyStructured(resp, [responseSchema: [type: "object"]])
+        then:
+        resp.structuredResult.sentiment == "positive"
+    }
+
     @Requires({ System.getenv("ai_openai_key") })
     def "live: a real OpenAI call returns text"() {
         given: def p = new OpenAiProvider(System.getenv("ai_openai_key"), "https://api.openai.com/v1", 60)
@@ -99,6 +121,31 @@ class OpenAiProviderTests extends Specification {
         ec.artifactExecution.disableAuthz()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "OpenAiEcho").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "OpenAiEcho").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    @Requires({ System.getenv("ai_openai_key") })
+    def "live: OpenAI returns structured output matching the agent schema"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.security.UserAccount")
+            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "OpenAiSentiment", providerName: "openai",
+            modelName: "gpt-4o-mini", systemPrompt: "Classify the sentiment of the user's message.",
+            responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"}},"required":["sentiment"],"additionalProperties":false}',
+            maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "OpenAiSentiment", userMessage: "This is wonderful, I love it!"]).call()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        (out.structuredResult.sentiment as String)?.toLowerCase()?.contains("pos")
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "OpenAiSentiment").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 }

@@ -6,7 +6,10 @@ package org.moqui.ai
 interface LlmProvider {
     /** Registry key: "mock" | "anthropic" | "openai" | "google". Matches AiAgent.providerName. */
     String getName()
-    /** request Map in (model, systemContext, messages, tools), response Map out
-     *  (assistantText, toolCalls, tokensIn, tokensOut, finishReason). Impl makes the HTTP call. */
+    /** request Map in (model, systemContext, messages, tools, and optional responseSchema —
+     *  a JSON-Schema Map; when set, the provider returns structured output), response Map out
+     *  (assistantText, toolCalls, tokensIn, tokensOut, finishReason, providerRunId — the provider's
+     *  response id, and structuredResult — the parsed structured answer Map when responseSchema was set).
+     *  Impl makes the HTTP call. */
     Map chat(Map request)
 }
