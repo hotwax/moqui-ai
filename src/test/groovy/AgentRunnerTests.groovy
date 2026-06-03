@@ -91,6 +91,27 @@ class AgentRunnerTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "CorrAgent").deleteAll()
     }
 
+    def "returns structuredResult when the agent defines a responseSchema"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "stop",
+            toolCalls: [], tokensIn: 4L, tokensOut: 3L, structuredResult: [sentiment: "positive", score: 9]])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SchemaAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "classify",
+            responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"},"score":{"type":"integer"}},"required":["sentiment","score"],"additionalProperties":false}',
+            maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        when:
+        Map out = runner().run("SchemaAgent", "I love it", null)
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        out.structuredResult.sentiment == "positive"
+        out.structuredResult.score == 9
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SchemaAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
     def "a throwing tool feeds the error back instead of aborting the run"() {
         given:
         MockProvider.enqueue([toolCalls: [[id: "c1",

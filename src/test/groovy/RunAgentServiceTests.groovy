@@ -38,4 +38,27 @@ class RunAgentServiceTests extends Specification {
         out.agentRunId != null
         out.truncated == false
     }
+
+    def "run#Agent surfaces structuredResult for a schema-bound agent"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "stop",
+            toolCalls: [], tokensIn: 1L, tokensOut: 1L, structuredResult: [answer: "42"]])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SvcSchemaAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x",
+            responseSchema: '{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}',
+            maxIterations: 2, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.message.clearErrors()
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "SvcSchemaAgent", userMessage: "q"]).call()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        out.structuredResult.answer == "42"
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SvcSchemaAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }

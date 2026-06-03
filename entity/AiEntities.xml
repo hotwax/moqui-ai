@@ -8,6 +8,7 @@
         <field name="providerName" type="text-short"/>
         <field name="modelName" type="text-medium"/>
         <field name="systemPrompt" type="text-very-long"/>
+        <field name="responseSchema" type="text-very-long"><description>Optional JSON Schema (as text). When set, run#Agent returns a typed structuredResult Map; adapters translate to the provider's native structured-output mechanism.</description></field>
         <field name="maxIterations" type="number-integer"/>
         <field name="maxTokens" type="number-integer"/>
         <field name="maxCost" type="number-decimal"/>

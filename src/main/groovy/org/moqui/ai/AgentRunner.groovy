@@ -34,6 +34,9 @@ class AgentRunner {
         long maxTokens = (agent.maxTokens ?: 0L) as long          // 0 = no limit
         int maxToolCalls = (agent.maxToolCallsPerTurn ?: 20) as int
 
+        Map responseSchema = agent.responseSchema ?
+            new groovy.json.JsonSlurper().parseText(agent.responseSchema as String) as Map : null
+
         LlmProvider provider = ai.getProvider(agent.providerName as String)
         List<Map> toolSchemas = loadToolSchemas(agentName)
 
@@ -56,11 +59,12 @@ class AgentRunner {
                 result.iterations = i + 1
                 // request Map in, response Map out -- external HTTP, no tx held
                 Map resp = provider.chat([model: agent.modelName, systemContext: agent.systemPrompt,
-                        messages: messages, tools: toolSchemas])
+                        messages: messages, tools: toolSchemas, responseSchema: responseSchema])
                 long inTok = (resp.tokensIn ?: 0L) as long
                 long outTok = (resp.tokensOut ?: 0L) as long
                 result.tokensIn += inTok; result.tokensOut += outTok
                 if (resp.providerRunId) result.providerRunId = resp.providerRunId
+                if (resp.structuredResult != null) result.structuredResult = resp.structuredResult
                 stepSeq++
                 persist("create#moqui.ai.AiAgentRunStep", [agentRunId: runId, stepSeqId: stepSeq as String,
                     stepType: "llm_call", tokensIn: inTok, tokensOut: outTok, finishReason: resp.finishReason])
@@ -70,7 +74,8 @@ class AgentRunner {
 
                 List toolCalls = (resp.toolCalls ?: []) as List
                 if (!toolCalls) {
-                    result.assistantMessage = resp.assistantText ?: ""
+                    result.assistantMessage = resp.assistantText ?:
+                        (result.structuredResult != null ? groovy.json.JsonOutput.toJson(result.structuredResult) : "")
                     if (conversationId) persistConversationMessage(conversationId, runId,
                         [role: "assistant", content: result.assistantMessage])
                     return finish(result, runId, conversationId, "AI_RUN_COMPLETED", null)
