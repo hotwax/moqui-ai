@@ -219,4 +219,39 @@ class AiContextTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "NoCtxAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "a remembered fact survives window eviction and reaches a later call"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "FidAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "base", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
+            contextStrategy: "window", contextWindowMessages: 1, contextWindowChars: 1000000]).createOrUpdate()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "FidAgent",
+            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        // Turn 1: agent remembers the total, then stops.
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "order_total", factValue: "\$4,812.50"]]],
+            tokensIn: 1L, tokensOut: 1L])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "noted", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        new org.moqui.ai.AgentRunner(ec, ai).run("FidAgent", "the order total is \$4,812.50", convId)
+        when:
+        // Turn 2: many turns later the early message is windowed out (window=1), but the FACT must persist.
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "the total was \$4,812.50", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        new org.moqui.ai.AgentRunner(ec, ai).run("FidAgent", "what was the order total?", convId)
+        String sysSent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.systemContext as String
+        then:
+        sysSent.contains("## Known facts")
+        sysSent.contains("order_total: \$4,812.50")     // survived eviction, injected every call
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "FidAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }
