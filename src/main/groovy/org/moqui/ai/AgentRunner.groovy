@@ -34,6 +34,9 @@ class AgentRunner {
         int maxIter = (agent.maxIterations ?: 8) as int
         long maxTokens = (agent.maxTokens ?: 0L) as long          // 0 = no limit
         int maxToolCalls = (agent.maxToolCallsPerTurn ?: 20) as int
+        boolean ctxOn = (agent.contextStrategy == "window")
+        int ctxMsgs = (agent.contextWindowMessages ?: 20) as int
+        int ctxChars = (agent.contextWindowChars ?: 48000) as int
 
         Map responseSchema = agent.responseSchema ?
             new groovy.json.JsonSlurper().parseText(agent.responseSchema as String) as Map : null
@@ -53,6 +56,7 @@ class AgentRunner {
 
         // history replay: prior conversation messages, then this turn's user message
         List<Map> messages = conversationId ? loadConversationMessages(conversationId) : []
+        int replayCount = messages.size()
         messages.add([role: "user", content: userMessage])
         if (conversationId) persistConversationMessage(conversationId, runId, [role: "user", content: userMessage])
 
@@ -62,8 +66,22 @@ class AgentRunner {
             for (int i = 0; i < maxIter; i++) {
                 result.iterations = i + 1
                 // request Map in, response Map out -- external HTTP, no tx held
+                String sysCtx = agent.systemPrompt as String
+                List<Map> sendMessages = messages
+                if (ctxOn) {
+                    int rc = Math.min(replayCount, messages.size())
+                    Map asm = ContextAssembler.windowHistory(messages.subList(0, rc),
+                        messages.subList(rc, messages.size()), ctxMsgs, ctxChars)
+                    sendMessages = asm.messages as List<Map>
+                    sysCtx = ContextAssembler.withFacts(sysCtx, loadFacts(conversationId))
+                    if ((asm.dropped as int) > 0) {
+                        stepSeq++
+                        persist("create#moqui.ai.AiAgentRunStep", [agentRunId: runId, stepSeqId: stepSeq as String,
+                            stepType: "context_trim", finishReason: "dropped:${asm.dropped}" as String])
+                    }
+                }
                 Map call = callWithFailover(candidates, candIdx,
-                        [systemContext: agent.systemPrompt, messages: messages, tools: toolSchemas, responseSchema: responseSchema], runId)
+                        [systemContext: sysCtx, messages: sendMessages, tools: toolSchemas, responseSchema: responseSchema], runId)
                 candIdx = call.idx as int                     // sticky: stay on the working candidate
                 result.servedProviderName = call.providerName
                 result.servedByModelId = call.modelName
@@ -156,6 +174,19 @@ class AgentRunner {
         if (candidates.isEmpty())
             candidates.add([providerName: agent.providerName, modelName: agent.modelName])
         return candidates
+    }
+
+    /** Pinned facts for a conversation (ADR 0001 fidelity store), as [factKey, factValue] Maps.
+     *  Guarded: a load failure returns [] so the run proceeds without injection (logged). */
+    private List<Map> loadFacts(String conversationId) {
+        if (!conversationId) return []
+        try {
+            List<Map> facts = []
+            for (EntityValue f in ec.entity.find("moqui.ai.AiConversationFact")
+                    .condition("conversationId", conversationId).orderBy("factKey").list())
+                facts.add([factKey: f.factKey, factValue: f.factValue])
+            return facts
+        } catch (Throwable t) { logger.warn("Fact load failed (continuing without facts): ${t.message}"); return [] }
     }
 
     /** Effective price for (provider, model) at now → estimated cost from token counts, or 0 when

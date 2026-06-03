@@ -9,12 +9,16 @@ import java.util.concurrent.ConcurrentLinkedQueue
 class MockProvider implements LlmProvider {
     private static final ConcurrentLinkedQueue<Map> SCRIPT = new ConcurrentLinkedQueue<>()
 
+    /** Test hook: the last request Map passed to chat(), so tests can assert what was sent. */
+    static volatile Map LAST_REQUEST = null
+
     static void enqueue(Map r) { SCRIPT.add(r) }
     static void reset() { SCRIPT.clear() }
 
     @Override String getName() { return "mock" }
 
     @Override Map chat(Map request) {
+        LAST_REQUEST = request
         Map r = SCRIPT.poll()
         if (r != null) {
             if (r.containsKey("__error")) throw new RuntimeException(r.__error as String)

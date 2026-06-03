@@ -1,7 +1,34 @@
 import spock.lang.*
+import org.moqui.context.ExecutionContext
+import org.moqui.Moqui
+import org.moqui.ai.AiToolFactory
 import org.moqui.ai.ContextAssembler
+import org.moqui.ai.provider.MockProvider
+import org.moqui.entity.EntityValue
 
 class AiContextTests extends Specification {
+    @Shared ExecutionContext ec
+    @Shared AiToolFactory ai
+
+    def setupSpec() {
+        ec = Moqui.getExecutionContext()
+        ai = ec.factory.getTool("AI", AiToolFactory.class)
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.security.UserAccount")
+            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.artifactExecution.enableAuthz()
+    }
+    def cleanupSpec() {
+        if (ec == null) return
+        ec.destroy()
+    }
+    def setup() {
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+    }
+    def cleanup() { MockProvider.reset() }
 
     def "withFacts appends a Known facts block to the system prompt"() {
         when:
@@ -60,5 +87,66 @@ class AiContextTests extends Specification {
         (r.messages.sum { (it.content ?: "").length() } as int) <= 120 + 3
         r.messages.last().content == "now"
         r.dropped >= 4
+    }
+
+    def "windowed agent sends only the last N replayed messages to the provider"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "WinAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "be terse", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
+            contextStrategy: "window", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "WinAgent",
+            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        (1..5).each { i ->
+            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+            m.set("conversationId", convId); m.setSequencedIdSecondary()
+            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+        }
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        new org.moqui.ai.AgentRunner(ec, ai).run("WinAgent", "newest", convId)
+        List sent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.messages as List
+        then:
+        sent.size() == 3                             // 2 windowed replayed + this turn's user message
+        sent.last().content == "newest"
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "WinAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "context management OFF replays the full history unchanged (no regression)"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "NoCtxAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "NoCtxAgent",
+            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        (1..5).each { i ->
+            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+            m.set("conversationId", convId); m.setSequencedIdSecondary()
+            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+        }
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        new org.moqui.ai.AgentRunner(ec, ai).run("NoCtxAgent", "newest", convId)
+        List sent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.messages as List
+        then:
+        sent.size() == 6                             // 5 replayed + this turn, unchanged
+        org.moqui.ai.provider.MockProvider.LAST_REQUEST.systemContext == "x"   // no facts block
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "NoCtxAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
     }
 }
