@@ -2,7 +2,8 @@
 <services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
 
-    <!-- Idempotent price upsert (store# = create-or-update). Defaults fromDate to now, currency to USD. -->
+    <!-- Add/replace a model price. fromDate defaults to now → a new effective-dated row per call
+         unless an explicit fromDate is passed (then it updates that row). Currency defaults to USD. -->
     <service verb="store" noun="AiModelPrice" authenticate="true">
         <in-parameters>
             <parameter name="providerName" required="true"/>

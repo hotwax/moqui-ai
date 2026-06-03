@@ -60,6 +60,7 @@ class AiCostTests extends Specification {
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
         then:
         out.statusId == "AI_RUN_COMPLETED"
+        (out.estimatedCost as BigDecimal) == 0.010500G
         (run.estimatedCost as BigDecimal) == 0.010500G       // 1000@$3/M + 500@$15/M
         when:
         Map spend = ec.service.sync().name("ai.CostServices.get#AiSpend").parameters([agentName: "CostAgent"]).call()

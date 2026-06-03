@@ -24,7 +24,8 @@ class AgentRunner {
     /** @param conversationId optional; when set, prior conversation messages are replayed and
      *  this turn's messages are persisted back.
      *  @return runResult Map: [assistantMessage, agentRunId, conversationId, tokensIn, tokensOut,
-     *  iterations, truncated, statusId, servedProviderName, servedByModelId, providerRunId, structuredResult] */
+     *  iterations, truncated, statusId, servedByModelId, servedProviderName, providerRunId,
+     *  structuredResult, estimatedCost] */
     Map run(String agentName, String userMessage, String conversationId) {
         EntityValue agent = ec.entity.find("moqui.ai.AiAgent")
             .condition("agentName", agentName).useCache(true).one()
