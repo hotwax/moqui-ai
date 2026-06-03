@@ -12,6 +12,8 @@ class AnthropicProvider extends AbstractLlmProvider {
         super(apiKey, baseUrl, timeoutSeconds); this.anthropicVersion = anthropicVersion
     }
 
+    private static final String STRUCTURED_TOOL_NAME = "structured_output"
+
     @Override String getName() { return "anthropic" }
     @Override protected String endpointPath() { return "/v1/messages" }
     @Override protected Map<String, String> authHeaders() {
@@ -38,13 +40,13 @@ class AnthropicProvider extends AbstractLlmProvider {
             [name: sanitizeName(t.name as String), description: t.description, input_schema: t.parameters] }
         if (request.responseSchema) {
             List<Map> toolsList = (body.tools ?: []) as List<Map>
-            toolsList.add([name: "structured_output",
+            toolsList.add([name: STRUCTURED_TOOL_NAME,
                 description: "Return your final answer as structured data matching this schema. Call this tool exactly once, only when you have the final answer.",
                 input_schema: request.responseSchema])
             body.tools = toolsList
             // No business tools => force the structured tool for a deterministic one-shot answer.
             // With business tools, leave tool_choice auto so the model can use them first.
-            if (!request.tools) body.tool_choice = [type: "tool", name: "structured_output"]
+            if (!request.tools) body.tool_choice = [type: "tool", name: STRUCTURED_TOOL_NAME]
         }
         return JsonOutput.toJson(body)
     }
@@ -52,10 +54,12 @@ class AnthropicProvider extends AbstractLlmProvider {
     @Override
     protected void applyStructured(Map resp, Map request) {
         List<Map> tcs = (resp.toolCalls ?: []) as List<Map>
-        Map structured = tcs.find { it.name == "structured_output" }
+        Map structured = tcs.find { it.name == STRUCTURED_TOOL_NAME }
         if (structured != null) {
             resp.structuredResult = structured.arguments
-            resp.toolCalls = tcs.findAll { it.name != "structured_output" }
+            // Remove only the synthetic call; any co-emitted business tool calls are preserved so
+            // AgentRunner still dispatches them (a later turn's structured_output overwrites, latest wins).
+            resp.toolCalls = tcs.findAll { it.name != STRUCTURED_TOOL_NAME }
             resp.finishReason = "structured_output"
         }
     }

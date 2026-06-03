@@ -90,6 +90,20 @@ class AnthropicProviderTests extends Specification {
         resp.finishReason == "structured_output"
     }
 
+    def "applyStructured preserves a co-emitted business tool call"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        Map resp = [toolCalls: [[id: "b1", name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "hi"]],
+                                [id: "s1", name: "structured_output", arguments: [sentiment: "positive"]]],
+                    assistantText: null, finishReason: "tool_use"]
+        when:
+        p.applyStructured(resp, [responseSchema: [type: "object"]])
+        then:
+        resp.structuredResult.sentiment == "positive"
+        (resp.toolCalls as List).size() == 1
+        resp.toolCalls[0].name == "moqui.ai.test.TestServices.get#Echo"
+        resp.finishReason == "structured_output"
+    }
+
     @Requires({ System.getenv("ai_anthropic_key") })
     def "live: Anthropic returns structured output matching the agent schema"() {
         given:
