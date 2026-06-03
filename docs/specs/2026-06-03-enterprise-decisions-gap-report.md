@@ -78,7 +78,7 @@ not building 2 (4, 10-tenantId) · closed-for-v1 1 (6).
    turning vague asks into correct tool sequences). It's overhead for the bulk of OMS traffic
    (lookups, status, extraction). OpenAI reasoning already works via `modelName`; the normalized
    `reasoning`/`reasoningBudgetTokens` flag (which only adds Anthropic/Google parity) is deferred
-   and will be bundled with #7's adapter work.
+   to a future reasoning slice.
 7. **Fallback chain — SHIPPED in v1.** `AiAgentModel` priority chain + sticky failover on
    provider-call failures; run records served provider/model; failed attempts logged as
    `llm_call_failed` steps.
