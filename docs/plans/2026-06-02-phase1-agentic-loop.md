@@ -124,10 +124,18 @@ targetCompatibility = '11'
 // projectDir = runtime/component/moqui-ai ; runtime dir is two levels up
 def runtimeDir = file("${projectDir}/../..")
 
-repositories { mavenCentral() }
+repositories {
+    // framework declares some deps (e.g. btm) from framework/lib via flatDir; dependents must too
+    flatDir name: 'frameworkLib', dirs: file("${projectDir}/../../../framework/lib").absolutePath
+    mavenCentral()
+}
 
 dependencies {
     implementation project(':framework')
+    // JUnit Platform: launcher + suite (@Suite/@SelectClasses) + jupiter (@AfterAll) — mirrors framework
+    testImplementation 'org.junit.platform:junit-platform-launcher:1.12.1'
+    testImplementation 'org.junit.platform:junit-platform-suite:1.12.1'
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.12.1'
     testImplementation platform("org.spockframework:spock-bom:2.1-groovy-3.0")
     testImplementation 'org.spockframework:spock-core:2.1-groovy-3.0'
     testImplementation 'org.spockframework:spock-junit4:2.1-groovy-3.0'
