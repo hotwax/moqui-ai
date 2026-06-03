@@ -133,6 +133,79 @@ class AgentRunnerTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
+    def "fails over to the next candidate when the primary provider call throws"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([__error: "primary down (503)"])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 2L, tokensOut: 1L])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "FailoverAgent", providerName: "mock",
+            modelName: "ignored", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "FailoverAgent", priority: 0, providerName: "mock", modelName: "primary"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "FailoverAgent", priority: 1, providerName: "mock", modelName: "backup"]).createOrUpdate()
+        when:
+        Map out = runner().run("FailoverAgent", "hi", null)
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        run.servedByModelId == "backup"        // primary failed, backup answered
+        run.providerName == "mock"
+        ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", out.agentRunId)
+            .condition("stepType", "llm_call_failed").list().size() == 1
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "FailoverAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "FailoverAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "fails the run when all candidates are exhausted"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([__error: "down-1"])
+        org.moqui.ai.provider.MockProvider.enqueue([__error: "down-2"])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AllDownAgent", providerName: "mock",
+            modelName: "ignored", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "AllDownAgent", priority: 0, providerName: "mock", modelName: "m1"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "AllDownAgent", priority: 1, providerName: "mock", modelName: "m2"]).createOrUpdate()
+        when:
+        Map out = runner().run("AllDownAgent", "hi", null)
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
+        then:
+        out.statusId == "AI_RUN_FAILED"
+        (run.errorText as String)?.contains("down-2")    // last error surfaced
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "AllDownAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "AllDownAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "failover is sticky: once advanced, stays on the working candidate"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([__error: "primary down"])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "c1", name: "no.such.Tool", arguments: [:]]], tokensIn: 1L, tokensOut: 1L])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "done", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "StickyAgent", providerName: "mock",
+            modelName: "ignored", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "StickyAgent", priority: 0, providerName: "mock", modelName: "primary"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "StickyAgent", priority: 1, providerName: "mock", modelName: "backup"]).createOrUpdate()
+        when:
+        Map out = runner().run("StickyAgent", "hi", null)
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        run.servedByModelId == "backup"
+        ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", out.agentRunId)
+            .condition("stepType", "llm_call_failed").list().size() == 1
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "StickyAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "StickyAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
     def "a throwing tool feeds the error back instead of aborting the run"() {
         given:
         MockProvider.enqueue([toolCalls: [[id: "c1",

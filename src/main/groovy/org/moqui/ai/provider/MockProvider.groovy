@@ -16,7 +16,10 @@ class MockProvider implements LlmProvider {
 
     @Override Map chat(Map request) {
         Map r = SCRIPT.poll()
-        if (r != null) return r
+        if (r != null) {
+            if (r.containsKey("__error")) throw new RuntimeException(r.__error as String)
+            return r
+        }
         return [assistantText: "", finishReason: "stop", toolCalls: [], tokensIn: 0L, tokensOut: 0L]
     }
 }

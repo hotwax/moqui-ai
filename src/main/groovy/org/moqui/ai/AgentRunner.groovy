@@ -24,7 +24,7 @@ class AgentRunner {
     /** @param conversationId optional; when set, prior conversation messages are replayed and
      *  this turn's messages are persisted back.
      *  @return runResult Map: [assistantMessage, agentRunId, conversationId, tokensIn, tokensOut,
-     *  iterations, truncated, statusId, servedByModelId, providerRunId, structuredResult] */
+     *  iterations, truncated, statusId, servedProviderName, servedByModelId, providerRunId, structuredResult] */
     Map run(String agentName, String userMessage, String conversationId) {
         EntityValue agent = ec.entity.find("moqui.ai.AiAgent")
             .condition("agentName", agentName).useCache(true).one()
@@ -39,7 +39,6 @@ class AgentRunner {
 
         List<Map> candidates = loadModelCandidates(agentName, agent)
         Map primary = candidates[0]
-        LlmProvider provider = ai.getProvider(primary.providerName as String)
         List<Map> toolSchemas = loadToolSchemas(agentName)
 
         String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
@@ -57,12 +56,22 @@ class AgentRunner {
         if (conversationId) persistConversationMessage(conversationId, runId, [role: "user", content: userMessage])
 
         int stepSeq = 0
+        int candIdx = 0
         try {
             for (int i = 0; i < maxIter; i++) {
                 result.iterations = i + 1
                 // request Map in, response Map out -- external HTTP, no tx held
-                Map resp = provider.chat([model: primary.modelName, systemContext: agent.systemPrompt,
-                        messages: messages, tools: toolSchemas, responseSchema: responseSchema])
+                Map call = callWithFailover(candidates, candIdx,
+                        [systemContext: agent.systemPrompt, messages: messages, tools: toolSchemas, responseSchema: responseSchema], runId)
+                candIdx = call.idx as int                     // sticky: stay on the working candidate
+                result.servedProviderName = call.providerName
+                result.servedByModelId = call.modelName
+                for (Map fa in (call.failedAttempts as List<Map>)) {   // observability for each skipped candidate
+                    stepSeq++
+                    persist("create#moqui.ai.AiAgentRunStep", [agentRunId: runId, stepSeqId: stepSeq as String,
+                        stepType: "llm_call_failed", finishReason: "provider_error:${fa.providerName}:${fa.modelName}" as String])
+                }
+                Map resp = call.resp as Map
                 long inTok = (resp.tokensIn ?: 0L) as long
                 long outTok = (resp.tokensOut ?: 0L) as long
                 result.tokensIn += inTok; result.tokensOut += outTok
@@ -148,6 +157,27 @@ class AgentRunner {
         return candidates
     }
 
+    /** Sticky failover: try candidates from startIdx in order; the first whose provider.chat()
+     *  succeeds wins. Returns [resp, idx, providerName, modelName, failedAttempts]; throws the last
+     *  error if every remaining candidate fails. Pure (no persistence) — the caller records steps. */
+    private Map callWithFailover(List<Map> candidates, int startIdx, Map baseRequest, String runId) {
+        RuntimeException last = null
+        List<Map> failed = []
+        for (int i = startIdx; i < candidates.size(); i++) {
+            Map c = candidates[i]
+            try {
+                LlmProvider p = ai.getProvider(c.providerName as String)
+                Map resp = p.chat(baseRequest + [model: c.modelName])
+                return [resp: resp, idx: i, providerName: c.providerName, modelName: c.modelName, failedAttempts: failed]
+            } catch (RuntimeException e) {
+                last = e
+                logger.warn("Agent run ${runId} candidate ${c.providerName}:${c.modelName} failed, trying next: ${e.message}")
+                failed.add([providerName: c.providerName, modelName: c.modelName, error: e.message])
+            }
+        }
+        throw (last ?: new RuntimeException("No model candidates configured for agent run ${runId}"))
+    }
+
     /** Build the agent's granted tools as a List of toolSchema Maps. */
     private List<Map> loadToolSchemas(String agentName) {
         List<Map> schemas = []
@@ -171,7 +201,7 @@ class AgentRunner {
         persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, thruDate: ec.user.nowTimestamp,
             statusId: statusId, assistantMessage: result.assistantMessage, iterations: result.iterations,
             tokensIn: result.tokensIn, tokensOut: result.tokensOut, errorText: errorText,
-            servedByModelId: result.servedByModelId, providerRunId: result.providerRunId])
+            providerName: result.servedProviderName, servedByModelId: result.servedByModelId, providerRunId: result.providerRunId])
         if (conversationId) persist("update#moqui.ai.AiConversation",
             [conversationId: conversationId, lastActivityDate: ec.user.nowTimestamp])
         return result
