@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tools>
+    <tool service="moqui.ai.test.TestServices.get#GatedEcho" description="echo (approval-gated)" requires-approval="true"/>
+</tools>

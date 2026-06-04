@@ -1,0 +1,85 @@
+import spock.lang.*
+import org.moqui.context.ExecutionContext
+import org.moqui.Moqui
+import org.moqui.ai.provider.MockProvider
+
+class RunAgentServiceTests extends Specification {
+    @Shared ExecutionContext ec
+    def setupSpec() {
+        ec = Moqui.getExecutionContext()
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.security.UserAccount")
+            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SvcAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.artifactExecution.enableAuthz()
+    }
+    def cleanupSpec() {
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SvcAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+        ec.destroy()
+    }
+    def setup() {
+        ec.artifactExecution.disableAuthz()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+    }
+    def cleanup() { MockProvider.reset(); ec.artifactExecution.enableAuthz() }
+
+    def "run#Agent returns the assistant message and run id"() {
+        given: MockProvider.enqueue([assistantText: "service ok", finishReason: "stop", tokensOut: 3L])
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "SvcAgent", userMessage: "ping"]).call()
+        then:
+        out.assistantMessage == "service ok"
+        out.agentRunId != null
+        out.truncated == false
+    }
+
+    def "run#Agent surfaces structuredResult for a schema-bound agent"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "stop",
+            toolCalls: [], tokensIn: 1L, tokensOut: 1L, structuredResult: [answer: "42"]])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SvcSchemaAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x",
+            responseSchema: '{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}',
+            maxIterations: 2, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.message.clearErrors()
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "SvcSchemaAgent", userMessage: "q"]).call()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        out.structuredResult.answer == "42"
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SvcSchemaAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "run#Agent surfaces the served providerName"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SvcProvAgent", providerName: "mock",
+            modelName: "m1", systemPrompt: "x", maxIterations: 2, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.message.clearErrors()
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "SvcProvAgent", userMessage: "q"]).call()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        out.providerName == "mock"
+        out.servedByModelId == "m1"
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SvcProvAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+}

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tools>
+    <tool service="moqui.ai.test.TestServices.get#Echo"
+          description="Echoes the given text back, optionally repeated."/>
+</tools>

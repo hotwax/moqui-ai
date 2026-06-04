@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- transaction="ignore": the loop holds NO enclosing tx; tool calls + observability
+         writes each manage their own tx (see AgentRunner). -->
+    <service verb="run" noun="Agent" transaction="ignore" authenticate="true">
+        <in-parameters>
+            <parameter name="agentName" required="true"/>
+            <parameter name="userMessage" required="true"/>
+            <parameter name="conversationId"><description>Optional. When set, prior turns are replayed and this turn is persisted.</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="assistantMessage"/>
+            <parameter name="agentRunId"/>
+            <parameter name="conversationId"/>
+            <parameter name="tokensIn" type="Long"/>
+            <parameter name="tokensOut" type="Long"/>
+            <parameter name="iterations" type="Integer"/>
+            <parameter name="truncated" type="Boolean"/>
+            <parameter name="statusId"/>
+            <parameter name="servedByModelId"/>
+            <parameter name="providerName"/>
+            <parameter name="estimatedCost" type="BigDecimal"/>
+            <parameter name="providerRunId"/>
+            <parameter name="structuredResult" type="Map"/>
+            <parameter name="awaitingApproval" type="Boolean"/>
+            <parameter name="approvalIds" type="List"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
+                def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentName, userMessage, conversationId)
+                assistantMessage = r.assistantMessage
+                agentRunId = r.agentRunId
+                conversationId = r.conversationId
+                tokensIn = r.tokensIn
+                tokensOut = r.tokensOut
+                iterations = r.iterations
+                truncated = r.truncated
+                statusId = r.statusId
+                servedByModelId = r.servedByModelId
+                providerName = r.servedProviderName
+                estimatedCost = r.estimatedCost
+                providerRunId = r.providerRunId
+                structuredResult = r.structuredResult
+                awaitingApproval = r.awaitingApproval
+                approvalIds = r.approvalIds
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="create" noun="Conversation" authenticate="true">
+        <in-parameters>
+            <parameter name="agentName" required="true"/>
+            <parameter name="title"/>
+        </in-parameters>
+        <out-parameters><parameter name="conversationId"/></out-parameters>
+        <actions>
+            <set field="conversationId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiConversation', null, null)"/>
+            <service-call name="create#moqui.ai.AiConversation" in-map="[conversationId: conversationId,
+                agentName: agentName, title: title, userId: ec.user.userId,
+                fromDate: ec.user.nowTimestamp, statusId: 'AI_CONV_ACTIVE']"/>
+        </actions>
+    </service>
+</services>

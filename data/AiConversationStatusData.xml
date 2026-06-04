@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="install">
+    <moqui.basic.StatusType statusTypeId="AiConversationStatus" description="AI Conversation Status"/>
+    <moqui.basic.StatusItem statusId="AI_CONV_ACTIVE" statusTypeId="AiConversationStatus" sequenceNum="1" description="Active"/>
+    <moqui.basic.StatusItem statusId="AI_CONV_CLOSED" statusTypeId="AiConversationStatus" sequenceNum="2" description="Closed"/>
+    <moqui.basic.StatusFlow statusFlowId="AiConversationFlow" statusTypeId="AiConversationStatus" description="AI conversation lifecycle"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiConversationFlow" statusId="AI_CONV_ACTIVE" toStatusId="AI_CONV_CLOSED" transitionSequence="1" transitionName="Close"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiConversationFlow" statusId="AI_CONV_CLOSED" toStatusId="AI_CONV_ACTIVE" transitionSequence="2" transitionName="Reopen"/>
+</entity-facade-xml>
