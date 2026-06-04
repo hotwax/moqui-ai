@@ -8,7 +8,7 @@ import org.moqui.Moqui
         MockProviderTests.class, ToolSchemaBuilderTests.class, DefinitionLoaderTests.class,
         AgentRunnerTests.class, RunAgentServiceTests.class, AnthropicProviderTests.class,
         AiConversationTests.class, OpenAiProviderTests.class, AiCostTests.class,
-        AiContextTests.class ])
+        AiContextTests.class, AiApprovalTests.class ])
 class MoquiSuite {
     @AfterAll
     static void destroyMoqui() { Moqui.destroyActiveExecutionContextFactory() }

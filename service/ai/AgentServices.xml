@@ -24,6 +24,8 @@
             <parameter name="estimatedCost" type="BigDecimal"/>
             <parameter name="providerRunId"/>
             <parameter name="structuredResult" type="Map"/>
+            <parameter name="awaitingApproval" type="Boolean"/>
+            <parameter name="approvalIds" type="List"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
@@ -42,6 +44,8 @@
                 estimatedCost = r.estimatedCost
                 providerRunId = r.providerRunId
                 structuredResult = r.structuredResult
+                awaitingApproval = r.awaitingApproval
+                approvalIds = r.approvalIds
             ]]></script>
         </actions>
     </service>

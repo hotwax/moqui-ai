@@ -49,12 +49,7 @@ class AgentRunner {
 
         List<Map> candidates = loadModelCandidates(agentName, agent)
         Map primary = candidates[0]
-        List<Map> toolSchemas = loadToolSchemas(agentName)
-        if (ctxOn && conversationId) toolSchemas = toolSchemas + [[name: REMEMBER_TOOL,
-            description: "Record a durable, confirmed value (e.g. a confirmed order total, address, or decision) so it is never lost from context. Call this the moment you confirm a value that must persist across the conversation.",
-            parameters: [type: "object", required: ["factKey", "factValue"], properties: [
-                factKey: [type: "string", description: "short stable identifier, e.g. order_total"],
-                factValue: [type: "string", description: "the confirmed value"]]]]]
+        List<Map> toolSchemas = withRememberTool(loadToolSchemas(agentName), ctxOn, conversationId)
 
         String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
         Map result = [agentRunId: runId, conversationId: conversationId, assistantMessage: null,
@@ -76,10 +71,35 @@ class AgentRunner {
         messages.add([role: "user", content: userMessage])
         if (conversationId) persistConversationMessage(conversationId, runId, [role: "user", content: userMessage])
 
-        int stepSeq = 0
-        int candIdx = 0
+        return continueAgent(agent, runId, conversationId, candidates, toolSchemas, responseSchema,
+            [messages: messages, replayCount: replayCount, stepSeq: 0, candIdx: 0,
+             summaryText: summaryText, summaryWatermark: summaryWatermark, result: result])
+    }
+
+    /** Runs the agentic loop from the given state until COMPLETED/TRUNCATED/ABORTED/FAILED or
+     *  SUSPENDED (a turn proposed a requiresApproval tool). Shared by run() (fresh) and resume().
+     *  Static config (maxIter, ctxOn, candidates, toolSchemas, responseSchema) is re-derived from
+     *  the agent / passed in — never serialized; only mutable loop state lives in st. */
+    private Map continueAgent(EntityValue agent, String runId, String conversationId, List<Map> candidates,
+            List<Map> toolSchemas, Map responseSchema, Map st) {
+        int maxIter = (agent.maxIterations ?: 8) as int
+        long maxTokens = (agent.maxTokens ?: 0L) as long
+        int maxToolCalls = (agent.maxToolCallsPerTurn ?: 20) as int
+        boolean ctxSummarize = (agent.contextStrategy == "summarize")
+        boolean ctxOn = (agent.contextStrategy == "window") || ctxSummarize
+        int ctxMsgs = (agent.contextWindowMessages ?: 20) as int
+        int ctxChars = (agent.contextWindowChars ?: 48000) as int
+        Map primary = candidates[0]
+
+        List<Map> messages = st.messages as List<Map>
+        int replayCount = st.replayCount as int
+        int stepSeq = st.stepSeq as int
+        int candIdx = st.candIdx as int
+        String summaryText = st.summaryText as String
+        String summaryWatermark = st.summaryWatermark as String
+        Map result = st.result as Map
         try {
-            for (int i = 0; i < maxIter; i++) {
+            for (int i = result.iterations as int; i < maxIter; i++) {
                 result.iterations = i + 1
                 // request Map in, response Map out -- external HTTP, no tx held
                 // Re-assembled every iteration on purpose: a tool may call `remember` mid-run, so a
@@ -149,9 +169,33 @@ class AgentRunner {
                 if (toolCalls.size() > maxToolCalls)
                     return finish(result, runId, conversationId, "AI_RUN_ABORTED", "Tool-calls-per-turn ceiling exceeded")
 
-                // record the assistant turn that requested tools, then dispatch each
+                // record the assistant turn that requested tools
                 Map assistantTurn = [role: "assistant", toolCalls: toolCalls]
                 messages.add(assistantTurn)
+                // (refinement 1) do NOT persist the assistant turn yet — the approval gate may suspend.
+
+                // ----- approval gate: if any call this turn needs approval, SUSPEND the whole turn -----
+                List<Map> needApproval = (toolCalls as List<Map>).findAll { ai.getTool(it.name as String)?.requiresApproval }
+                if (needApproval) {
+                    List<String> approvalIds = []
+                    for (Map tc in needApproval) {
+                        String approvalId = ec.entity.sequencedIdPrimary("moqui.ai.AiToolApproval", null, null)
+                        approvalIds.add(approvalId)
+                        Map td = ai.getTool(tc.name as String)
+                        persistRequired("create#moqui.ai.AiToolApproval", [approvalId: approvalId, agentRunId: runId,
+                            stepSeqId: stepSeq as String, toolCallId: tc.id, toolName: tc.name, serviceName: td?.serviceName,
+                            arguments: JsonOutput.toJson(tc.arguments ?: [:]), statusId: "AI_APPR_PENDING",
+                            requestedByUserId: ec.user.userId, requestedDate: ec.user.nowTimestamp])
+                    }
+                    persistRequired("update#moqui.ai.AiAgentRun", [agentRunId: runId, statusId: "AI_RUN_SUSPENDED",
+                        pendingState: JsonOutput.toJson([messages: messages, replayCount: replayCount, stepSeq: stepSeq,
+                            candIdx: candIdx, summaryText: summaryText, summaryWatermark: summaryWatermark,
+                            result: result, turnToolCalls: toolCalls])])
+                    result.statusId = "AI_RUN_SUSPENDED"; result.awaitingApproval = true; result.approvalIds = approvalIds
+                    return result
+                }
+
+                // not suspending: persist the assistant turn now (as before), then dispatch each
                 if (conversationId) persistConversationMessage(conversationId, runId, assistantTurn)
                 for (Map tc in toolCalls) {
                     String resultJson
@@ -386,5 +430,21 @@ class AgentRunner {
     private void persist(String serviceName, Map params) {
         try { ec.service.sync().name(serviceName).parameters(params).call() }
         catch (Throwable t) { logger.warn("Observability write ${serviceName} failed (continuing): ${t.message}") }
+    }
+
+    /** Like persist(), but does NOT swallow errors — for load-bearing writes (suspend state) where a
+     *  failure must fail the run loudly (caught by the loop) rather than leave a zombie. */
+    private void persistRequired(String serviceName, Map params) {
+        ec.service.sync().name(serviceName).parameters(params).call()
+    }
+
+    /** The built-in remember tool schema appended when context mgmt is on and there is a conversation. */
+    private List<Map> withRememberTool(List<Map> toolSchemas, boolean ctxOn, String conversationId) {
+        if (!(ctxOn && conversationId)) return toolSchemas
+        return toolSchemas + [[name: REMEMBER_TOOL,
+            description: "Record a durable, confirmed value (e.g. a confirmed order total, address, or decision) so it is never lost from context. Call this the moment you confirm a value that must persist across the conversation.",
+            parameters: [type: "object", required: ["factKey", "factValue"], properties: [
+                factKey: [type: "string", description: "short stable identifier, e.g. order_total"],
+                factValue: [type: "string", description: "the confirmed value"]]]]]
     }
 }
