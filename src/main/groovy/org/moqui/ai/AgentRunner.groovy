@@ -36,13 +36,8 @@ class AgentRunner {
             .condition("agentName", agentName).useCache(true).one()
         if (agent == null) throw new IllegalArgumentException("Unknown agent: ${agentName}")
 
-        int maxIter = (agent.maxIterations ?: 8) as int
-        long maxTokens = (agent.maxTokens ?: 0L) as long          // 0 = no limit
-        int maxToolCalls = (agent.maxToolCallsPerTurn ?: 20) as int
         boolean ctxSummarize = (agent.contextStrategy == "summarize")
         boolean ctxOn = (agent.contextStrategy == "window") || ctxSummarize
-        int ctxMsgs = (agent.contextWindowMessages ?: 20) as int
-        int ctxChars = (agent.contextWindowChars ?: 48000) as int
 
         Map responseSchema = agent.responseSchema ?
             new groovy.json.JsonSlurper().parseText(agent.responseSchema as String) as Map : null
