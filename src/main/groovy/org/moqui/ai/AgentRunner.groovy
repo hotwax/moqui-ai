@@ -236,6 +236,18 @@ class AgentRunner {
         for (EntityValue a in ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", agentRunId).list())
             approvals.put(a.toolCallId as String, a)
 
+        // Fail-closed precondition (whole-turn): a requiresApproval tool must NEVER execute without an
+        // explicit decision. If ANY gated call in the turn is still undecided (PENDING, or its approval
+        // row is missing), the turn is not ready — leave the run SUSPENDED untouched and return. The
+        // production caller (decide#ToolCall) only resumes once the last approval is decided; this guards
+        // misuse / a double-fired decide, making a premature resume a safe no-op (not consume-and-deny).
+        boolean anyUndecided = turnToolCalls.any { tc ->
+            if (!ai.getTool(tc.name as String)?.requiresApproval) return false   // non-gated: no approval needed
+            String s = approvals.get(tc.id as String)?.statusId
+            return s != "AI_APPR_APPROVED" && s != "AI_APPR_REJECTED"
+        }
+        if (anyUndecided) return [agentRunId: agentRunId, statusId: "AI_RUN_SUSPENDED", awaitingApproval: true]
+
         // (refinement 1) the assistant tool-call turn was withheld from the conversation at suspend
         // (only added to in-memory messages); persist it now so the conversation holds a complete
         // tool_call -> tool_result sequence (never an orphan).
