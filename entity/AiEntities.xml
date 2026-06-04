@@ -24,7 +24,7 @@
         <field name="toolName" type="id" is-pk="true"/>
         <field name="serviceName" type="text-medium"/>
         <field name="description" type="text-long"/>
-        <field name="requiresApproval" type="text-indicator"><description>Y/N (reserved; not enforced this slice)</description></field>
+        <field name="requiresApproval" type="text-indicator"><description>Y/N — when Y, a proposed call to this tool suspends the run for human approval (Phase 4 gate; see AiToolApproval + approve/reject#ToolCall)</description></field>
         <field name="sourceComponent" type="text-medium"/>
     </entity>
 
