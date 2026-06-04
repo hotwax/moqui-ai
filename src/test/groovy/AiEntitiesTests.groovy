@@ -113,4 +113,27 @@ class AiEntitiesTests extends Specification {
         ec.entity.find("moqui.ai.AiConversation").condition("conversationId", cid).deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "AiToolApproval + AiAgentRun.pendingState + AI_RUN_SUSPENDED status exist"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.ai.AiAgentRun").setAll([agentRunId: "RUNAPPR1", agentName: "A",
+            statusId: "AI_RUN_SUSPENDED", pendingState: '{"messages":[]}', fromDate: ec.user.nowTimestamp]).create()
+        ec.entity.makeValue("moqui.ai.AiToolApproval").setAll([approvalId: "APPR1", agentRunId: "RUNAPPR1",
+            toolCallId: "c1", toolName: "x", arguments: "{}", statusId: "AI_APPR_PENDING",
+            requestedDate: ec.user.nowTimestamp]).create()
+        when:
+        def run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", "RUNAPPR1").one()
+        def appr = ec.entity.find("moqui.ai.AiToolApproval").condition("approvalId", "APPR1").one()
+        def st = ec.entity.find("moqui.basic.StatusItem").condition("statusId", "AI_RUN_SUSPENDED").one()
+        then:
+        run.pendingState == '{"messages":[]}'
+        appr.statusId == "AI_APPR_PENDING"
+        st != null
+        cleanup:
+        ec.entity.find("moqui.ai.AiToolApproval").condition("approvalId", "APPR1").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", "RUNAPPR1").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }

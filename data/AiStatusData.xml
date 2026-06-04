@@ -24,4 +24,18 @@
     <!-- agent: ACTIVE <-> DISABLED -->
     <moqui.basic.StatusFlowTransition statusFlowId="AiAgentFlow" statusId="AI_AGENT_ACTIVE"   toStatusId="AI_AGENT_DISABLED" transitionSequence="1" transitionName="Disable"/>
     <moqui.basic.StatusFlowTransition statusFlowId="AiAgentFlow" statusId="AI_AGENT_DISABLED" toStatusId="AI_AGENT_ACTIVE"   transitionSequence="2" transitionName="Enable"/>
+
+    <!-- run: RUNNING <-> SUSPENDED (human-approval gate) -->
+    <moqui.basic.StatusItem statusId="AI_RUN_SUSPENDED" statusTypeId="AiAgentRunStatus" sequenceNum="60" description="Suspended (awaiting approval)"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentRunFlow" statusId="AI_RUN_RUNNING"   toStatusId="AI_RUN_SUSPENDED" transitionSequence="50" transitionName="Suspend"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentRunFlow" statusId="AI_RUN_SUSPENDED" toStatusId="AI_RUN_RUNNING"   transitionSequence="51" transitionName="Resume"/>
+
+    <!-- approval: PENDING -> APPROVED | REJECTED -->
+    <moqui.basic.StatusType statusTypeId="AiApprovalStatus" description="AI Tool Approval Status"/>
+    <moqui.basic.StatusItem statusId="AI_APPR_PENDING"  statusTypeId="AiApprovalStatus" sequenceNum="1" description="Pending"/>
+    <moqui.basic.StatusItem statusId="AI_APPR_APPROVED" statusTypeId="AiApprovalStatus" sequenceNum="2" description="Approved"/>
+    <moqui.basic.StatusItem statusId="AI_APPR_REJECTED" statusTypeId="AiApprovalStatus" sequenceNum="3" description="Rejected"/>
+    <moqui.basic.StatusFlow statusFlowId="AiApprovalFlow" statusTypeId="AiApprovalStatus" description="Approval decision"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiApprovalFlow" statusId="AI_APPR_PENDING" toStatusId="AI_APPR_APPROVED" transitionSequence="1" transitionName="Approve"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiApprovalFlow" statusId="AI_APPR_PENDING" toStatusId="AI_APPR_REJECTED" transitionSequence="2" transitionName="Reject"/>
 </entity-facade-xml>

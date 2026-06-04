@@ -66,6 +66,7 @@
         <field name="tokensOut" type="number-integer"/>
         <field name="estimatedCost" type="number-decimal"/>
         <field name="errorText" type="text-very-long"/>
+        <field name="pendingState" type="text-very-long"><description>Phase 4: JSON loop state when AI_RUN_SUSPENDED (messages, replayCount, stepSeq, candIdx, summary, result, turnToolCalls)</description></field>
         <field name="conversationId" type="id"><description>Phase 2: the conversation this run belongs to (optional)</description></field>
         <!-- one-nofk: AiAgentRun is append-only audit; it must not block the agent / conversation lifecycle -->
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
