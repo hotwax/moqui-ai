@@ -31,7 +31,7 @@ handled by convention.
 | 6 reasoning — OpenAI | ✅ **closed for v1** — works today via `modelName` (o-series), no framework change; normalized flag deferred |
 | **7 multi-provider fallback chain** | ✅ **SHIPPED** — `AiAgentModel` priority chain + sticky failover on provider-call failures; run records served provider/model; failed attempts logged as `llm_call_failed` steps |
 | **cost awareness — stamping + query** | ✅ **SHIPPED** — `estimatedCost` stamped per run from an effective-dated `AiModelPrice` (priced off the *served* model, post-fallback); `get#AiSpend` aggregates by agent / user / time window; `store#AiModelPrice` upserts prices. `maxCost` *enforcement* still ⏳ **deferred** (later policy task) — field intentionally unused |
-| **2 context management — Phase 1 (windowing + pinned facts)** | ✅ **SHIPPED** — agent-defined `remember` tool → `AiConversationFact`, injected into `systemContext`; message-count + char-guard windowing of replayed history (tool-pair-safe); drops logged as `context_trim` steps; gated by `AiAgent.contextStrategy` (default off = no behavior change). Compaction (Phase 2), tool-result clearing (Phase 3), semantic retrieval (Phase 6) remain ⏳ **deferred** |
+| **2 context management — Phase 1 (windowing + pinned facts) · Phase 2 (compaction)** | ✅ **SHIPPED** — agent-defined `remember` tool → `AiConversationFact`, injected into `systemContext`; message-count + char-guard windowing of replayed history (tool-pair-safe); drops logged as `context_trim` steps; gated by `AiAgent.contextStrategy` (default off = no behavior change). **Phase 2:** `contextStrategy=summarize` rolls overflow into a persisted `AiConversation.summaryText` (+ watermark) via the agent's own model, summarized once per run, injected as a `## Conversation summary` block; falls back to windowing on summarization failure; logged as `compaction` steps. Tool-result clearing (Phase 3), semantic retrieval (Phase 6) remain ⏳ **deferred** |
 | 9 tool-result caps · 11 masking hooks | ⏳ **deferred** (post-v1) |
 | 4 streaming · 10 tenantId / multi-tenancy | 🚫 **not building** |
 
@@ -42,7 +42,7 @@ handled by convention.
 | # | Decision | Verdict | Evidence / gap | v1 action |
 |---|---|---|---|---|
 | **1** | Session/conversation state — **we own it** | **ALIGNED** | History loaded from `AiConversationMessage` and replayed (`AgentRunner.loadConversationMessages`), never from provider. Chat Completions is stateless — no `previous_response_id`, no `store`. | none |
-| **2** | Context-window management | **SHIPPED (Phase 1)** | `contextStrategy` + `contextWindowMessages`/`contextWindowChars` on `AiAgent` (default off ⇒ full replay, no regression). Agent-defined pinned facts via the `remember` tool → `AiConversationFact`, injected into `systemContext` on every call (survive window eviction). Message-count + char-guard windowing of replayed history, tool-pair-safe (never orphans a tool result); drops logged as `context_trim` steps. Compaction (Phase 2), tool-result clearing (Phase 3), semantic retrieval (Phase 6) deferred. | **done (Phase 1)** |
+| **2** | Context-window management | **SHIPPED (Phases 1–2)** | `contextStrategy` + `contextWindowMessages`/`contextWindowChars` on `AiAgent` (default off ⇒ full replay, no regression). Agent-defined pinned facts via the `remember` tool → `AiConversationFact`, injected into `systemContext` on every call (survive window eviction). Message-count + char-guard windowing of replayed history, tool-pair-safe (never orphans a tool result); drops logged as `context_trim` steps. **Phase 2 (compaction):** `contextStrategy=summarize` rolls overflow into a persisted `AiConversation.summaryText` (+ `summaryThruMessageSeqId` watermark) using the agent's own model, summarized once per run, injected as a `## Conversation summary` block; on the next turn the persisted summary carries forward and is reused (watermark-filtered replay) with no re-summarization when there's no new overflow; falls back to windowing on summarization failure; logged as `compaction` steps. Tool-result clearing (Phase 3), semantic retrieval (Phase 6) deferred. | **done (Phases 1–2)** |
 | **3** | Provider built-in tools — not supported | **ALIGNED** | All tools resolve via the file catalog → a Moqui service (`dispatchTool` → `ec.service.sync()`). No provider-side execution path exists. | none |
 | **4** | Streaming — optional, off by default | **MISSING** | `provider.chat()` is sync-only; no `stream` flag, no SSE. "Off by default" satisfied trivially. | **not building** |
 | **5** | Structured output — normalized, schema-driven | **SHIPPED** | Agent-defined `AiAgent.responseSchema` → normalized `structuredResult` out-param. OpenAI via `response_format` json_schema (strict); Anthropic via forced synthetic `structured_output` tool on the closing turn. Verified live on both providers. | **done (v1)** — see Decision Record below |
@@ -53,8 +53,8 @@ handled by convention.
 | **10** | Metadata/correlation in our entities; none to provider | **DIVERGES → narrowed** | Provider side: no metadata sent (ALIGNED). Entity side: have `agentRunId`, `agentName`, `userId`, `fromDate`/`thruDate`, `providerName`, `modelName`, `tokensIn/Out`, `estimatedCost`, `conversationId`. **`tenantId` removed from scope** (single-business). `servedByModelId` + `providerRunId` correlation fields **shipped** — populated on `AiAgentRun` and exposed as `run#Agent` out-params. **Cost stamping + query shipped:** `estimatedCost` is now stamped per run from an effective-dated `AiModelPrice` (priced off the *served* model, post-fallback); `get#AiSpend` aggregates spend by agent / user / time window; `store#AiModelPrice` upserts prices. `maxCost` *enforcement* remains **deferred** (later policy task) — the field is intentionally still unused. | none for v1 |
 | **11** | PII/masking — hook-based | **MISSING** | No `preRequestHook`/`postResponseHook`; no hook points in `AgentRunner`. | **defer** — tools own AI-safe output (below) |
 
-**Tally:** 3 ALIGNED (1, 3, 8) · 1 narrowed (10) · shipped 3 (5, 7, 2-Phase 1) + cost stamping/query (under 10) ·
-defer 2 (9, 11) + context Phases 2/3/6 + `maxCost` enforcement · not building 2 (4, 10-tenantId) · closed-for-v1 1 (6).
+**Tally:** 3 ALIGNED (1, 3, 8) · 1 narrowed (10) · shipped 3 (5, 7, 2-Phases 1–2) + cost stamping/query (under 10) ·
+defer 2 (9, 11) + context Phases 3/6 + `maxCost` enforcement · not building 2 (4, 10-tenantId) · closed-for-v1 1 (6).
 
 ---
 
@@ -66,11 +66,16 @@ defer 2 (9, 11) + context Phases 2/3/6 + `maxCost` enforcement · not building 2
    Completions is also the shape Anthropic/Google speak, preserving "switch provider = one field."
    **Stay on Chat Completions.** Revisit only if OpenAI ships a needed capability exclusively on
    Responses. → migration-audit doc closed as *evaluated, declined*.
-2. **Context management — Phase 1 SHIPPED.** Agent-defined pinned facts via the `remember` tool →
+2. **Context management — Phases 1–2 SHIPPED.** Agent-defined pinned facts via the `remember` tool →
    `AiConversationFact`, injected into `systemContext` (survive window eviction); message-count +
    char-guard windowing of replayed history (tool-pair-safe); drops logged as `context_trim` steps;
-   gated by `AiAgent.contextStrategy` (default off = no behavior change). Compaction (Phase 2),
-   tool-result clearing (Phase 3), and semantic retrieval (Phase 6) remain deferred.
+   gated by `AiAgent.contextStrategy` (default off = no behavior change). **Phase 2 (compaction):**
+   `contextStrategy=summarize` rolls overflow into a persisted `AiConversation.summaryText`
+   (+ `summaryThruMessageSeqId` watermark) using the agent's own model, summarized once per run,
+   injected as a `## Conversation summary` block; the persisted summary carries forward across turns
+   and is reused (watermark-filtered replay) without re-summarizing when there's no new overflow;
+   falls back to windowing on summarization failure; logged as `compaction` steps.
+   Tool-result clearing (Phase 3), and semantic retrieval (Phase 6) remain deferred.
 3. **Built-in tools — confirmed never (v1).**
 4. **Streaming — not building.** Not planned at this time.
 5. **Structured output — SHIPPED in v1.** Locked at the **agent definition** (see below). Agent-defined

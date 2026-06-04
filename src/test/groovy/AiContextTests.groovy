@@ -390,4 +390,41 @@ class AiContextTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SumMultiAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "a persisted summary carries forward and is reused without re-summarizing"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "CarryAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
+            contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "CarryAgent",
+            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE",
+            summaryText: "earlier: customer confirmed 3 units", summaryThruMessageSeqId: "00003"]).createOrUpdate()
+        // one live message past the watermark -> below window(2) -> NO overflow -> NO summarization call
+        EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+        m.set("conversationId", convId); m.setSequencedIdSecondary()
+        m.setAll([role: "user", content: "live one", fromDate: ec.user.nowTimestamp]); m.create()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
+        // only the main answer is enqueued; if the code wrongly re-summarized, it would consume this
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "answer", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = new org.moqui.ai.AgentRunner(ec, ai).run("CarryAgent", "and now?", convId)
+        EntityValue conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).one()
+        String sysSent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.systemContext as String
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        out.assistantMessage == "answer"                           // main answer not consumed by a stray summarize
+        sysSent.contains("earlier: customer confirmed 3 units")    // existing summary injected (carried forward)
+        conv.summaryText == "earlier: customer confirmed 3 units"  // unchanged — not regenerated (no overflow)
+        conv.summaryThruMessageSeqId == "00003"                    // watermark unchanged
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "CarryAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }
