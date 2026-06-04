@@ -88,6 +88,10 @@ cost/context shipped work for one decision record.
   Anthropic forbids forcing a tool while thinking is enabled).
 - **Operator note:** set `reasoningEffort` only on agents whose model supports reasoning; a
   non-reasoning OpenAI model rejects `reasoning_effort`.
+- **Transport caveat:** the provider transport is non-streaming (default `ai_timeout_seconds` = 60). A
+  high-effort Anthropic request sets `max_tokens` = budget + 4096 (28672 at `high`), and a long thinking
+  response can exceed 60s — raise `ai_timeout_seconds` for high-effort agents. Live coverage exercises
+  `low` only; `medium`/`high` budgets are unit-tested at the body-encoding level.
 - **Deferred:** Anthropic reasoning + tools (thinking-block preservation); Gemini `thinkingConfig`
   (lands with the Gemini provider).
 
