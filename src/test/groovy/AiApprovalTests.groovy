@@ -125,4 +125,73 @@ class AiApprovalTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ApprAgent3").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "approve#ToolCall decides the approval, resumes the run, and the gated tool executes"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "ApprAgent4", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentName: "ApprAgent4",
+            toolName: "moqui.ai.test.TestServices.get#GatedEcho"]).createOrUpdate()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "c1", name: "moqui.ai.test.TestServices.get#GatedEcho", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
+        MockProvider.enqueue([assistantText: "done after approval", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ApprAgent4", userMessage: "go"]).call()
+        String approvalId = ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).list()[0].approvalId
+        when:
+        Map dec = ec.service.sync().name("ai.ApprovalServices.approve#ToolCall").parameters([approvalId: approvalId]).call()
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
+        then:
+        dec.runStatusId == "AI_RUN_COMPLETED"
+        run.assistantMessage == "done after approval"
+        run.pendingState == null
+        // the gated tool actually executed (a successful AiToolCall for it)
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
+        cleanup:
+        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "ApprAgent4").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ApprAgent4").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "reject#ToolCall decides the approval, resumes the run, and the gated call is denied"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "ApprAgent5", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentName: "ApprAgent5",
+            toolName: "moqui.ai.test.TestServices.get#GatedEcho"]).createOrUpdate()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "c1", name: "moqui.ai.test.TestServices.get#GatedEcho", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
+        MockProvider.enqueue([assistantText: "ok, skipped that", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ApprAgent5", userMessage: "go"]).call()
+        String approvalId = ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).list()[0].approvalId
+        when:
+        Map dec = ec.service.sync().name("ai.ApprovalServices.reject#ToolCall")
+            .parameters([approvalId: approvalId, decisionNote: "not allowed"]).call()
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
+        EntityValue tc = ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one()
+        then:
+        dec.runStatusId == "AI_RUN_COMPLETED"
+        run.assistantMessage == "ok, skipped that"
+        run.pendingState == null
+        // the gated call was recorded as denied (not executed)
+        tc.success == "N"
+        (tc.result as String).contains("Denied")
+        cleanup:
+        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "ApprAgent5").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ApprAgent5").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }
