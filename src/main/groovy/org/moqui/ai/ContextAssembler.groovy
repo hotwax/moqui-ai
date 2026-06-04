@@ -15,7 +15,7 @@ class ContextAssembler {
         return sb.toString()
     }
 
-    /** Prepend a rolling-summary block to the system prompt. No-op when there is no summary. */
+    /** Append a rolling-summary block to the system prompt. No-op when there is no summary. */
     static String withSummary(String systemPrompt, String summaryText) {
         if (!summaryText) return systemPrompt
         StringBuilder sb = new StringBuilder(systemPrompt ?: "")

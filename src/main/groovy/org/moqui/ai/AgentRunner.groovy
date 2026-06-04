@@ -13,6 +13,10 @@ import org.slf4j.LoggerFactory
 class AgentRunner {
     protected final static Logger logger = LoggerFactory.getLogger(AgentRunner.class)
     private static final String REMEMBER_TOOL = "remember"
+    private static final String SUMMARY_INSTRUCTION =
+        "You are compacting a conversation to save context. Update the running summary to incorporate " +
+        "the new messages below. Be concise but PRESERVE decisions, commitments, identifiers, and any " +
+        "values that may matter later. Output only the updated summary text."
 
     private final ExecutionContext ec
     private final AiToolFactory ai
@@ -35,7 +39,8 @@ class AgentRunner {
         int maxIter = (agent.maxIterations ?: 8) as int
         long maxTokens = (agent.maxTokens ?: 0L) as long          // 0 = no limit
         int maxToolCalls = (agent.maxToolCallsPerTurn ?: 20) as int
-        boolean ctxOn = (agent.contextStrategy == "window")
+        boolean ctxSummarize = (agent.contextStrategy == "summarize")
+        boolean ctxOn = (agent.contextStrategy == "window") || ctxSummarize
         int ctxMsgs = (agent.contextWindowMessages ?: 20) as int
         int ctxChars = (agent.contextWindowChars ?: 48000) as int
 
@@ -61,7 +66,12 @@ class AgentRunner {
             providerName: primary.providerName, modelName: primary.modelName, userMessage: userMessage])
 
         // history replay: prior conversation messages, then this turn's user message
-        List<Map> messages = conversationId ? loadConversationMessages(conversationId) : []
+        EntityValue conv = conversationId ? ec.entity.find("moqui.ai.AiConversation")
+            .condition("conversationId", conversationId).one() : null
+        String summaryText = conv?.summaryText
+        String summaryWatermark = conv?.summaryThruMessageSeqId
+        List<Map> messages = conversationId
+            ? loadConversationMessages(conversationId, ctxSummarize ? summaryWatermark : null) : []
         int replayCount = messages.size()
         messages.add([role: "user", content: userMessage])
         if (conversationId) persistConversationMessage(conversationId, runId, [role: "user", content: userMessage])
@@ -72,20 +82,32 @@ class AgentRunner {
             for (int i = 0; i < maxIter; i++) {
                 result.iterations = i + 1
                 // request Map in, response Map out -- external HTTP, no tx held
-                String sysCtx = agent.systemPrompt as String
-                List<Map> sendMessages = messages
                 // Re-assembled every iteration on purpose: a tool may call `remember` mid-run, so a
                 // later iteration must see the new fact (and re-window the grown history). Do not hoist.
+                String sysCtx = agent.systemPrompt as String
+                List<Map> sendMessages = messages
                 if (ctxOn) {
                     int rc = Math.min(replayCount, messages.size())
                     Map asm = ContextAssembler.windowHistory(messages.subList(0, rc),
                         messages.subList(rc, messages.size()), ctxMsgs, ctxChars)
                     sendMessages = asm.messages as List<Map>
-                    sysCtx = ContextAssembler.withFacts(sysCtx, loadFacts(conversationId))
+                    List<Map> droppedMsgs = (asm.droppedMessages ?: []) as List<Map>
+                    if (ctxSummarize && droppedMsgs) {
+                        String rolled = summarizeOverflow(primary, summaryText, droppedMsgs, runId, result)
+                        if (rolled != null) {
+                            summaryText = rolled
+                            summaryWatermark = droppedMsgs.last().messageSeqId as String
+                            persist("update#moqui.ai.AiConversation", [conversationId: conversationId,
+                                summaryText: summaryText, summaryThruMessageSeqId: summaryWatermark])
+                        }
+                    }
+                    sysCtx = ContextAssembler.withFacts(
+                        ContextAssembler.withSummary(sysCtx, summaryText), loadFacts(conversationId))
                     if ((asm.dropped as int) > 0) {
                         stepSeq++
                         persist("create#moqui.ai.AiAgentRunStep", [agentRunId: runId, stepSeqId: stepSeq as String,
-                            stepType: "context_trim", finishReason: "dropped:${asm.dropped}" as String])
+                            stepType: ctxSummarize ? "compaction" : "context_trim",
+                            finishReason: "dropped:${asm.dropped}" as String])
                     }
                 }
                 Map call = callWithFailover(candidates, candIdx,
@@ -236,6 +258,28 @@ class AgentRunner {
         } catch (Throwable t) { logger.warn("Fact load failed (continuing without facts): ${t.message}"); return [] }
     }
 
+    /** Roll the overflow into the conversation summary using the agent's own (primary) model.
+     *  Returns the new summary text, or null on failure (caller falls back to plain windowing). */
+    private String summarizeOverflow(Map primary, String existingSummary, List<Map> overflow, String runId, Map result) {
+        try {
+            StringBuilder sb = new StringBuilder()
+            if (existingSummary) sb.append("Existing summary:\n").append(existingSummary).append("\n\n")
+            sb.append("New messages to fold in:\n")
+            for (Map m in overflow) sb.append("[").append(m.role).append("] ").append(m.content ?: "").append("\n")
+            LlmProvider p = ai.getProvider(primary.providerName as String)
+            Map resp = p.chat([model: primary.modelName, systemContext: SUMMARY_INSTRUCTION,
+                messages: [[role: "user", content: sb.toString()]]])
+            String text = resp.assistantText as String
+            if (!text) return null
+            result.tokensIn += (resp.tokensIn ?: 0L) as long
+            result.tokensOut += (resp.tokensOut ?: 0L) as long
+            return text
+        } catch (Throwable t) {
+            logger.warn("Compaction summarization failed (falling back to windowing): ${t.message}")
+            return null
+        }
+    }
+
     /** Effective price for (provider, model) at now → estimated cost from token counts, or 0 when
      *  no price is configured (cost stays 0; never blocks a run). */
     private BigDecimal estimateCost(String providerName, String modelName, long tokensIn, long tokensOut) {
@@ -301,12 +345,16 @@ class AgentRunner {
         return result
     }
 
-    /** Load persisted conversation messages, in order, as a List of message Maps. */
-    private List<Map> loadConversationMessages(String conversationId) {
+    /** Load persisted conversation messages, in order, as message Maps (incl. messageSeqId).
+     *  When afterSeqId is set, only messages with a greater messageSeqId are returned (the live
+     *  tail past a compaction watermark). */
+    private List<Map> loadConversationMessages(String conversationId, String afterSeqId = null) {
         List<Map> out = []
-        for (EntityValue m in ec.entity.find("moqui.ai.AiConversationMessage")
-                .condition("conversationId", conversationId).orderBy("messageSeqId").list()) {
-            Map msg = [role: m.role, content: m.content]
+        def finder = ec.entity.find("moqui.ai.AiConversationMessage")
+            .condition("conversationId", conversationId).orderBy("messageSeqId")
+        if (afterSeqId) finder.condition("messageSeqId", "greater", afterSeqId)
+        for (EntityValue m in finder.list()) {
+            Map msg = [role: m.role, content: m.content, messageSeqId: m.messageSeqId]
             if (m.toolCallId) msg.toolCallId = m.toolCallId
             if (m.toolCalls) msg.toolCalls = new groovy.json.JsonSlurper().parseText(m.toolCalls as String)
             out.add(msg)

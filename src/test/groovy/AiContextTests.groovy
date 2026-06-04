@@ -281,4 +281,75 @@ class AiContextTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "FidAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "summarize strategy compacts overflow into a persisted rolling summary"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SumAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
+            contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SumAgent",
+            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        (1..5).each { i ->
+            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+            m.set("conversationId", convId); m.setSequencedIdSecondary()
+            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+        }
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "SUMMARY: discussed old 1-3", finishReason: "stop", toolCalls: [], tokensIn: 5L, tokensOut: 3L])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        new org.moqui.ai.AgentRunner(ec, ai).run("SumAgent", "newest", convId)
+        EntityValue conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).one()
+        String sysSent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.systemContext as String
+        List sent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.messages as List
+        then:
+        conv.summaryText == "SUMMARY: discussed old 1-3"
+        conv.summaryThruMessageSeqId != null
+        sysSent.contains("## Conversation summary (earlier turns)")
+        sysSent.contains("SUMMARY: discussed old 1-3")
+        sent.collect { it.content } == ["old 4", "old 5", "newest"]
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SumAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "summarization failure falls back to windowing and the run still completes"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        org.moqui.ai.provider.MockProvider.reset()
+        org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SumFailAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
+            contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SumFailAgent",
+            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        (1..5).each { i ->
+            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+            m.set("conversationId", convId); m.setSequencedIdSecondary()
+            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+        }
+        org.moqui.ai.provider.MockProvider.enqueue([__error: "summary provider down"])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = new org.moqui.ai.AgentRunner(ec, ai).run("SumFailAgent", "newest", convId)
+        EntityValue conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).one()
+        List sent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.messages as List
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        conv.summaryText == null
+        sent.collect { it.content } == ["old 4", "old 5", "newest"]
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SumFailAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }
