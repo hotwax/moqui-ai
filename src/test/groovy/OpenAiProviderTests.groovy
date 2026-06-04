@@ -40,6 +40,24 @@ class OpenAiProviderTests extends Specification {
         body.messages[1].tool_call_id == "c1"
     }
 
+    def "encodeRequest emits reasoning_effort when reasoning.effort is set"() {
+        given: def p = new OpenAiProvider("k", "u", 60)
+        when:
+        def body = new groovy.json.JsonSlurper().parseText(p.encodeRequest(
+            [model: "o4-mini", messages: [[role: "user", content: "hi"]], reasoning: [effort: "high"]]))
+        then:
+        body.reasoning_effort == "high"
+    }
+
+    def "encodeRequest omits reasoning_effort when no reasoning is set"() {
+        given: def p = new OpenAiProvider("k", "u", 60)
+        when:
+        def body = new groovy.json.JsonSlurper().parseText(p.encodeRequest(
+            [model: "gpt-4o-mini", messages: [[role: "user", content: "hi"]]]))
+        then:
+        !body.containsKey("reasoning_effort")
+    }
+
     def "decodes a tool_calls response (arguments JSON string -> Map)"() {
         given: def p = new OpenAiProvider("k", "u", 60)
         String raw = '''{"choices":[{"finish_reason":"tool_calls","message":{"content":null,
@@ -179,6 +197,30 @@ class OpenAiProviderTests extends Specification {
         cleanup:
         ec.artifactExecution.disableAuthz()
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "OpenAiSentiment").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    @Requires({ System.getenv("ai_openai_key") })
+    def "live: an OpenAI reasoning agent with reasoningEffort completes"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "OpenAiReason", providerName: "openai",
+            modelName: "o4-mini", systemPrompt: "Answer briefly.", reasoningEffort: "low",
+            maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "OpenAiReason", userMessage: "What is 17 + 25? Reply with just the number."]).call()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        (out.assistantMessage as String)?.contains("42")
+        (out.tokensOut as long) > 0
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "OpenAiReason").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 }

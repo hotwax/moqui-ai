@@ -40,6 +40,9 @@ class OpenAiProvider extends AbstractLlmProvider {
         // If an agent ever needs BOTH tools and a responseSchema, gate this to the final turn.
         if (request.responseSchema) body.response_format = [type: "json_schema",
             json_schema: [name: "structured_output", schema: request.responseSchema, strict: true]]
+        // Reasoning depth — reasoning-capable models (o-series / GPT-5-class) only; a non-reasoning
+        // model will reject this (operator sets reasoningEffort only on a capable model).
+        if (request.reasoning?.effort) body.reasoning_effort = request.reasoning.effort
         return JsonOutput.toJson(body)
     }
 
