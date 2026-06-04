@@ -12,6 +12,7 @@
         <field name="contextStrategy" type="text-short"><description>off (default) | window. window = bound the replayed history + offer the remember tool + inject pinned facts (ADR 0001 Phase 1).</description></field>
         <field name="contextWindowMessages" type="number-integer"><description>When contextStrategy=window: max replayed prior-turn messages to keep (current turn always kept). Default 20 when unset.</description></field>
         <field name="contextWindowChars" type="number-integer"><description>When contextStrategy=window: char-estimate guard (~chars/4 tokens) for the assembled view. Default 48000 when unset.</description></field>
+        <field name="reasoningEffort" type="text-short"><description>none (default/unset) | low | medium | high. Provider-agnostic reasoning depth. OpenAI → reasoning_effort (reasoning-capable models only). Anthropic → extended thinking budget; v1 applies it ONLY to agents WITHOUT tool grants (reasoning+tools on Anthropic is deferred — needs thinking-block preservation across tool turns). No effect on providers/models that don't support reasoning.</description></field>
         <field name="maxIterations" type="number-integer"/>
         <field name="maxTokens" type="number-integer"/>
         <field name="maxCost" type="number-decimal"/>

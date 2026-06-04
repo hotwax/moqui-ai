@@ -85,6 +85,8 @@ class AgentRunner {
         int ctxMsgs = (agent.contextWindowMessages ?: 20) as int
         int ctxChars = (agent.contextWindowChars ?: 48000) as int
         Map primary = candidates[0]
+        String reasoningEffort = agent.reasoningEffort as String
+        Map reasoning = (reasoningEffort in ['low', 'medium', 'high']) ? [effort: reasoningEffort] : null
 
         List<Map> messages = st.messages as List<Map>
         int replayCount = st.replayCount as int
@@ -131,7 +133,8 @@ class AgentRunner {
                     }
                 }
                 Map call = callWithFailover(candidates, candIdx,
-                        [systemContext: sysCtx, messages: sendMessages, tools: toolSchemas, responseSchema: responseSchema], runId)
+                        [systemContext: sysCtx, messages: sendMessages, tools: toolSchemas,
+                         responseSchema: responseSchema, reasoning: reasoning], runId)
                 candIdx = call.idx as int                     // sticky: stay on the working candidate
                 result.servedProviderName = call.providerName
                 result.servedByModelId = call.modelName
