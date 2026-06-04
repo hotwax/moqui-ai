@@ -15,6 +15,14 @@ class ContextAssembler {
         return sb.toString()
     }
 
+    /** Prepend a rolling-summary block to the system prompt. No-op when there is no summary. */
+    static String withSummary(String systemPrompt, String summaryText) {
+        if (!summaryText) return systemPrompt
+        StringBuilder sb = new StringBuilder(systemPrompt ?: "")
+        sb.append("\n\n## Conversation summary (earlier turns)\n").append(summaryText).append("\n")
+        return sb.toString()
+    }
+
     /** Keep the last `maxMessages` of `replayed` (then char-guard trims more from the front),
      *  tool-pair-safe, and append the whole `current` turn. Returns [messages, dropped]. */
     static Map windowHistory(List<Map> replayed, List<Map> current, int maxMessages, int maxChars) {
@@ -34,7 +42,8 @@ class ContextAssembler {
             while (!kept.isEmpty() && kept[0].role == "tool") kept.remove(0)
         }
         List<Map> out = new ArrayList<>(kept); out.addAll(cur)
-        return [messages: out, dropped: total - kept.size()]
+        List<Map> droppedMessages = new ArrayList<>(src.subList(0, total - kept.size()))
+        return [messages: out, dropped: total - kept.size(), droppedMessages: droppedMessages]
     }
 
     private static int charLen(List<Map> msgs) {

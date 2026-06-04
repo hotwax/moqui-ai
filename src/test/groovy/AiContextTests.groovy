@@ -89,6 +89,33 @@ class AiContextTests extends Specification {
         r.dropped >= 4
     }
 
+    def "withSummary prepends a Conversation summary block when summary is present"() {
+        when:
+        String s = ContextAssembler.withSummary("Be helpful.", "Customer confirmed 3 units, net-30 terms.")
+        then:
+        s.contains("Be helpful.")
+        s.contains("## Conversation summary (earlier turns)")
+        s.contains("Customer confirmed 3 units, net-30 terms.")
+    }
+
+    def "withSummary is a no-op when there is no summary"() {
+        expect:
+        ContextAssembler.withSummary("Be helpful.", null) == "Be helpful."
+        ContextAssembler.withSummary("Be helpful.", "") == "Be helpful."
+    }
+
+    def "windowHistory returns the dropped messages (oldest replayed not kept)"() {
+        given:
+        List replayed = (1..6).collect { [role: "user", content: "old ${it}"] }
+        List current = [[role: "user", content: "now"]]
+        when:
+        Map r = ContextAssembler.windowHistory(replayed, current, 2, 1000000)
+        then:
+        r.dropped == 4
+        (r.droppedMessages as List).collect { it.content } == ["old 1", "old 2", "old 3", "old 4"]
+        (r.messages as List).collect { it.content } == ["old 5", "old 6", "now"]
+    }
+
     def "windowed agent sends only the last N replayed messages to the provider"() {
         given:
         ec.artifactExecution.disableAuthz()
