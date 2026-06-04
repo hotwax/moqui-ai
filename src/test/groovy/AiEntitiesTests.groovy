@@ -96,4 +96,21 @@ class AiEntitiesTests extends Specification {
         ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", "CONVFACT1").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "AiConversation stores a rolling summary + watermark"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        String cid = "CONVSUM1"
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: cid, agentName: "A",
+            fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE",
+            summaryText: "earlier: customer wants 3 units", summaryThruMessageSeqId: "00007"]).create()
+        when:
+        def c = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", cid).one()
+        then:
+        c.summaryText == "earlier: customer wants 3 units"
+        c.summaryThruMessageSeqId == "00007"
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", cid).deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }

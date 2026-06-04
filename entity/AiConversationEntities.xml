@@ -9,6 +9,8 @@
         <field name="title" type="text-medium"/>
         <field name="fromDate" type="date-time"/>
         <field name="lastActivityDate" type="date-time"/>
+        <field name="summaryText" type="text-very-long"><description>ADR 0001 Phase 2: rolling summary of turns older than summaryThruMessageSeqId (compaction)</description></field>
+        <field name="summaryThruMessageSeqId" type="id"><description>Watermark: messageSeqId of the newest message already folded into summaryText</description></field>
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiConversationStatus: AI_CONV_ACTIVE | AI_CONV_CLOSED</description></field>
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
