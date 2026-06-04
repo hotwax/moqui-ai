@@ -211,6 +211,67 @@ class AgentRunner {
         }
     }
 
+    /** Resume a suspended run once its approvals are decided: execute the gated turn per each
+     *  decision (approved/non-gated → dispatch; rejected → a denial result the model can react to),
+     *  then continue the loop. Returns the run result. No-op (returns current status) if not suspended. */
+    Map resume(String agentRunId) {
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", agentRunId).one()
+        if (run == null) throw new IllegalArgumentException("Unknown run: ${agentRunId}")
+        if (run.statusId != "AI_RUN_SUSPENDED") return [agentRunId: agentRunId, statusId: run.statusId]
+
+        EntityValue agent = ec.entity.find("moqui.ai.AiAgent").condition("agentName", run.agentName).useCache(true).one()
+        String conversationId = run.conversationId
+        boolean ctxOn = (agent.contextStrategy == "window") || (agent.contextStrategy == "summarize")
+        List<Map> candidates = loadModelCandidates(run.agentName as String, agent)
+        List<Map> toolSchemas = withRememberTool(loadToolSchemas(run.agentName as String), ctxOn, conversationId)
+        Map responseSchema = agent.responseSchema ?
+            new groovy.json.JsonSlurper().parseText(agent.responseSchema as String) as Map : null
+
+        Map st = new groovy.json.JsonSlurper().parseText(run.pendingState as String) as Map
+        List<Map> messages = st.messages as List<Map>
+        int stepSeq = st.stepSeq as int
+        List<Map> turnToolCalls = st.turnToolCalls as List<Map>
+
+        Map<String, EntityValue> approvals = [:]
+        for (EntityValue a in ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", agentRunId).list())
+            approvals.put(a.toolCallId as String, a)
+
+        // (refinement 1) the assistant tool-call turn was withheld from the conversation at suspend
+        // (only added to in-memory messages); persist it now so the conversation holds a complete
+        // tool_call -> tool_result sequence (never an orphan).
+        if (conversationId) persistConversationMessage(conversationId, agentRunId, [role: "assistant", toolCalls: turnToolCalls])
+
+        // execute the suspended turn per decision, appending tool-result messages
+        for (Map tc in turnToolCalls) {
+            EntityValue appr = approvals.get(tc.id as String)
+            String resultJson
+            if (appr != null && appr.statusId == "AI_APPR_REJECTED") {
+                resultJson = JsonOutput.toJson([error: "Denied by user${appr.decisionNote ? ': ' + appr.decisionNote : ''}"])
+                persist("create#moqui.ai.AiToolCall", [agentRunId: agentRunId, stepSeqId: stepSeq as String,
+                    toolCallId: tc.id, toolName: tc.name, serviceName: ai.getTool(tc.name as String)?.serviceName,
+                    arguments: JsonOutput.toJson(tc.arguments ?: [:]), result: resultJson, success: "N",
+                    errorText: "rejected", durationMs: 0])
+            } else {
+                resultJson = (ctxOn && tc.name == REMEMBER_TOOL) ?
+                    rememberFact(agentRunId, stepSeq, conversationId, tc) : dispatchTool(agentRunId, stepSeq, tc)
+            }
+            Map toolMsg = [role: "tool", toolCallId: tc.id, content: resultJson]
+            messages.add(toolMsg)
+            if (conversationId) persistConversationMessage(conversationId, agentRunId, toolMsg)
+        }
+
+        // rehydrate the result Map (keys come back from JSON; ints/longs need care)
+        Map result = st.result as Map
+        result.tokensIn = (result.tokensIn ?: 0L) as long
+        result.tokensOut = (result.tokensOut ?: 0L) as long
+        result.iterations = (result.iterations ?: 0) as int
+        result.estimatedCost = 0G   // recomputed in finish()
+        persist("update#moqui.ai.AiAgentRun", [agentRunId: agentRunId, statusId: "AI_RUN_RUNNING", pendingState: null])
+        return continueAgent(agent, agentRunId, conversationId, candidates, toolSchemas, responseSchema,
+            [messages: messages, replayCount: st.replayCount as int, stepSeq: stepSeq, candIdx: st.candIdx as int,
+             summaryText: st.summaryText as String, summaryWatermark: st.summaryWatermark as String, result: result])
+    }
+
     /** Dispatch one tool-call Map via ec.service.sync (its own tx; Moqui authz applies). Tool
      *  errors are caught and returned as a JSON error so the loop can recover. */
     private String dispatchTool(String runId, int stepSeq, Map tc) {
