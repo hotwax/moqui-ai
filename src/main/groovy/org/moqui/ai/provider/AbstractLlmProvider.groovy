@@ -39,9 +39,6 @@ abstract class AbstractLlmProvider implements LlmProvider {
 
     @Override
     Map chat(Map request) {
-        Map<String, String> backToReal = [:]
-        for (Map t in (request.tools ?: []) as List<Map>) backToReal[sanitizeName(t.name as String)] = t.name as String
-
         String body = encodeRequest(request)
         RestClient rc = new RestClient().uri(baseUrl + endpointPath())
             .method('POST').contentType("application/json").timeout(timeoutSeconds).text(body)
@@ -59,8 +56,21 @@ abstract class AbstractLlmProvider implements LlmProvider {
         if (sc < 200 || sc >= 300) throw new RuntimeException("LLM provider ${name} HTTP ${sc}: ${text}")
 
         Map decoded = decodeResponse(text)
-        for (Map tc in (decoded.toolCalls ?: []) as List<Map>) tc.name = backToReal[tc.name as String] ?: tc.name
+        remapToolNames(decoded, request)
         if (request.responseSchema) applyStructured(decoded, request)
+        return decoded
+    }
+
+    /** Tool/function names are sanitized for the wire (see {@link #sanitizeName}); a provider therefore
+     *  returns the SANITIZED name on a tool call. Map each decoded tool-call name back to the original
+     *  Moqui service name so catalog lookups (AiToolFactory.getTool — the approval gate and dispatch)
+     *  resolve. The reverse map is rebuilt from THIS request's tool list each call, so no mutable
+     *  per-request state is kept on the (possibly shared/singleton) provider. Names with no match —
+     *  e.g. the synthetic structured_output tool — are left unchanged. Mutates decoded; returns it. */
+    protected Map remapToolNames(Map decoded, Map request) {
+        Map<String, String> backToReal = [:]
+        for (Map t in (request?.tools ?: []) as List<Map>) backToReal[sanitizeName(t.name as String)] = t.name as String
+        for (Map tc in (decoded?.toolCalls ?: []) as List<Map>) tc.name = backToReal[tc.name as String] ?: tc.name
         return decoded
     }
 }

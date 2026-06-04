@@ -42,6 +42,23 @@ class AnthropicProviderTests extends Specification {
         r.toolCalls[0].arguments.text == "hi"
     }
 
+    def "round-trips a sanitized tool_use name back to the raw Moqui service name"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        // encodeRequest sanitizes tool names for the wire, so a real provider echoes the SANITIZED
+        // name on its tool_use block. Catalog lookups (AiToolFactory.getTool, the approval gate,
+        // dispatch) are keyed by the RAW service name, so chat() must de-sanitize before returning.
+        Map request = [tools: [[name: "moqui.ai.test.TestServices.get#Echo", description: "echo",
+            parameters: [type: "object", properties: [text: [type: "string"]], required: ["text"]]]]]
+        String sanitizedResponse = '''{"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1},
+            "content":[{"type":"tool_use","id":"tu_1","name":"moqui_ai_test_TestServices_get_Echo","input":{"text":"hi"}}]}'''
+        when:
+        Map decoded = p.decodeResponse(sanitizedResponse)
+        p.remapToolNames(decoded, request)
+        then:
+        decoded.toolCalls[0].name == "moqui.ai.test.TestServices.get#Echo"   // de-sanitized for catalog lookup
+        decoded.toolCalls[0].arguments.text == "hi"
+    }
+
     def "decodes a plain text response (with providerRunId)"() {
         given: def p = new AnthropicProvider("k", "u", "v", 60)
         when:
@@ -178,6 +195,11 @@ class AnthropicProviderTests extends Specification {
         then:
         out.statusId == "AI_RUN_COMPLETED"
         (out.assistantMessage as String)?.toLowerCase()?.contains("marigold")
+        // dispatch actually executed on the real provider — proves the sanitized->raw tool-name
+        // round-trip held end-to-end (a broken remap records success="N", serviceName=null
+        // "Tool not in catalog", so this row would not exist).
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId)
+            .condition("serviceName", "moqui.ai.test.TestServices.get#Echo").condition("success", "Y").list().size() >= 1
         cleanup:
         ec.artifactExecution.disableAuthz()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "AnthropicEcho").deleteAll()

@@ -54,6 +54,25 @@ class OpenAiProviderTests extends Specification {
         r.toolCalls[0].arguments.text == "hi"
     }
 
+    def "round-trips a sanitized function name back to the raw Moqui service name"() {
+        given: def p = new OpenAiProvider("k", "u", 60)
+        // encodeRequest sanitizes tool names for the wire, so a real provider echoes the SANITIZED
+        // name on its tool call. Catalog lookups (AiToolFactory.getTool, the approval gate, dispatch)
+        // are keyed by the RAW service name, so chat() must de-sanitize before returning. Driving
+        // decodeResponse + remapToolNames reproduces that round-trip without an HTTP call.
+        Map request = [tools: [[name: "moqui.ai.test.TestServices.get#Echo", description: "echo",
+            parameters: [type: "object", properties: [text: [type: "string"]], required: ["text"]]]]]
+        String sanitizedResponse = '''{"choices":[{"finish_reason":"tool_calls","message":{"content":null,
+            "tool_calls":[{"id":"call_1","type":"function","function":{"name":"moqui_ai_test_TestServices_get_Echo","arguments":"{\\"text\\":\\"hi\\"}"}}]}}],
+            "usage":{"prompt_tokens":1,"completion_tokens":1}}'''
+        when:
+        Map decoded = p.decodeResponse(sanitizedResponse)
+        p.remapToolNames(decoded, request)
+        then:
+        decoded.toolCalls[0].name == "moqui.ai.test.TestServices.get#Echo"   // de-sanitized for catalog lookup
+        decoded.toolCalls[0].arguments.text == "hi"
+    }
+
     def "decodes a plain text response (with providerRunId)"() {
         given: def p = new OpenAiProvider("k", "u", 60)
         when:
@@ -126,6 +145,11 @@ class OpenAiProviderTests extends Specification {
         then:
         out.statusId == "AI_RUN_COMPLETED"
         (out.assistantMessage as String)?.toLowerCase()?.contains("marigold")
+        // dispatch actually executed on the real provider — proves the sanitized->raw tool-name
+        // round-trip held end-to-end (a broken remap records success="N", serviceName=null
+        // "Tool not in catalog", so this row would not exist).
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId)
+            .condition("serviceName", "moqui.ai.test.TestServices.get#Echo").condition("success", "Y").list().size() >= 1
         cleanup:
         ec.artifactExecution.disableAuthz()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "OpenAiEcho").deleteAll()
