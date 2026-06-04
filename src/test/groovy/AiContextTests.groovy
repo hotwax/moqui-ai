@@ -352,4 +352,42 @@ class AiContextTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SumFailAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "summarize does not re-summarize the same overflow across a multi-iteration run"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SumMultiAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "base", maxIterations: 5, statusId: "AI_AGENT_ACTIVE",
+            contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SumMultiAgent",
+            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        (1..5).each { i ->
+            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+            m.set("conversationId", convId); m.setSequencedIdSecondary()
+            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+        }
+        // [0] summarization call (iter 1); [1] iter-1 answer = call remember (forces iter 2);
+        // [2] iter-2 answer = "done". If the loop double-summarized on iter 2, it would consume [2]
+        // for the summary and the iter-2 main chat would fall through to the empty default.
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "S1", finishReason: "stop", toolCalls: [], tokensIn: 2L, tokensOut: 1L])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "k", factValue: "v"]]], tokensIn: 1L, tokensOut: 1L])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "done", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = new org.moqui.ai.AgentRunner(ec, ai).run("SumMultiAgent", "newest", convId)
+        EntityValue conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).one()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        out.assistantMessage == "done"            // iter-2 answer reached the main chat (no spurious 2nd summarize)
+        conv.summaryText == "S1"                   // summary rolled exactly once, not re-folded
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SumMultiAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }

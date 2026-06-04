@@ -92,11 +92,16 @@ class AgentRunner {
                         messages.subList(rc, messages.size()), ctxMsgs, ctxChars)
                     sendMessages = asm.messages as List<Map>
                     List<Map> droppedMsgs = (asm.droppedMessages ?: []) as List<Map>
-                    if (ctxSummarize && droppedMsgs) {
-                        String rolled = summarizeOverflow(primary, summaryText, droppedMsgs, runId, result)
+                    // Summarize each overflow set at most ONCE per run: summaryWatermark advances on
+                    // success, so later iterations (which see the same dropped prefix, since the replayed
+                    // messages list is fixed for the run) skip re-folding identical messages.
+                    // messageSeqId is lexically sortable (Moqui sequenced id), so > compares correctly.
+                    String dropThru = droppedMsgs ? (droppedMsgs.last().messageSeqId as String) : null
+                    if (ctxSummarize && droppedMsgs && (summaryWatermark == null || dropThru > summaryWatermark)) {
+                        String rolled = summarizeOverflow(primary, summaryText, droppedMsgs, result)
                         if (rolled != null) {
                             summaryText = rolled
-                            summaryWatermark = droppedMsgs.last().messageSeqId as String
+                            summaryWatermark = dropThru
                             persist("update#moqui.ai.AiConversation", [conversationId: conversationId,
                                 summaryText: summaryText, summaryThruMessageSeqId: summaryWatermark])
                         }
@@ -260,7 +265,10 @@ class AgentRunner {
 
     /** Roll the overflow into the conversation summary using the agent's own (primary) model.
      *  Returns the new summary text, or null on failure (caller falls back to plain windowing). */
-    private String summarizeOverflow(Map primary, String existingSummary, List<Map> overflow, String runId, Map result) {
+    /** Roll the overflow into the conversation summary using the agent's own PRIMARY model (note:
+     *  this does not follow the loop's sticky failover candidate — compaction is best-effort and
+     *  falls back to plain windowing on any failure). Returns the new summary text, or null. */
+    private String summarizeOverflow(Map primary, String existingSummary, List<Map> overflow, Map result) {
         try {
             StringBuilder sb = new StringBuilder()
             if (existingSummary) sb.append("Existing summary:\n").append(existingSummary).append("\n\n")
