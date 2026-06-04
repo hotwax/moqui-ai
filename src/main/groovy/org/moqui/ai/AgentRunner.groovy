@@ -263,8 +263,6 @@ class AgentRunner {
         } catch (Throwable t) { logger.warn("Fact load failed (continuing without facts): ${t.message}"); return [] }
     }
 
-    /** Roll the overflow into the conversation summary using the agent's own (primary) model.
-     *  Returns the new summary text, or null on failure (caller falls back to plain windowing). */
     /** Roll the overflow into the conversation summary using the agent's own PRIMARY model (note:
      *  this does not follow the loop's sticky failover candidate — compaction is best-effort and
      *  falls back to plain windowing on any failure). Returns the new summary text, or null. */
