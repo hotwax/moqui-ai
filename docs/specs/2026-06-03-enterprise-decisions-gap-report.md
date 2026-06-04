@@ -68,6 +68,29 @@ cost/context shipped work for one decision record.
   - (d) `get#PendingApproval` is a global operator read (any authenticated user, incl. tool args)
     until the Phase 5 permissions work lands.
 
+### Reasoning (effort flag) — SHIPPED 2026-06-04 (closes Decision 6 for OpenAI + Anthropic)
+
+- **Shipped:** `AiAgent.reasoningEffort` (`none|low|medium|high`, default unset) normalizes to a
+  `reasoning.effort` in the request, translated per provider:
+  - **OpenAI** — `reasoning_effort` (reasoning-capable models only — o-series / GPT-5-class; verified
+    live on o4-mini). Works with tools + multi-turn.
+  - **Anthropic** — extended `thinking{budget_tokens}` (low/medium/high = 1024/8192/24576) with
+    `max_tokens` bumped to `budget + 4096`; verified live on claude-sonnet-4-6.
+
+  Default unset ⇒ byte-for-byte unchanged. Reasoning tokens flow through the existing
+  `tokensOut`/cost accounting.
+- **v1 limitation (Anthropic only):** thinking is applied ONLY when the request carries NO tools — and
+  that includes the built-in `remember` tool, so context-managed conversational agents don't get
+  Anthropic thinking in v1. Reasoning + tools on Anthropic is deferred: it needs thinking-block
+  preservation across `tool_result` turns, which ripples into the shared message shape (conversations /
+  context windowing / approval `pendingState`). OpenAI has no such limit. When reasoning is on, Anthropic
+  structured output is best-effort (synthetic tool offered with auto `tool_choice`, not forced —
+  Anthropic forbids forcing a tool while thinking is enabled).
+- **Operator note:** set `reasoningEffort` only on agents whose model supports reasoning; a
+  non-reasoning OpenAI model rejects `reasoning_effort`.
+- **Deferred:** Anthropic reasoning + tools (thinking-block preservation); Gemini `thinkingConfig`
+  (lands with the Gemini provider).
+
 ---
 
 ## Gap report — current code vs. the 11 decisions

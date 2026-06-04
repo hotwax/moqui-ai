@@ -14,7 +14,8 @@ class AnthropicProvider extends AbstractLlmProvider {
 
     private static final String STRUCTURED_TOOL_NAME = "structured_output"
 
-    /** Effort level → Anthropic thinking budget_tokens (min 1024). Tunable. */
+    /** Effort level → Anthropic thinking budget_tokens. low/medium/high = 1024/8192/24576;
+     *  0 (disabled) for any other value. Tunable. */
     private static int effortToBudget(String effort) {
         switch (effort) {
             case "low": return 1024
@@ -61,6 +62,10 @@ class AnthropicProvider extends AbstractLlmProvider {
         // Extended thinking. v1: ONLY when there are no business tools — Anthropic requires preserving
         // thinking blocks across tool_result turns, which our message shape does not carry yet (deferred).
         // (responseSchema's synthetic tool is terminal — no tool_result round-trip — so thinking is safe with it.)
+        // Note: request.tools also includes the built-in `remember` tool (added by AgentRunner.withRememberTool
+        // when context-management is on + a conversation), so a context-managed conversational agent likewise
+        // suppresses thinking — intentional, since `remember` round-trips a tool_use/tool_result that v1 can't
+        // preserve thinking across.
         if (request.reasoning?.effort && !request.tools) {
             int budget = effortToBudget(request.reasoning.effort as String)
             if (budget > 0) {
