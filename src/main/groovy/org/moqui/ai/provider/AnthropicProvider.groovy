@@ -14,6 +14,16 @@ class AnthropicProvider extends AbstractLlmProvider {
 
     private static final String STRUCTURED_TOOL_NAME = "structured_output"
 
+    /** Effort level → Anthropic thinking budget_tokens (min 1024). Tunable. */
+    private static int effortToBudget(String effort) {
+        switch (effort) {
+            case "low": return 1024
+            case "medium": return 8192
+            case "high": return 24576
+            default: return 0
+        }
+    }
+
     @Override String getName() { return "anthropic" }
     @Override protected String endpointPath() { return "/v1/messages" }
     @Override protected Map<String, String> authHeaders() {
@@ -44,9 +54,19 @@ class AnthropicProvider extends AbstractLlmProvider {
                 description: "Return your final answer as structured data matching this schema. Call this tool exactly once, only when you have the final answer.",
                 input_schema: request.responseSchema])
             body.tools = toolsList
-            // No business tools => force the structured tool for a deterministic one-shot answer.
-            // With business tools, leave tool_choice auto so the model can use them first.
-            if (!request.tools) body.tool_choice = [type: "tool", name: STRUCTURED_TOOL_NAME]
+            // No business tools => force the structured tool for a deterministic one-shot answer —
+            // UNLESS reasoning is on (Anthropic forbids a forced tool_choice while thinking; offer it auto).
+            if (!request.tools && !request.reasoning?.effort) body.tool_choice = [type: "tool", name: STRUCTURED_TOOL_NAME]
+        }
+        // Extended thinking. v1: ONLY when there are no business tools — Anthropic requires preserving
+        // thinking blocks across tool_result turns, which our message shape does not carry yet (deferred).
+        // (responseSchema's synthetic tool is terminal — no tool_result round-trip — so thinking is safe with it.)
+        if (request.reasoning?.effort && !request.tools) {
+            int budget = effortToBudget(request.reasoning.effort as String)
+            if (budget > 0) {
+                body.thinking = [type: "enabled", budget_tokens: budget]
+                body.max_tokens = Math.max((body.max_tokens as int), budget + 4096)
+            }
         }
         return JsonOutput.toJson(body)
     }
