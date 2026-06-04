@@ -37,6 +37,39 @@ handled by convention.
 
 ---
 
+## Roadmap phases shipped (beyond the 11 decisions)
+
+These are roadmap phases, not items in the 11-decision matrix above — recorded here alongside the
+cost/context shipped work for one decision record.
+
+### Human approval gate (Phase 4) — SHIPPED
+
+- **Shipped:** tools flagged `requiresApproval` suspend the run at the gate — the run goes
+  `AI_RUN_SUSPENDED` with a `pendingState` JSON snapshot and one `AiToolApproval` (`AI_APPR_PENDING`)
+  per gated call in that turn. `approve#ToolCall` / `reject#ToolCall` (both → the shared
+  `decide#ToolCall`) record the decision (`AI_APPR_APPROVED` / `AI_APPR_REJECTED`); the **last**
+  decision for a run resumes it — approved (and non-gated) calls → dispatched, a rejected call → a
+  denial result fed back to the model so the agent **continues** (not abort). **Whole-turn
+  granularity:** a turn proposing *any* gated call suspends entirely — nothing in that turn runs until
+  it's decided, then all of it runs. `resume()` is **fail-closed** (refuses unless every gated call in
+  the turn is explicitly decided). The approval services are `transaction="ignore"` so the
+  resume/LLM loop holds no enclosing tx (mirrors `run#Agent`).
+- **Deferred (Phase 5+):** per-call granularity (decide one call, run the rest); approval expiry / TTL;
+  per-approver permissions; the approvals UI.
+- **Known v1 limitations:**
+  - (a) `pendingState` serializes the full message list — large for long conversations (a durability
+    pass comes later).
+  - (b) a crash mid-resume *before* `pendingState` is cleared could re-run not-yet-recorded calls.
+  - (c) **symmetric concurrent-decide race** — two simultaneous `decide#` calls on the *last two*
+    pending approvals of one multi-gated-call turn could each observe the other still-pending and
+    neither resume, stranding the run at `AI_RUN_SUSPENDED`. Low-probability; not cheaply fixable
+    without a tx around the LLM calls (which the design forbids). A future operator "force-resume" /
+    sweeper for SUSPENDED runs with zero pending approvals closes it.
+  - (d) `get#PendingApproval` is a global operator read (any authenticated user, incl. tool args)
+    until the Phase 5 permissions work lands.
+
+---
+
 ## Gap report — current code vs. the 11 decisions
 
 | # | Decision | Verdict | Evidence / gap | v1 action |

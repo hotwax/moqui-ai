@@ -57,6 +57,10 @@
         </actions>
     </service>
 
+    <!-- Operator queue: with no agentRunId this intentionally returns ALL pending approvals across all
+         runs (for an approvals dashboard). authenticate="true" only — per-approver permissions are
+         deferred to Phase 5; until then any authenticated user can read the pending queue (incl. tool
+         arguments). Do not "lock this down" piecemeal; it's gated by the Phase 5 permissions work. -->
     <service verb="get" noun="PendingApproval" authenticate="true">
         <in-parameters><parameter name="agentRunId"/></in-parameters>
         <out-parameters><parameter name="approvalList" type="List"/></out-parameters>

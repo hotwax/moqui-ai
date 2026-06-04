@@ -194,4 +194,92 @@ class AiApprovalTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ApprAgent5").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "a mixed turn (one gated + one non-gated call) suspends the WHOLE turn; approving runs both"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "ApprAgentMix", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        // grant BOTH tools: one ungated, one approval-gated
+        ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentName: "ApprAgentMix",
+            toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentName: "ApprAgentMix",
+            toolName: "moqui.ai.test.TestServices.get#GatedEcho"]).createOrUpdate()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        // one model turn proposing BOTH calls
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use", toolCalls: [
+            [id: "c1", name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "a"]],
+            [id: "c2", name: "moqui.ai.test.TestServices.get#GatedEcho", arguments: [text: "b"]]], tokensIn: 1L, tokensOut: 1L])
+        MockProvider.enqueue([assistantText: "both done", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when: // stateless run (no conversationId)
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ApprAgentMix", userMessage: "go"]).call()
+        then: // whole turn suspended: exactly ONE pending approval, for the gated call c2; nothing executed yet
+        out.statusId == "AI_RUN_SUSPENDED"
+        out.awaitingApproval == true
+        List pending = ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).condition("statusId", "AI_APPR_PENDING").list()
+        pending.size() == 1
+        pending[0].toolCallId == "c2"
+        // NEITHER tool ran while suspended (the ungated call did NOT slip through)
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).list().isEmpty()
+
+        when: // approve the one gated call via the service
+        String approvalId = pending[0].approvalId
+        Map dec = ec.service.sync().name("ai.ApprovalServices.approve#ToolCall").parameters([approvalId: approvalId]).call()
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
+        then: // run completed and BOTH tools ran successfully
+        dec.runStatusId == "AI_RUN_COMPLETED"
+        run.assistantMessage == "both done"
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c2").one().success == "Y"
+        cleanup:
+        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "ApprAgentMix").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ApprAgentMix").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "A1 regression: suspend on a conversation leaves no dangling tool_call; a later run replays cleanly"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "ApprAgentA1", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentName: "ApprAgentA1",
+            toolName: "moqui.ai.test.TestServices.get#GatedEcho"]).createOrUpdate()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        Map c = ec.service.sync().name("ai.AgentServices.create#Conversation").parameters([agentName: "ApprAgentA1"]).call()
+        String convId = c.conversationId
+        // first run: gated tool_use → suspends
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "c1", name: "moqui.ai.test.TestServices.get#GatedEcho", arguments: [text: "x"]]], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "ApprAgentA1", userMessage: "go", conversationId: convId]).call()
+        then: // suspended
+        out.statusId == "AI_RUN_SUSPENDED"
+        // deterministic A1 guard: the suspended assistant tool-call turn was withheld (refinement 1),
+        // so NO persisted conversation message carries toolCalls — only the user message was persisted
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).list().findAll { it.toolCalls != null }.isEmpty()
+
+        when: // behavioral guard: a SECOND run on the SAME conversation WITHOUT deciding the approval, scripted to a plain stop
+        MockProvider.enqueue([assistantText: "hello again", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        Map out2 = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "ApprAgentA1", userMessage: "again", conversationId: convId]).call()
+        then: // the replayed history has no malformed (dangling tool_call) turn → completes cleanly
+        out2.statusId == "AI_RUN_COMPLETED"
+        cleanup:
+        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "ApprAgentA1").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ApprAgentA1").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }
