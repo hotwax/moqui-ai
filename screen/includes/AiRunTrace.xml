@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        require-authentication="false">
+    <!-- Shared run-trace include: steps + tool calls for one agent run. Reused by Playground,
+         Runs/RunDetail, and the dev console so a run renders identically everywhere. -->
+    <parameter name="agentRunId" required="true"/>
+    <actions>
+        <entity-find entity-name="moqui.ai.AiAgentRunStep" list="stepList"><econdition field-name="agentRunId"/><order-by field-name="stepSeqId"/></entity-find>
+        <entity-find entity-name="moqui.ai.AiToolCall" list="callList"><econdition field-name="agentRunId"/><order-by field-name="stepSeqId,toolCallId"/></entity-find>
+    </actions>
+    <widgets>
+        <form-list name="Steps" list="stepList" skip-form="true">
+            <field name="stepSeqId"><default-field title="Seq"><display/></default-field></field>
+            <field name="stepType"><default-field title="Type"><display/></default-field></field>
+            <field name="tokensIn"><default-field title="In"><display/></default-field></field>
+            <field name="tokensOut"><default-field title="Out"><display/></default-field></field>
+            <field name="finishReason"><default-field title="Finish"><display/></default-field></field>
+        </form-list>
+        <form-list name="ToolCalls" list="callList" skip-form="true">
+            <field name="toolName"><default-field title="Tool"><display/></default-field></field>
+            <field name="success"><default-field title="OK"><display/></default-field></field>
+            <field name="arguments"><default-field title="Arguments"><display/></default-field></field>
+            <field name="result"><default-field title="Result"><display/></default-field></field>
+            <field name="durationMs"><default-field title="ms"><display/></default-field></field>
+        </form-list>
+    </widgets>
+</screen>

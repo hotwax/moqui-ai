@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Playground" require-authentication="true">
+    <parameter name="userMessage"/>
+    <parameter name="agentRunId"/>   <!-- set after a run, to show the result + trace -->
+
+    <!-- run#OmsAssistant creates the nn-oms-assistant agent on first call (idempotent store#) then runs it,
+         so the Playground works on a fresh DB with no pre-loaded agent. Authorized via the AiOps screen's inheritAuthz. -->
+    <transition name="run">
+        <service-call name="notnaked.OmsAiServices.run#OmsAssistant" out-map="context"
+            in-map="[userMessage: userMessage]"/>
+        <default-response url="."><parameter name="agentRunId"/></default-response>
+    </transition>
+
+    <actions>
+        <if condition="agentRunId"><entity-find-one entity-name="moqui.ai.AiAgentRun" value-field="run"/></if>
+    </actions>
+
+    <widgets>
+        <container-box>
+            <box-header title="NotNaked OMS Assistant"/>
+            <box-body>
+                <label text="Ask about your orders. The agent calls the get#OrderSummaryList tool, then answers." type="p"/>
+                <form-single name="RunForm" transition="run">
+                    <field name="userMessage"><default-field title="Message">
+                        <text-area rows="3" cols="80" default-value="Summarize the current orders"/></default-field></field>
+                    <field name="submitField"><default-field title=""><submit text="Run"/></default-field></field>
+                </form-single>
+            </box-body>
+        </container-box>
+
+        <section name="Result">
+            <condition><expression>run</expression></condition>
+            <widgets>
+                <container-box>
+                    <box-header title="Answer — ${run.statusId} · ${run.servedByModelId} · ${run.tokensIn}/${run.tokensOut} tok · $${run.estimatedCost}"/>
+                    <box-body><label text="${run.assistantMessage}" type="p"/></box-body>
+                </container-box>
+                <include-screen location="component://moqui-ai/screen/includes/AiRunTrace.xml">
+                    <parameter name="agentRunId" from="run.agentRunId"/></include-screen>
+            </widgets>
+        </section>
+    </widgets>
+</screen>

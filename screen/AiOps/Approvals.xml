@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Approvals" require-authentication="true">
+    <!-- v1 security: require-authentication only (any logged-in user). AI_OPERATOR group + ArtifactAuthz deferred.
+         The approve/reject services run as the logged-in operator; Moqui authz applies to the called services. -->
+
+    <!-- Per-row actions: each Approve/Reject button is a hidden-form-link that POSTs the row's approvalId
+         (explicit parameter) plus the sibling editable decisionNote (pass-through-parameters) to the
+         shipped service. Resuming the suspended run is automatic (ApprovalServices.decide#ToolCall). -->
+    <transition name="approve">
+        <service-call name="ai.ApprovalServices.approve#ToolCall" in-map="[approvalId:approvalId, decisionNote:decisionNote]"/>
+        <default-response url="."/>
+    </transition>
+    <transition name="reject">
+        <service-call name="ai.ApprovalServices.reject#ToolCall" in-map="[approvalId:approvalId, decisionNote:decisionNote]"/>
+        <default-response url="."/>
+    </transition>
+
+    <actions>
+        <entity-find entity-name="moqui.ai.AiToolApproval" list="pendingList">
+            <econdition field-name="statusId" value="AI_APPR_PENDING"/>
+            <order-by field-name="requestedDate"/>
+        </entity-find>
+    </actions>
+    <widgets>
+        <label text="Pending tool-call approvals — approve or reject. Approving resumes the suspended run." type="p"/>
+        <label text="No pending approvals." type="p" condition="!pendingList"/>
+
+        <form-list name="Pending" list="pendingList" skip-form="true" condition="pendingList">
+            <field name="approvalId"><default-field title="Approval"><display/></default-field></field>
+            <field name="agentRunId"><default-field title="Run">
+                <link url="../RunDetail" text="${agentRunId}" link-type="anchor" url-type="screen" parameter-map="[agentRunId:agentRunId]"/>
+            </default-field></field>
+            <field name="toolName"><default-field title="Tool"><display/></default-field></field>
+            <field name="serviceName"><default-field title="Service"><display/></default-field></field>
+            <field name="arguments"><default-field title="Proposed args"><display/></default-field></field>
+            <field name="requestedDate"><default-field title="Requested"><display/></default-field></field>
+            <field name="decisionNote"><default-field title="Note"><text-line size="30"/></default-field></field>
+            <field name="approveAction"><default-field title="">
+                <link url="approve" text="Approve" link-type="hidden-form-link" btn-type="success" pass-through-parameters="true"
+                        confirmation="Approve this tool call and resume the run?">
+                    <parameter name="approvalId"/>
+                </link>
+            </default-field></field>
+            <field name="rejectAction"><default-field title="">
+                <link url="reject" text="Reject" link-type="hidden-form-link" btn-type="danger" pass-through-parameters="true"
+                        confirmation="Reject this tool call?">
+                    <parameter name="approvalId"/>
+                </link>
+            </default-field></field>
+        </form-list>
+    </widgets>
+</screen>

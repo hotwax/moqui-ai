@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- v1 authorization for the AI Ops console: grant all authenticated users (ALL_USERS) view+action
+     access to the moqui-ai screens + their transitions. Mirrors the built-in ALL_USERS -> ALL_SCREENS
+     grant. Tighten to a dedicated AI_OPERATOR group in a follow-up. -->
+<entity-facade-xml type="install">
+    <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_SCREENS" description="AI Ops console screens + transitions"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
+        artifactName="component://moqui-ai/screen/.*" artifactTypeEnumId="AT_XML_SCREEN" nameIsPattern="Y"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
+        artifactName="component://moqui-ai/screen/.*" artifactTypeEnumId="AT_XML_SCREEN_TRANS" nameIsPattern="Y"/>
+    <!-- entity reads/writes used by the screens + the agent loop (moqui.ai.*) -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
+        artifactName="moqui\.ai\..*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
+    <!-- AI services invoked from the screens (run#Agent, approvals, cost) + the NotNaked OMS tool/runner -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
+        artifactName="ai\..*" artifactTypeEnumId="AT_SERVICE" nameIsPattern="Y"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
+        artifactName="notnaked\.OmsAiServices\..*" artifactTypeEnumId="AT_SERVICE" nameIsPattern="Y"/>
+    <!-- inheritAuthz="Y": the screen grant cascades to the entities + services used inside the AiOps
+         screens (entity-finds, run#Agent, etc.) — without it, nested artifacts are denied (inheritable:false). -->
+    <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_ALL_USERS" userGroupId="ALL_USERS"
+        artifactGroupId="AI_OPS_SCREENS" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL" inheritAuthz="Y"/>
+</entity-facade-xml>
