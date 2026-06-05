@@ -1,3 +1,6 @@
 build/
 .gradle/
 dev.env
+
+# macOS
+.DS_Store
