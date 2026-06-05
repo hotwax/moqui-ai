@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<entity-facade-xml type="install">
+<entity-facade-xml type="ext-seed">
     <moqui.basic.StatusType statusTypeId="AiAgentRunStatus" description="AI Agent Run Status"/>
     <moqui.basic.StatusType statusTypeId="AiAgentStatus" description="AI Agent Status"/>
 
