@@ -22,7 +22,7 @@
     </entity>
 
     <entity entity-name="AiTool" package="moqui.ai">
-        <field name="toolName" type="id" is-pk="true"/>
+        <field name="toolName" type="id-long" is-pk="true"/>
         <field name="serviceName" type="text-medium"/>
         <field name="description" type="text-long"/>
         <field name="requiresApproval" type="text-indicator"><description>Y/N — when Y, a proposed call to this tool suspends the run for human approval (Phase 4 gate; see AiToolApproval + approve/reject#ToolCall)</description></field>
@@ -31,7 +31,7 @@
 
     <entity entity-name="AiAgentTool" package="moqui.ai">
         <field name="agentName" type="id" is-pk="true"/>
-        <field name="toolName" type="id" is-pk="true"/>
+        <field name="toolName" type="id-long" is-pk="true"/>
         <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
         <!-- one-nofk: in slice-1 the tool catalog is in-memory (from ai/*.tools.xml); the AiTool
              entity is not populated from files yet, so the grant references the catalog logically
