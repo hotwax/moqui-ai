@@ -254,7 +254,11 @@
         </actions>
     </service>
 
-    <!-- Cleanup: drop a draft (and its grants/held approvals). The screen "Discard draft" action. -->
+    <!-- Cleanup: drop a draft, its grants, AND the preview runs it spawned (with the steps / tool-calls /
+         held approvals hanging off them). A draft is exercised only via preview#Agent, whose would-be
+         mutating calls SUSPEND and write AI_APPR_PENDING rows; deleting those runs here is what keeps the
+         abandoned approvals out of the operator queue (ApprovalServices.get#PendingApproval). AiAgentRunStep
+         has a real FK to AiAgentRun, so steps are deleted before the run. The screen "Discard draft" action. -->
     <service verb="discard" noun="Draft" authenticate="true">
         <in-parameters><parameter name="agentId" required="true"/></in-parameters>
         <actions>
@@ -262,6 +266,14 @@
             <if condition="agent == null"><return/></if>
             <if condition="agent.statusId != 'AI_AGENT_DRAFT'">
                 <return error="true" message="Refusing to discard a non-draft agent ${agentId}"/></if>
+            <script><![CDATA[
+                for (run in ec.entity.find("moqui.ai.AiAgentRun").condition("agentId", agentId).list()) {
+                    ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", run.agentRunId).deleteAll()
+                    ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", run.agentRunId).deleteAll()
+                    ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", run.agentRunId).deleteAll()
+                }
+                ec.entity.find("moqui.ai.AiAgentRun").condition("agentId", agentId).deleteAll()
+            ]]></script>
             <entity-find entity-name="moqui.ai.AiAgentTool" list="grants"><econdition field-name="agentId"/></entity-find>
             <iterate list="grants" entry="g">
                 <service-call name="delete#moqui.ai.AiAgentTool" in-map="[agentId: g.agentId, toolId: g.toolId]"/>

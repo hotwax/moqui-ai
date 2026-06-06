@@ -417,4 +417,104 @@ class AiComposerTests extends Specification {
         ai.refreshCatalog()
         ec.artifactExecution.enableAuthz()
     }
+
+    // ---- Preview-run hygiene: a preview SUSPENDS on would-be mutating calls only to SHOW them, then
+    //      the run is abandoned. Those throwaway AI_RUN_SUSPENDED runs + AI_APPR_PENDING approvals must
+    //      be marked (isPreview), kept out of the operator queue, and removed on discard
+    //      (design open question; spec §12.1 cleanup). ----
+
+    def "runPreview marks its AiAgentRun as a preview run (isPreview=Y)"() {
+        given:
+        ec.artifactExecution.disableAuthz(); MockProvider.reset()
+        ec.entity.find("moqui.ai.AiTool").condition("toolName", "set_echo").deleteAll()  // isolation
+        Map mut = ec.service.sync().name("ai.ToolServices.store#AiTool").parameters([
+            serviceName: "moqui.ai.test.TestServices.set#Echo", verb: "set", noun: "echo",
+            description: "write echo", exposable: "Y"]).call()
+        ec.message.clearErrors()
+        dropAgentByName("PrevMarkDraft")
+        Map ag = ec.service.sync().name("ai.AgentServices.store#AiAgent").parameters([
+            agentName: "PrevMarkDraft", providerName: "mock", modelName: "mock-1",
+            systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_DRAFT"]).call()
+        ec.service.sync().name("store#moqui.ai.AiAgentTool").parameters([agentId: ag.agentId, toolId: mut.toolId]).call()
+        ai.refreshCatalog()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "w1", name: "set_echo", arguments: [text: "x"]]], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map r = new org.moqui.ai.AgentRunner(ec, ai).runPreview(ag.agentId as String, "go")
+        then: "the preview run is flagged so the queue/discard logic can recognize it"
+        r.statusId == "AI_RUN_SUSPENDED"
+        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", r.agentRunId).one().isPreview == "Y"
+        cleanup:
+        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", r.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", r.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", r.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", ag.agentId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", ag.agentId).deleteAll()
+        ec.entity.find("moqui.ai.AiTool").condition("toolId", mut.toolId).deleteAll()
+        ai.refreshCatalog()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "get#PendingApproval omits preview-run approvals but keeps real pending ones"() {
+        given: "a normal suspended run (isPreview null) and a preview suspended run, each with a pending approval"
+        ec.artifactExecution.disableAuthz()
+        String normRun = "TST_RUN_NORM", prevRun = "TST_RUN_PREV", normAppr = "TST_APPR_NORM", prevAppr = "TST_APPR_PREV"
+        for (id in [normRun, prevRun]) ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", id).deleteAll()
+        for (id in [normAppr, prevAppr]) ec.entity.find("moqui.ai.AiToolApproval").condition("approvalId", id).deleteAll()
+        // normal run: isPreview left null (the realistic case for pre-existing rows) -> must stay in the queue
+        ec.entity.makeValue("moqui.ai.AiAgentRun").setAll([agentRunId: normRun, statusId: "AI_RUN_SUSPENDED"]).create()
+        ec.entity.makeValue("moqui.ai.AiAgentRun").setAll([agentRunId: prevRun, statusId: "AI_RUN_SUSPENDED", isPreview: "Y"]).create()
+        ec.entity.makeValue("moqui.ai.AiToolApproval").setAll([approvalId: normAppr, agentRunId: normRun,
+            toolName: "set_echo", statusId: "AI_APPR_PENDING", requestedDate: ec.user.nowTimestamp]).create()
+        ec.entity.makeValue("moqui.ai.AiToolApproval").setAll([approvalId: prevAppr, agentRunId: prevRun,
+            toolName: "set_echo", statusId: "AI_APPR_PENDING", requestedDate: ec.user.nowTimestamp]).create()
+        when: "the operator queue is read (no run filter)"
+        Map out = ec.service.sync().name("ai.ApprovalServices.get#PendingApproval").parameters([:]).call()
+        List ids = (out.approvalList as List).collect { it.approvalId }
+        then: "the real pending approval is present; the preview one is excluded"
+        ids.contains(normAppr)
+        !ids.contains(prevAppr)
+        cleanup:
+        for (id in [normAppr, prevAppr]) ec.entity.find("moqui.ai.AiToolApproval").condition("approvalId", id).deleteAll()
+        for (id in [normRun, prevRun]) ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", id).deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "discard#Draft deletes the draft's preview runs and their held approvals"() {
+        given: "a draft with a mutating tool, previewed once so it suspended with a held approval"
+        ec.artifactExecution.disableAuthz(); MockProvider.reset()
+        ec.entity.find("moqui.ai.AiTool").condition("toolName", "set_echo").deleteAll()  // isolation
+        Map mut = ec.service.sync().name("ai.ToolServices.store#AiTool").parameters([
+            serviceName: "moqui.ai.test.TestServices.set#Echo", verb: "set", noun: "echo",
+            description: "write echo", exposable: "Y"]).call()
+        ec.message.clearErrors()
+        dropAgentByName("DiscDraft")
+        Map ag = ec.service.sync().name("ai.AgentServices.store#AiAgent").parameters([
+            agentName: "DiscDraft", providerName: "mock", modelName: "mock-1",
+            systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_DRAFT"]).call()
+        ec.service.sync().name("store#moqui.ai.AiAgentTool").parameters([agentId: ag.agentId, toolId: mut.toolId]).call()
+        ai.refreshCatalog()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "w1", name: "set_echo", arguments: [text: "x"]]], tokensIn: 1L, tokensOut: 1L])
+        Map prev = ec.service.sync().name("ai.ComposerServices.preview#Agent")
+            .parameters([agentId: ag.agentId, testMessage: "go"]).call()
+        assert prev.statusId == "AI_RUN_SUSPENDED"
+        assert ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", prev.agentRunId).list().size() == 1
+        when: "the draft is discarded"
+        ec.service.sync().name("ai.ComposerServices.discard#Draft").parameters([agentId: ag.agentId]).call()
+        then: "the draft, its grants, its preview run, the run's steps, and the held approval are all gone"
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", ag.agentId).one() == null
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", ag.agentId).list().isEmpty()
+        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", prev.agentRunId).one() == null
+        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", prev.agentRunId).list().isEmpty()
+        ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", prev.agentRunId).list().isEmpty()
+        cleanup:
+        ec.entity.find("moqui.ai.AiTool").condition("toolId", mut.toolId).deleteAll()
+        ai.refreshCatalog()
+        ec.artifactExecution.enableAuthz()
+    }
 }

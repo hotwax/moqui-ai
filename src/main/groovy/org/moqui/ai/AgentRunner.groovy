@@ -68,6 +68,7 @@ class AgentRunner {
         persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentId: agentId,
             agentName: agent.agentName, conversationId: conversationId,
             userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
+            isPreview: (forceApprovalOnMutating ? "Y" : null),
             providerName: primary.providerName, modelName: primary.modelName, userMessage: userMessage])
 
         // history replay: prior conversation messages, then this turn's user message

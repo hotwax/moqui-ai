@@ -17,10 +17,12 @@
     </transition>
 
     <actions>
-        <entity-find entity-name="moqui.ai.AiToolApproval" list="pendingList">
-            <econdition field-name="statusId" value="AI_APPR_PENDING"/>
-            <order-by field-name="requestedDate"/>
-        </entity-find>
+        <!-- Delegate to ai.ApprovalServices.get#PendingApproval so the preview-run exclusion (and any
+             future queue rules) live in ONE tested place. A Composer preview SUSPENDS on would-be mutating
+             calls and writes AI_APPR_PENDING rows that must NOT surface in this operator queue; the service
+             filters out approvals whose run is a preview (AiAgentRun.isPreview=Y). -->
+        <service-call name="ai.ApprovalServices.get#PendingApproval" out-map="context"/>
+        <set field="pendingList" from="approvalList"/>
     </actions>
     <widgets>
         <label text="Pending tool-call approvals — approve or reject. Approving resumes the suspended run." type="p"/>
