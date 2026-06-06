@@ -115,6 +115,5 @@
         <field name="success" type="text-indicator"/>
         <field name="errorText" type="text-very-long"/>
         <field name="durationMs" type="number-integer"/>
-        <field name="approvalStatus" type="text-short"><description>reserved for human-approval phase</description></field>
     </entity>
 </entities>

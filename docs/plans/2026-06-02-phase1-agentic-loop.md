@@ -1,5 +1,7 @@
 # Phase 1 (Slice 1): Working Agentic Loop — Implementation Plan
 
+> **Status: SHIPPED**, with two design changes since this plan: (1) the file-based `ai/*.tools.xml` tool catalog this plan assumes was REPLACED by a DB-backed catalog — see the registry keystone (docs/specs/2026-06-05-agent-tool-registry-design.md); (2) the 'attached knowledge' layer mentioned here was never built (see the phase6 note).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up the `moqui-ai` component so an agent defined in DB + a tool defined in an `ai/*.tools.xml` file can be invoked via `ai.AgentServices.run#Agent`, run a provider-agnostic agentic loop (tool calls dispatched through `ec.service.sync()`), persist full observability, and return the answer — proven end-to-end with a deterministic `MockProvider`, plus a real Anthropic adapter.

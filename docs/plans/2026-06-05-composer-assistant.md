@@ -1,5 +1,7 @@
 # Composer Assistant Implementation Plan (TDD)
 
+> **Update:** `list#DomainTerm` / `propose#Naming` shipped here as catalog-noun stubs are now backed by the real domain Glossary — see docs/plans/2026-06-05-builder-knowledgebase.md.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the **Composer Assistant** — itself an `AiAgent` (seeded `composer-assistant`) whose granted tools are the registry's authoring/introspection services — so a business user can **describe → answer questions → preview → activate** a new agent through ordinary conversation. The in-progress agent is a real `AI_AGENT_DRAFT`-status `AiAgent` row (Option A). Preview runs the draft through the existing `AgentRunner` with every mutating tool forced to `requiresApproval` (nothing irreversible fires; read-only tools run on real data). Activation flips `draft → active`, re-checks grants are `exposable`, and **requires human approval** via the existing approval gate. A **Composer** screen (chat + live draft panel + preview pane) lands under the AI Ops console.

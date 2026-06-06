@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Auto-seed the domain glossary on a schedule so a fresh install isn't left with an empty glossary
+     (which silently degrades list#DomainTerm / propose#Naming to bare catalog nouns).
+
+     seed#DomainGlossary derives noun terms from the deployed entity model + curated UDM concepts and
+     verb terms from the known service names, so it reflects whatever THIS deployment actually has and
+     cannot be shipped as static rows. It is idempotent (existing terms are skipped), so the daily run
+     seeds a fresh install and then no-ops; it also keeps the glossary in step as the model evolves.
+
+     paused="N" so it runs without operator action — unlike the external-integration poll jobs (which
+     ship paused="Y" because they need credentials/config first); this is internal reference data that
+     needs no setup. Operators can still trigger an immediate re-seed from the AiOps > Glossary screen.
+
+     Lives in its own data file (not AiGlossaryData.xml) so the glossary test suite, which loads only
+     the status/enum reference data, never picks up a runnable job. -->
+<entity-facade-xml type="ext">
+    <moqui.service.job.ServiceJob jobName="ai_seed_DomainGlossary"
+            description="Seed/refresh the AI domain glossary (idempotent)"
+            serviceName="ai.GlossaryServices.seed#DomainGlossary" cronExpression="0 0 * * *" paused="N"/>
+</entity-facade-xml>
