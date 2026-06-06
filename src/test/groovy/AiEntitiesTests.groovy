@@ -25,43 +25,92 @@ class AiEntitiesTests extends Specification {
         ec.entity.find("moqui.basic.StatusItem").condition("statusId", "AI_RUN_RUNNING").one() != null
     }
 
-    def "can create and read an AiAgent with a tool grant"() {
+    def "AiTool has opaque toolId PK with verb/noun/effect/exposable + AiToolDenylist + effect enum"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         when:
-        ec.entity.makeValue("moqui.ai.AiAgent")
-            .setAll([agentName: "T2Agent", providerName: "mock", modelName: "mock-1",
-                     systemPrompt: "test", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiTool")
-            .setAll([toolName: "get#Echo", serviceName: "moqui.ai.test.TestServices.get#Echo",
-                     description: "echo", requiresApproval: "N"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgentTool")
-            .setAll([agentName: "T2Agent", toolName: "get#Echo"]).createOrUpdate()
+        ec.entity.makeValue("moqui.ai.AiTool").setAll([toolId: "TOOL_T1", toolName: "list_orders",
+            verb: "list", noun: "orders", description: "List orders",
+            serviceName: "moqui.ai.test.TestServices.get#Echo", effectEnumId: "AI_TOOL_READ_ONLY",
+            exposable: "Y", requiresApproval: "N", sourceComponent: "moqui-ai",
+            statusId: "AI_TOOL_ACTIVE"]).create()
+        ec.entity.makeValue("moqui.ai.AiToolDenylist").setAll([servicePattern: ".*\\.delete#.*",
+            reason: "no deletes via AI"]).createOrUpdate()
+        EntityValue t = ec.entity.find("moqui.ai.AiTool").condition("toolId", "TOOL_T1").one()
         then:
-        EntityValue a = ec.entity.find("moqui.ai.AiAgent").condition("agentName", "T2Agent").one()
-        a != null
-        a.providerName == "mock"
-        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "T2Agent").list().size() == 1
-
+        t.toolName == "list_orders"
+        t.verb == "list"
+        t.effectEnumId == "AI_TOOL_READ_ONLY"
+        t.serviceName == "moqui.ai.test.TestServices.get#Echo"
+        ec.entity.find("moqui.basic.Enumeration").condition("enumId", "AI_TOOL_READ_ONLY").one() != null
+        ec.entity.find("moqui.basic.Enumeration").condition("enumId", "AI_TOOL_MUTATING").one() != null
+        ec.entity.find("moqui.basic.StatusItem").condition("statusId", "AI_TOOL_ACTIVE").one() != null
+        ec.entity.find("moqui.ai.AiToolDenylist").condition("servicePattern", ".*\\.delete#.*").one().reason == "no deletes via AI"
         cleanup:
-        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "T2Agent").deleteAll()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "T2Agent").deleteAll()
-        ec.entity.find("moqui.ai.AiTool").condition("toolName", "get#Echo").deleteAll()
+        ec.entity.find("moqui.ai.AiTool").condition("toolId", "TOOL_T1").deleteAll()
+        ec.entity.find("moqui.ai.AiToolDenylist").condition("servicePattern", ".*\\.delete#.*").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "AiAgent has opaque agentId PK with unique agentName + DRAFT status"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        when:
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AGENT_A1", agentName: "demo-agent",
+            description: "demo", providerName: "mock", modelName: "mock-1", systemPrompt: "x",
+            maxIterations: 5, statusId: "AI_AGENT_DRAFT"]).create()
+        EntityValue a = ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AGENT_A1").one()
+        then:
+        a.agentName == "demo-agent"
+        a.statusId == "AI_AGENT_DRAFT"
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "demo-agent").one().agentId == "AGENT_A1"
+        ec.entity.find("moqui.basic.StatusItem").condition("statusId", "AI_AGENT_DRAFT").one() != null
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AGENT_A1").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "can create and read an AiAgent with a tool grant (id-keyed)"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        when:
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AG_T2", agentName: "T2Agent",
+            providerName: "mock", modelName: "mock-1", systemPrompt: "test", maxIterations: 5,
+            statusId: "AI_AGENT_ACTIVE"]).create()
+        ec.entity.makeValue("moqui.ai.AiTool").setAll([toolId: "TL_ECHO", toolName: "get_echo",
+            verb: "get", noun: "echo", serviceName: "moqui.ai.test.TestServices.get#Echo",
+            description: "echo", effectEnumId: "AI_TOOL_READ_ONLY", exposable: "Y",
+            requiresApproval: "N", statusId: "AI_TOOL_ACTIVE"]).create()
+        ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentId: "AG_T2", toolId: "TL_ECHO"]).create()
+        then:
+        EntityValue a = ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AG_T2").one()
+        a.providerName == "mock"
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "AG_T2").list().size() == 1
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "AG_T2").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AG_T2").deleteAll()
+        ec.entity.find("moqui.ai.AiTool").condition("toolId", "TL_ECHO").deleteAll()
+        ec.artifactExecution.enableAuthz()
     }
 
     def "AiAgentModel stores priority-ordered provider/model candidates"() {
         given:
         ec.artifactExecution.disableAuthz()
         ec.entity.makeValue("moqui.ai.AiAgentModel")
-            .setAll([agentName: "EntAgent", priority: 0, providerName: "openai", modelName: "gpt-4o-mini"]).createOrUpdate()
+            .setAll([agentId: "EntAgent", priority: 0, providerName: "openai", modelName: "gpt-4o-mini"]).createOrUpdate()
         ec.entity.makeValue("moqui.ai.AiAgentModel")
-            .setAll([agentName: "EntAgent", priority: 1, providerName: "anthropic", modelName: "claude-sonnet-4-6"]).createOrUpdate()
+            .setAll([agentId: "EntAgent", priority: 1, providerName: "anthropic", modelName: "claude-sonnet-4-6"]).createOrUpdate()
         when:
-        List rows = ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "EntAgent").orderBy("priority").list()
+        List rows = ec.entity.find("moqui.ai.AiAgentModel").condition("agentId", "EntAgent").orderBy("priority").list()
         then:
         rows.size() == 2
         rows[0].providerName == "openai"
         rows[1].modelName == "claude-sonnet-4-6"
         cleanup:
-        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "EntAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentId", "EntAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -103,7 +152,7 @@ class AiEntitiesTests extends Specification {
         given:
         ec.artifactExecution.disableAuthz()
         String cid = "CONVSUM1"
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: cid, agentName: "A",
+        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: cid, agentId: "A",
             fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE",
             summaryText: "earlier: customer wants 3 units", summaryThruMessageSeqId: "00007"]).create()
         when:
@@ -120,7 +169,7 @@ class AiEntitiesTests extends Specification {
         given:
         ec.artifactExecution.disableAuthz()
         ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeValue("moqui.ai.AiAgentRun").setAll([agentRunId: "RUNAPPR1", agentName: "A",
+        ec.entity.makeValue("moqui.ai.AiAgentRun").setAll([agentRunId: "RUNAPPR1", agentId: "RUNAPPR_AG", agentName: "A",
             statusId: "AI_RUN_SUSPENDED", pendingState: '{"messages":[]}', fromDate: ec.user.nowTimestamp]).create()
         ec.entity.makeValue("moqui.ai.AiToolApproval").setAll([approvalId: "APPR1", agentRunId: "RUNAPPR1",
             toolCallId: "c1", toolName: "x", arguments: "{}", statusId: "AI_APPR_PENDING",

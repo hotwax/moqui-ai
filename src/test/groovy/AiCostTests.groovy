@@ -22,7 +22,7 @@ class AiCostTests extends Specification {
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
             ensureTestUser()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "CostAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "CostAgent", agentName: "CostAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
             // Purge any residue from a prior run (file-backed H2 persists across runs) so spend totals are deterministic
             purgeCostAgentRuns()

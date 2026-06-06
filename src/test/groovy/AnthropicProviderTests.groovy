@@ -184,7 +184,7 @@ class AnthropicProviderTests extends Specification {
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
             ensureTestUser()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicSentiment", providerName: "anthropic",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AnthropicSentiment", agentName: "AnthropicSentiment", providerName: "anthropic",
                 modelName: "claude-sonnet-4-6", systemPrompt: "Classify the sentiment of the user's message.",
                 responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"}},"required":["sentiment"]}',
                 maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
@@ -203,7 +203,7 @@ class AnthropicProviderTests extends Specification {
         (out.structuredResult.sentiment as String)?.toLowerCase()?.contains("pos")
         cleanup:
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "AnthropicSentiment").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AnthropicSentiment").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -214,7 +214,7 @@ class AnthropicProviderTests extends Specification {
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
             ensureTestUser()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicReason", providerName: "anthropic",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AnthropicReason", agentName: "AnthropicReason", providerName: "anthropic",
                 modelName: "claude-sonnet-4-6", systemPrompt: "Answer briefly.", reasoningEffort: "low",
                 maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
         })
@@ -232,7 +232,7 @@ class AnthropicProviderTests extends Specification {
         (out.assistantMessage as String)?.contains("42")
         cleanup:
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "AnthropicReason").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AnthropicReason").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -261,13 +261,15 @@ class AnthropicProviderTests extends Specification {
         ec.artifactExecution.disableAuthz()
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiTestToolData.xml").load()
             ensureTestUser()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicEcho", providerName: "anthropic",
-                modelName: "claude-sonnet-4-6", systemPrompt: "Use the get#Echo tool to echo the user's word, then report the result.",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AnthropicEcho", agentName: "AnthropicEcho", providerName: "anthropic",
+                modelName: "claude-sonnet-4-6", systemPrompt: "Use the get_echo tool to echo the user's word, then report the result.",
                 maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiAgentTool")
-                .setAll([agentName: "AnthropicEcho", toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
+                .setAll([agentId: "AnthropicEcho", toolId: "TL_ECHO"]).createOrUpdate()
         })
+        ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class).refreshCatalog()
         // keep authz disabled through the run#Agent call; login supplies the authenticated user
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()
@@ -289,8 +291,8 @@ class AnthropicProviderTests extends Specification {
             .condition("serviceName", "moqui.ai.test.TestServices.get#Echo").condition("success", "Y").list().size() >= 1
         cleanup:
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "AnthropicEcho").deleteAll()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "AnthropicEcho").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "AnthropicEcho").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AnthropicEcho").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 }

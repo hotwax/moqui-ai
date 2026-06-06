@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- The single authoring gate for turning a Moqui service into a tool (spec D2/D4/§6).
+         Curator-gated via ArtifactAuthz. Validates the service, derives effect, applies the
+         denylist floor, sets effect-based defaults, derives + uniqueness-checks toolName. -->
+    <service verb="store" noun="AiTool" authenticate="true">
+        <in-parameters>
+            <parameter name="toolId"><description>Omit to create (sequenced); set to update an existing tool by stable id.</description></parameter>
+            <parameter name="verb" required="true"/>
+            <parameter name="noun" required="true"/>
+            <parameter name="serviceName" required="true"/>
+            <parameter name="description"/>
+            <parameter name="exposable"><description>Requested exposability; floored to N by the denylist and by effect=MUTATING default.</description></parameter>
+            <parameter name="requiresApproval"/>
+            <parameter name="effectEnumId"><description>Optional Curator override; defaults to the verb-derived effect.</description></parameter>
+            <parameter name="sourceComponent"/>
+            <parameter name="statusId"/>
+        </in-parameters>
+        <out-parameters><parameter name="toolId"/><parameter name="toolName"/></out-parameters>
+        <actions>
+            <!-- 1. validate the service resolves (fail-loud; reuse ToolSchemaBuilder resolution) -->
+            <script><![CDATA[
+                try {
+                    org.moqui.ai.ToolSchemaBuilder.build(ec.factory, serviceName)
+                } catch (Exception e) {
+                    ec.message.addError("Unknown or invalid service for tool: ${serviceName} (${e.message})")
+                }
+            ]]></script>
+            <if condition="ec.message.hasError()"><return/></if>
+
+            <!-- 5a. derive toolName = verb_noun, snake_case, wire-safe -->
+            <script><![CDATA[
+                toolName = ((verb ?: "") + "_" + (noun ?: "")).toLowerCase().replaceAll('[^a-z0-9_]', '_')
+            ]]></script>
+
+            <!-- 5b. uniqueness: a different tool already owning this name is an error -->
+            <entity-find entity-name="moqui.ai.AiTool" list="nameClash">
+                <econdition field-name="toolName" from="toolName"/>
+            </entity-find>
+            <iterate list="nameClash" entry="other">
+                <if condition="other.toolId != toolId">
+                    <return error="true" message="A tool named '${toolName}' already exists (toolId ${other.toolId}); choose a different verb/noun."/>
+                </if>
+            </iterate>
+
+            <!-- 2. derive effect from the verb (v1 heuristic) unless the Curator overrode it -->
+            <if condition="!effectEnumId">
+                <script><![CDATA[
+                    def readVerbs = ['get','find','list','view','search','check','calculate'] as Set
+                    effectEnumId = readVerbs.contains((verb ?: "").toLowerCase()) ? 'AI_TOOL_READ_ONLY' : 'AI_TOOL_MUTATING'
+                ]]></script>
+            </if>
+
+            <!-- 4. effect-based defaults (before the denylist floor) -->
+            <if condition="exposable == null">
+                <set field="exposable" from="effectEnumId == 'AI_TOOL_READ_ONLY' ? 'Y' : 'N'"/></if>
+            <if condition="requiresApproval == null">
+                <set field="requiresApproval" from="effectEnumId == 'AI_TOOL_READ_ONLY' ? 'N' : 'Y'"/></if>
+
+            <!-- 3. denylist floor: any matching pattern forces exposable=N, non-overridable -->
+            <entity-find entity-name="moqui.ai.AiToolDenylist" list="denyList"/>
+            <iterate list="denyList" entry="deny">
+                <if condition="serviceName ==~ (deny.servicePattern as String)">
+                    <set field="exposable" value="N"/>
+                </if>
+            </iterate>
+
+            <set field="statusId" from="statusId ?: 'AI_TOOL_ACTIVE'"/>
+            <!-- create vs update by stable id: explicit branches so createdByUserId is set on create
+                 and preserved (never nulled) on update. -->
+            <if condition="!toolId">
+                <set field="toolId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiTool', null, null)"/>
+                <service-call name="create#moqui.ai.AiTool" in-map="[toolId: toolId, toolName: toolName,
+                    verb: verb, noun: noun, description: description, serviceName: serviceName,
+                    effectEnumId: effectEnumId, exposable: exposable, requiresApproval: requiresApproval,
+                    sourceComponent: sourceComponent, createdByUserId: ec.user.userId, statusId: statusId]"/>
+                <else>
+                    <service-call name="update#moqui.ai.AiTool" in-map="[toolId: toolId, toolName: toolName,
+                        verb: verb, noun: noun, description: description, serviceName: serviceName,
+                        effectEnumId: effectEnumId, exposable: exposable, requiresApproval: requiresApproval,
+                        sourceComponent: sourceComponent, statusId: statusId]"/>
+                </else>
+            </if>
+
+            <!-- refresh the in-memory catalog so the new/edited tool is immediately grant-eligible -->
+            <script>ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class).refreshCatalog()</script>
+        </actions>
+    </service>
+</services>

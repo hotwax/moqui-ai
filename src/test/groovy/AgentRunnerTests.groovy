@@ -24,20 +24,23 @@ class AgentRunnerTests extends Specification {
         ec.artifactExecution.disableAuthz()
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            // seeded test tools (replaces the deleted ai/*.tools.xml): get_echo + get_gated_echo
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiTestToolData.xml").load()
             // a dedicated test user so tools (authenticate=true) can dispatch as a real user
             ensureTestUser()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "EchoAgent", providerName: "mock",
-                modelName: "mock-1", systemPrompt: "You echo.", maxIterations: 5,
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AG_ECHO", agentName: "EchoAgent",
+                providerName: "mock", modelName: "mock-1", systemPrompt: "You echo.", maxIterations: 5,
                 maxToolCallsPerTurn: 10, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiAgentTool")
-                .setAll([agentName: "EchoAgent", toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
+                .setAll([agentId: "AG_ECHO", toolId: "TL_ECHO"]).createOrUpdate()
         })
+        ec.factory.getTool("AI", AiToolFactory.class).refreshCatalog()
         ec.artifactExecution.enableAuthz()
     }
     def cleanupSpec() {
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "EchoAgent").deleteAll()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "EchoAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "AG_ECHO").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AG_ECHO").deleteAll()
         ec.artifactExecution.enableAuthz()
         ec.destroy()
     }
@@ -53,7 +56,7 @@ class AgentRunnerTests extends Specification {
 
     def "text-only response returns the assistant message"() {
         given: MockProvider.enqueue([assistantText: "hello", finishReason: "stop", tokensIn: 4L, tokensOut: 2L])
-        when: def out = runner().run("EchoAgent", "hi")
+        when: def out = runner().run("AG_ECHO", "hi")
         then:
         out.assistantMessage == "hello"
         out.truncated == false
@@ -64,21 +67,22 @@ class AgentRunnerTests extends Specification {
     def "tool call is dispatched and the result is fed back"() {
         given:
         MockProvider.enqueue([toolCalls: [[id: "c1",
-            name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "boom"]]], finishReason: "tool_use"])
+            name: "get_echo", arguments: [text: "boom"]]], finishReason: "tool_use"])
         MockProvider.enqueue([assistantText: "echoed boom", finishReason: "stop"])
-        when: def out = runner().run("EchoAgent", "echo boom")
+        when: def out = runner().run("AG_ECHO", "echo boom")
         then:
         out.assistantMessage == "echoed boom"
         def call = ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).list()[0]
-        call.toolName == "moqui.ai.test.TestServices.get#Echo"
+        call.toolName == "get_echo"
+        call.toolId == "TL_ECHO"
         call.success == "Y"
         call.result.contains("boom")
     }
 
     def "hitting max-iterations returns truncated"() {
         given: 6.times { MockProvider.enqueue([toolCalls: [[id: "c$it",
-            name: "moqui.ai.test.TestServices.get#Echo", arguments: [text: "x"]]], finishReason: "tool_use"]) }
-        when: def out = runner().run("EchoAgent", "loop")
+            name: "get_echo", arguments: [text: "x"]]], finishReason: "tool_use"]) }
+        when: def out = runner().run("AG_ECHO", "loop")
         then:
         out.truncated == true
         ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one().statusId == "AI_RUN_TRUNCATED"
@@ -90,7 +94,7 @@ class AgentRunnerTests extends Specification {
         MockProvider.enqueue([assistantText: "done", finishReason: "stop",
             toolCalls: [], tokensIn: 5L, tokensOut: 2L, providerRunId: "prov-xyz"])
         ec.transaction.runRequireNew(30, "ai test setup", {
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "CorrAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "CorrAgent", agentName: "CorrAgent", providerName: "mock",
                 modelName: "mock-model-1", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
         })
         when:
@@ -101,7 +105,7 @@ class AgentRunnerTests extends Specification {
         run.servedByModelId == "mock-model-1"
         run.providerRunId == "prov-xyz"
         cleanup:
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "CorrAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "CorrAgent").deleteAll()
     }
 
     def "returns structuredResult when the agent defines a responseSchema"() {
@@ -111,7 +115,7 @@ class AgentRunnerTests extends Specification {
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "stop",
             toolCalls: [], tokensIn: 4L, tokensOut: 3L, structuredResult: [sentiment: "positive", score: 9]])
         ec.transaction.runRequireNew(30, "ai test setup", {
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SchemaAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "SchemaAgent", agentName: "SchemaAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "classify",
                 responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"},"score":{"type":"integer"}},"required":["sentiment","score"],"additionalProperties":false}',
                 maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
@@ -123,7 +127,7 @@ class AgentRunnerTests extends Specification {
         out.structuredResult.sentiment == "positive"
         out.structuredResult.score == 9
         cleanup:
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "SchemaAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "SchemaAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -133,10 +137,10 @@ class AgentRunnerTests extends Specification {
         org.moqui.ai.provider.MockProvider.reset()
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         ec.transaction.runRequireNew(30, "ai test setup", {
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "ChainAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "ChainAgent", agentName: "ChainAgent", providerName: "mock",
                 modelName: "legacy-single", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiAgentModel")
-                .setAll([agentName: "ChainAgent", priority: 0, providerName: "mock", modelName: "primary-from-chain"]).createOrUpdate()
+                .setAll([agentId: "ChainAgent", priority: 0, providerName: "mock", modelName: "primary-from-chain"]).createOrUpdate()
         })
         when:
         Map out = runner().run("ChainAgent", "hi", null)
@@ -145,8 +149,8 @@ class AgentRunnerTests extends Specification {
         out.statusId == "AI_RUN_COMPLETED"
         run.servedByModelId == "primary-from-chain"   // chain primary, not the legacy single field
         cleanup:
-        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "ChainAgent").deleteAll()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ChainAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentId", "ChainAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ChainAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -157,10 +161,10 @@ class AgentRunnerTests extends Specification {
         org.moqui.ai.provider.MockProvider.enqueue([__error: "primary down (503)"])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 2L, tokensOut: 1L])
         ec.transaction.runRequireNew(30, "ai test setup", {
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "FailoverAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "FailoverAgent", agentName: "FailoverAgent", providerName: "mock",
                 modelName: "ignored", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "FailoverAgent", priority: 0, providerName: "mock", modelName: "primary"]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "FailoverAgent", priority: 1, providerName: "mock", modelName: "backup"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentId: "FailoverAgent", priority: 0, providerName: "mock", modelName: "primary"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentId: "FailoverAgent", priority: 1, providerName: "mock", modelName: "backup"]).createOrUpdate()
         })
         when:
         Map out = runner().run("FailoverAgent", "hi", null)
@@ -172,8 +176,8 @@ class AgentRunnerTests extends Specification {
         ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", out.agentRunId)
             .condition("stepType", "llm_call_failed").list().size() == 1
         cleanup:
-        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "FailoverAgent").deleteAll()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "FailoverAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentId", "FailoverAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "FailoverAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -184,10 +188,10 @@ class AgentRunnerTests extends Specification {
         org.moqui.ai.provider.MockProvider.enqueue([__error: "down-1"])
         org.moqui.ai.provider.MockProvider.enqueue([__error: "down-2"])
         ec.transaction.runRequireNew(30, "ai test setup", {
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AllDownAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AllDownAgent", agentName: "AllDownAgent", providerName: "mock",
                 modelName: "ignored", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "AllDownAgent", priority: 0, providerName: "mock", modelName: "m1"]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "AllDownAgent", priority: 1, providerName: "mock", modelName: "m2"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentId: "AllDownAgent", priority: 0, providerName: "mock", modelName: "m1"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentId: "AllDownAgent", priority: 1, providerName: "mock", modelName: "m2"]).createOrUpdate()
         })
         when:
         Map out = runner().run("AllDownAgent", "hi", null)
@@ -196,8 +200,8 @@ class AgentRunnerTests extends Specification {
         out.statusId == "AI_RUN_FAILED"
         (run.errorText as String)?.contains("down-2")    // last error surfaced
         cleanup:
-        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "AllDownAgent").deleteAll()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "AllDownAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentId", "AllDownAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AllDownAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -210,10 +214,10 @@ class AgentRunnerTests extends Specification {
             toolCalls: [[id: "c1", name: "no.such.Tool", arguments: [:]]], tokensIn: 1L, tokensOut: 1L])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "done", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         ec.transaction.runRequireNew(30, "ai test setup", {
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "StickyAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "StickyAgent", agentName: "StickyAgent", providerName: "mock",
                 modelName: "ignored", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "StickyAgent", priority: 0, providerName: "mock", modelName: "primary"]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentName: "StickyAgent", priority: 1, providerName: "mock", modelName: "backup"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentId: "StickyAgent", priority: 0, providerName: "mock", modelName: "primary"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentModel").setAll([agentId: "StickyAgent", priority: 1, providerName: "mock", modelName: "backup"]).createOrUpdate()
         })
         when:
         Map out = runner().run("StickyAgent", "hi", null)
@@ -224,17 +228,17 @@ class AgentRunnerTests extends Specification {
         ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", out.agentRunId)
             .condition("stepType", "llm_call_failed").list().size() == 1
         cleanup:
-        ec.entity.find("moqui.ai.AiAgentModel").condition("agentName", "StickyAgent").deleteAll()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "StickyAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentModel").condition("agentId", "StickyAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "StickyAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
     def "a throwing tool feeds the error back instead of aborting the run"() {
         given:
         MockProvider.enqueue([toolCalls: [[id: "c1",
-            name: "moqui.ai.test.TestServices.get#Echo", arguments: [repeat: -1]]], finishReason: "tool_use"])
+            name: "get_echo", arguments: [repeat: -1]]], finishReason: "tool_use"])
         MockProvider.enqueue([assistantText: "recovered", finishReason: "stop"])
-        when: def out = runner().run("EchoAgent", "bad")
+        when: def out = runner().run("AG_ECHO", "bad")
         then:
         out.assistantMessage == "recovered"   // loop continued after the tool error
     }

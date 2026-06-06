@@ -3,18 +3,20 @@ package org.moqui.ai
 import org.moqui.context.ExecutionContextFactory
 import org.moqui.context.ToolFactory
 import org.moqui.ai.provider.MockProvider
-import org.moqui.util.MNode
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 /** Registers `ec.factory.getTool("AI", AiToolFactory.class)`. Holds the provider registry
- *  and the immutable, file-defined tool catalog (rebuilt on reload). Agents/knowledge are
+ *  and the in-memory tool catalog BUILT FROM AiTool rows (DB is the source of truth — spec D3),
+ *  lazy-loaded on first access and rebuildable via refreshCatalog(). Agents/knowledge are
  *  NOT held here — they are read from entities per run (see AgentRunner). */
 class AiToolFactory implements ToolFactory<AiToolFactory> {
     protected final static Logger logger = LoggerFactory.getLogger(AiToolFactory.class)
 
     protected ExecutionContextFactory ecf = null
-    private volatile Map<String, Map> toolCatalog = [:]
+    private volatile Map<String, Map> toolCatalog = [:]        // keyed by toolId
+    private volatile Map<String, Map> toolsByName = [:]        // toolName -> toolDef
+    private volatile boolean catalogLoaded = false
     private final Map<String, LlmProvider> providers = [:]
 
     AiToolFactory() { }
@@ -47,9 +49,10 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
                 logger.info("AI: registered OpenAI provider")
             }
         } catch (Throwable t) { logger.warn("AI: skipped OpenAI provider init: ${t.message}") }
-        // Fail-loud at boot: a bad service ref in any ai/*.tools.xml stops startup.
-        this.toolCatalog = DefinitionLoader.loadCatalog(ecf)
-        logger.info("AiToolFactory initialized: ${toolCatalog.size()} tools, ${providers.size()} providers")
+        // Catalog is built from AiTool rows on first access (no ExecutionContext exists at
+        // ToolFactory.init, so the DB read is deferred — the loop always has an ec). A bad service
+        // ref is now caught at authoring time (store#AiTool) rather than at boot.
+        logger.info("AiToolFactory initialized: ${providers.size()} providers (catalog lazy-loaded from AiTool rows)")
     }
 
     @Override AiToolFactory getInstance(Object... parameters) {
@@ -74,19 +77,21 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
         return p
     }
 
-    // ---- tool catalog (each entry is a toolDef Map) ----
-    Map getTool(String serviceName) { return toolCatalog.get(serviceName) }
-    Map<String, Map> getToolCatalog() { return toolCatalog }
+    // ---- tool catalog (each entry is a toolDef Map; built from AiTool rows, keyed by toolId) ----
+    private void ensureCatalog() { if (!catalogLoaded) refreshCatalog() }
 
-    /** Reload the catalog from disk. On any validation error, keep the last-good catalog and rethrow. */
-    void reloadCatalog() { this.toolCatalog = DefinitionLoader.loadCatalog(ecf) }
-
-    /** Test/util helper: validate + merge a <tools> snippet (used by tests; fail-loud). */
-    void loadToolsFromText(String toolsXml) {
-        Map<String, Map> merged = new LinkedHashMap<>(toolCatalog)
-        DefinitionLoader.parseToolsNode(ecf, MNode.parseText("tools.xml", toolsXml), merged)
-        this.toolCatalog = merged
+    /** (Re)build the catalog from AiTool rows + regenerate schemas on demand. Atomic swap. */
+    synchronized void refreshCatalog() {
+        Map<String, Map> byId = DefinitionLoader.loadCatalog(ecf)
+        Map<String, Map> byName = [:]
+        for (Map td in byId.values()) byName.put(td.toolName as String, td)
+        this.toolCatalog = byId; this.toolsByName = byName; this.catalogLoaded = true
+        logger.info("AiToolFactory catalog refreshed: ${byId.size()} active+exposable tools")
     }
+
+    Map getToolById(String toolId) { ensureCatalog(); return toolCatalog.get(toolId) }
+    Map getToolByName(String toolName) { ensureCatalog(); return toolsByName.get(toolName) }
+    Map<String, Map> getToolCatalog() { ensureCatalog(); return toolCatalog }
 
     ExecutionContextFactory getEcf() { return ecf }
 }

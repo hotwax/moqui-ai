@@ -2,27 +2,23 @@
 <screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
         default-menu-title="Agents" require-authentication="true">
 
-    <transition name="installDemo">
-        <service-call name="notnaked.OmsAiServices.ensure#OmsAssistant"/>
-        <default-response url="."/>
-    </transition>
     <transition name="saveAgent">
-        <service-call name="store#moqui.ai.AiAgent"
-            in-map="[agentName:agentName, providerName:providerName, modelName:modelName,
+        <service-call name="ai.AgentServices.store#AiAgent"
+            in-map="[agentId:agentId, agentName:agentName, providerName:providerName, modelName:modelName,
                      maxIterations:maxIterations, statusId:statusId, systemPrompt:systemPrompt]"/>
         <default-response url="."/>
     </transition>
 
     <actions>
         <entity-find entity-name="moqui.ai.AiAgent" list="agentList"><order-by field-name="agentName"/></entity-find>
-        <entity-find entity-name="moqui.ai.AiAgentTool" list="grantList"><order-by field-name="agentName,toolName"/></entity-find>
+        <entity-find entity-name="moqui.ai.AiAgentTool" list="grantList"><order-by field-name="agentId,toolId"/></entity-find>
     </actions>
 
     <widgets>
         <container-box>
             <box-header title="Installed agents"/>
             <box-body>
-                <label text="No agents yet? Click Install to create the NotNaked OMS Assistant, then run it from the Playground tab." type="p"/>
+                <label text="Agents are seeded as data (e.g. the NotNaked OMS Assistant via ext-seed). Add or edit one below, then run it from the Playground tab." type="p"/>
                 <form-list name="AgentList" list="agentList">
                     <field name="agentName"><default-field><display/></default-field></field>
                     <field name="providerName"><default-field title="Provider"><display/></default-field></field>
@@ -30,9 +26,6 @@
                     <field name="statusId"><default-field title="Status"><display/></default-field></field>
                     <field name="maxIterations"><default-field title="Max iter"><display/></default-field></field>
                 </form-list>
-                <form-single name="InstallDemo" transition="installDemo">
-                    <field name="install"><default-field title=""><submit text="Install NotNaked OMS Assistant"/></default-field></field>
-                </form-single>
             </box-body>
         </container-box>
 
@@ -40,8 +33,8 @@
             <box-header title="Tool grants"/>
             <box-body>
                 <form-list name="GrantList" list="grantList">
-                    <field name="agentName"><default-field><display/></default-field></field>
-                    <field name="toolName"><default-field title="Tool (service)"><display/></default-field></field>
+                    <field name="agentId"><default-field title="Agent"><display/></default-field></field>
+                    <field name="toolId"><default-field title="Tool"><display/></default-field></field>
                 </form-list>
             </box-body>
         </container-box>
@@ -50,6 +43,7 @@
             <box-header title="Add / update an agent"/>
             <box-body>
                 <form-single name="AgentForm" transition="saveAgent">
+                    <field name="agentId"><default-field title="Agent id (edit)"><hidden/></default-field></field>
                     <field name="agentName"><default-field title="Agent name"><text-line size="30"/></default-field></field>
                     <field name="providerName"><default-field title="Provider">
                         <drop-down><option key="openai" text="openai"/><option key="anthropic" text="anthropic"/><option key="google" text="google"/></drop-down></default-field></field>

@@ -28,9 +28,10 @@ abstract class AbstractLlmProvider implements LlmProvider {
     /** Decode the provider's JSON response text into a normalized response Map. */
     abstract Map decodeResponse(String responseText)
 
-    /** Provider function/tool names must match ^[a-zA-Z0-9_-]+$, but Moqui service names contain
-     *  '.' and '#'. Sanitize for the wire; map back when a tool call returns. Shared by all HTTP
-     *  providers (OpenAI, Anthropic, ...). */
+    /** Tool wire names are now verb_noun (^[a-z0-9_]+$), wire-safe by construction (registry keystone,
+     *  spec §5). This remains as a DEFENSIVE no-op safety net: it only changes a name if a stray
+     *  non-conforming char ever reaches the wire. It is no longer a load-bearing translation of
+     *  Moqui service FQNs (those are no longer the tool identity). Shared by all HTTP providers. */
     static String sanitizeName(String n) { n == null ? null : n.replaceAll('[^a-zA-Z0-9_-]', '_') }
 
     /** Optional hook: after decode, a provider may normalize a structured-output answer into
@@ -61,12 +62,14 @@ abstract class AbstractLlmProvider implements LlmProvider {
         return decoded
     }
 
-    /** Tool/function names are sanitized for the wire (see {@link #sanitizeName}); a provider therefore
-     *  returns the SANITIZED name on a tool call. Map each decoded tool-call name back to the original
-     *  Moqui service name so catalog lookups (AiToolFactory.getTool — the approval gate and dispatch)
-     *  resolve. The reverse map is rebuilt from THIS request's tool list each call, so no mutable
-     *  per-request state is kept on the (possibly shared/singleton) provider. Names with no match —
-     *  e.g. the synthetic structured_output tool — are left unchanged. Mutates decoded; returns it. */
+    /** Tool wire names are now verb_noun (wire-safe by construction), so {@link #sanitizeName} is a
+     *  no-op for well-formed names and this round-trip collapses to identity. It is retained as a
+     *  safety net: if a stray unsafe char ever reached the wire, this maps the decoded tool-call name
+     *  back to the request's original name so catalog lookups (AiToolFactory.getToolByName — the
+     *  approval gate and dispatch) still resolve. The reverse map is rebuilt from THIS request's tool
+     *  list each call, so no mutable per-request state is kept on the (possibly shared/singleton)
+     *  provider. Names with no match — e.g. the synthetic structured_output tool — are left unchanged.
+     *  Mutates decoded; returns it. */
     protected Map remapToolNames(Map decoded, Map request) {
         Map<String, String> backToReal = [:]
         for (Map t in (request?.tools ?: []) as List<Map>) backToReal[sanitizeName(t.name as String)] = t.name as String

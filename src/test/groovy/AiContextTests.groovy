@@ -135,10 +135,10 @@ class AiContextTests extends Specification {
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "WinAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "WinAgent", agentName: "WinAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "be terse", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "window", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "WinAgent",
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"WinAgent",
                 userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
@@ -167,10 +167,10 @@ class AiContextTests extends Specification {
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "MemAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "MemAgent", agentName: "MemAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "MemAgent",
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"MemAgent",
                 userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
         })
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
@@ -201,10 +201,10 @@ class AiContextTests extends Specification {
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SupAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "SupAgent", agentName: "SupAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SupAgent",
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SupAgent",
                 userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
         })
         // run 1: remember order_total = first value
@@ -242,9 +242,9 @@ class AiContextTests extends Specification {
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "NoCtxAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "NoCtxAgent", agentName: "NoCtxAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "NoCtxAgent",
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"NoCtxAgent",
                 userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
@@ -273,10 +273,10 @@ class AiContextTests extends Specification {
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "FidAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "FidAgent", agentName: "FidAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "window", contextWindowMessages: 1, contextWindowChars: 1000000]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "FidAgent",
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"FidAgent",
                 userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
         })
         // Turn 1: agent remembers the total, then stops.
@@ -311,10 +311,10 @@ class AiContextTests extends Specification {
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SumAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "SumAgent", agentName: "SumAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SumAgent",
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SumAgent",
                 userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
@@ -350,10 +350,10 @@ class AiContextTests extends Specification {
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SumFailAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "SumFailAgent", agentName: "SumFailAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SumFailAgent",
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SumFailAgent",
                 userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
@@ -385,10 +385,10 @@ class AiContextTests extends Specification {
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SumMultiAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "SumMultiAgent", agentName: "SumMultiAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 5, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SumMultiAgent",
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SumMultiAgent",
                 userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
@@ -425,10 +425,10 @@ class AiContextTests extends Specification {
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "CarryAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "CarryAgent", agentName: "CarryAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
-            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "CarryAgent",
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"CarryAgent",
                 userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE",
                 summaryText: "earlier: customer confirmed 3 units", summaryThruMessageSeqId: "00003"]).createOrUpdate()
             // one live message past the watermark -> below window(2) -> NO overflow -> NO summarization call

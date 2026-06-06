@@ -23,7 +23,7 @@ class AiConversationTests extends Specification {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiConversationStatusData.xml").load()
             ensureTestUser()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "ConvAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "ConvAgent", agentName: "ConvAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "remember context", maxIterations: 5,
                 statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
         })
@@ -31,7 +31,7 @@ class AiConversationTests extends Specification {
     }
     def cleanupSpec() {
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ConvAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ConvAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
         ec.destroy()
     }
@@ -47,6 +47,9 @@ class AiConversationTests extends Specification {
         Map t = ec.service.sync().name("ai.AgentServices.create#Conversation")
             .parameters([agentName: "ConvAgent", title: "t1"]).call()
         String conversationId = t.conversationId
+
+        expect: "conversation is keyed to the agent by id"
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", conversationId).one().agentId == "ConvAgent"
 
         when: "turn 1"
         MockProvider.enqueue([assistantText: "hi there", finishReason: "stop", tokensOut: 2L])

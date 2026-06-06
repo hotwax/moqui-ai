@@ -4,8 +4,8 @@
     <parameter name="userMessage"/>
     <parameter name="agentRunId"/>   <!-- set after a run, to show the result + trace -->
 
-    <!-- run#OmsAssistant creates the nn-oms-assistant agent on first call (idempotent store#) then runs it,
-         so the Playground works on a fresh DB with no pre-loaded agent. Authorized via the AiOps screen's inheritAuthz. -->
+    <!-- run#OmsAssistant runs the seeded nn-oms-assistant agent (AiTool + AiAgent + grant are ext-seed
+         data; load data before demoing). Authorized via the AiOps screen's inheritAuthz. -->
     <transition name="run">
         <service-call name="notnaked.OmsAiServices.run#OmsAssistant" out-map="context"
             in-map="[userMessage: userMessage]"/>

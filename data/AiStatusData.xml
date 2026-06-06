@@ -9,6 +9,7 @@
     <moqui.basic.StatusItem statusId="AI_RUN_TRUNCATED" statusTypeId="AiAgentRunStatus" sequenceNum="4" description="Truncated"/>
     <moqui.basic.StatusItem statusId="AI_RUN_ABORTED"   statusTypeId="AiAgentRunStatus" sequenceNum="5" description="Aborted"/>
 
+    <moqui.basic.StatusItem statusId="AI_AGENT_DRAFT"    statusTypeId="AiAgentStatus" sequenceNum="0" description="Draft"/>
     <moqui.basic.StatusItem statusId="AI_AGENT_ACTIVE"   statusTypeId="AiAgentStatus" sequenceNum="1" description="Active"/>
     <moqui.basic.StatusItem statusId="AI_AGENT_DISABLED" statusTypeId="AiAgentStatus" sequenceNum="2" description="Disabled"/>
 
@@ -21,9 +22,11 @@
     <moqui.basic.StatusFlowTransition statusFlowId="AiAgentRunFlow" statusId="AI_RUN_RUNNING" toStatusId="AI_RUN_TRUNCATED" transitionSequence="3" transitionName="Truncate"/>
     <moqui.basic.StatusFlowTransition statusFlowId="AiAgentRunFlow" statusId="AI_RUN_RUNNING" toStatusId="AI_RUN_ABORTED"   transitionSequence="4" transitionName="Abort"/>
 
-    <!-- agent: ACTIVE <-> DISABLED -->
+    <!-- agent: DRAFT -> ACTIVE | DISABLED; ACTIVE <-> DISABLED -->
     <moqui.basic.StatusFlowTransition statusFlowId="AiAgentFlow" statusId="AI_AGENT_ACTIVE"   toStatusId="AI_AGENT_DISABLED" transitionSequence="1" transitionName="Disable"/>
     <moqui.basic.StatusFlowTransition statusFlowId="AiAgentFlow" statusId="AI_AGENT_DISABLED" toStatusId="AI_AGENT_ACTIVE"   transitionSequence="2" transitionName="Enable"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentFlow" statusId="AI_AGENT_DRAFT"    toStatusId="AI_AGENT_ACTIVE"   transitionSequence="3" transitionName="Activate"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiAgentFlow" statusId="AI_AGENT_DRAFT"    toStatusId="AI_AGENT_DISABLED" transitionSequence="4" transitionName="Disable draft"/>
 
     <!-- run: RUNNING <-> SUSPENDED (human-approval gate) -->
     <moqui.basic.StatusItem statusId="AI_RUN_SUSPENDED" statusTypeId="AiAgentRunStatus" sequenceNum="60" description="Suspended (awaiting approval)"/>
@@ -38,4 +41,24 @@
     <moqui.basic.StatusFlow statusFlowId="AiApprovalFlow" statusTypeId="AiApprovalStatus" description="Approval decision"/>
     <moqui.basic.StatusFlowTransition statusFlowId="AiApprovalFlow" statusId="AI_APPR_PENDING" toStatusId="AI_APPR_APPROVED" transitionSequence="1" transitionName="Approve"/>
     <moqui.basic.StatusFlowTransition statusFlowId="AiApprovalFlow" statusId="AI_APPR_PENDING" toStatusId="AI_APPR_REJECTED" transitionSequence="2" transitionName="Reject"/>
+
+    <!-- AiTool effect (Enumeration: fixed, code-referenced type, no lifecycle) -->
+    <moqui.basic.EnumerationType enumTypeId="AiToolEffect" description="AI Tool Effect"/>
+    <moqui.basic.Enumeration enumId="AI_TOOL_READ_ONLY" enumTypeId="AiToolEffect" sequenceNum="1" description="Read-only"/>
+    <moqui.basic.Enumeration enumId="AI_TOOL_MUTATING"  enumTypeId="AiToolEffect" sequenceNum="2" description="Mutating"/>
+
+    <!-- AiTool status -->
+    <moqui.basic.StatusType statusTypeId="AiToolStatus" description="AI Tool Status"/>
+    <moqui.basic.StatusItem statusId="AI_TOOL_ACTIVE"   statusTypeId="AiToolStatus" sequenceNum="1" description="Active"/>
+    <moqui.basic.StatusItem statusId="AI_TOOL_DISABLED" statusTypeId="AiToolStatus" sequenceNum="2" description="Disabled"/>
+    <moqui.basic.StatusFlow statusFlowId="AiToolFlow" statusTypeId="AiToolStatus" description="AI tool enable/disable"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiToolFlow" statusId="AI_TOOL_ACTIVE"   toStatusId="AI_TOOL_DISABLED" transitionSequence="1" transitionName="Disable"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiToolFlow" statusId="AI_TOOL_DISABLED" toStatusId="AI_TOOL_ACTIVE"   transitionSequence="2" transitionName="Enable"/>
+
+    <!-- Denylist floor: admin/security/internal service patterns (spec §4.4/§6.3). Non-overridable. -->
+    <moqui.ai.AiToolDenylist servicePattern=".*\.delete#.*"          reason="Deletes must not be AI-exposable"/>
+    <moqui.ai.AiToolDenylist servicePattern="org\.moqui\.impl\..*"    reason="Framework-internal services"/>
+    <moqui.ai.AiToolDenylist servicePattern=".*[Pp]assword.*"         reason="Credential/security services"/>
+    <moqui.ai.AiToolDenylist servicePattern=".*UserAccount.*"         reason="User/account administration"/>
+    <moqui.ai.AiToolDenylist servicePattern=".*ArtifactAuthz.*"       reason="Authorization administration"/>
 </entity-facade-xml>

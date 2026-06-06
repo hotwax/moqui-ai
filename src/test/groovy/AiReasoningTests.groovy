@@ -28,7 +28,7 @@ class AiReasoningTests extends Specification {
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
             ensureTestUser()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "ReasonAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "ReasonAgent", agentName: "ReasonAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "x", maxIterations: 3, reasoningEffort: "medium", statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
         })
         ((UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
@@ -39,7 +39,7 @@ class AiReasoningTests extends Specification {
         then:
         (MockProvider.LAST_REQUEST?.reasoning as Map)?.effort == "medium"
         cleanup:
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ReasonAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ReasonAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -50,7 +50,7 @@ class AiReasoningTests extends Specification {
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
             ensureTestUser()
-            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "PlainAgent", providerName: "mock",
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "PlainAgent", agentName: "PlainAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
         })
         ((UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
@@ -61,7 +61,7 @@ class AiReasoningTests extends Specification {
         then:
         MockProvider.LAST_REQUEST?.reasoning == null
         cleanup:
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "PlainAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "PlainAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 }

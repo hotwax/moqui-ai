@@ -24,17 +24,18 @@ class AgentRunner {
     AgentRunner(ExecutionContext ec, AiToolFactory ai) { this.ec = ec; this.ai = ai }
 
     /** Phase 1 entry — stateless single turn. */
-    Map run(String agentName, String userMessage) { return run(agentName, userMessage, null) }
+    Map run(String agentId, String userMessage) { return run(agentId, userMessage, null) }
 
-    /** @param conversationId optional; when set, prior conversation messages are replayed and
+    /** @param agentId the agent's stable id (resolve agentName -> agentId in the caller, e.g. run#Agent).
+     *  @param conversationId optional; when set, prior conversation messages are replayed and
      *  this turn's messages are persisted back.
      *  @return runResult Map: [assistantMessage, agentRunId, conversationId, tokensIn, tokensOut,
      *  iterations, truncated, statusId, servedByModelId, servedProviderName, providerRunId,
      *  structuredResult, estimatedCost] */
-    Map run(String agentName, String userMessage, String conversationId) {
+    Map run(String agentId, String userMessage, String conversationId) {
         EntityValue agent = ec.entity.find("moqui.ai.AiAgent")
-            .condition("agentName", agentName).useCache(true).one()
-        if (agent == null) throw new IllegalArgumentException("Unknown agent: ${agentName}")
+            .condition("agentId", agentId).useCache(true).one()
+        if (agent == null) throw new IllegalArgumentException("Unknown agent: ${agentId}")
 
         boolean ctxSummarize = (agent.contextStrategy == "summarize")
         boolean ctxOn = (agent.contextStrategy == "window") || ctxSummarize
@@ -42,16 +43,17 @@ class AgentRunner {
         Map responseSchema = agent.responseSchema ?
             new groovy.json.JsonSlurper().parseText(agent.responseSchema as String) as Map : null
 
-        List<Map> candidates = loadModelCandidates(agentName, agent)
+        List<Map> candidates = loadModelCandidates(agentId, agent)
         Map primary = candidates[0]
-        List<Map> toolSchemas = withRememberTool(loadToolSchemas(agentName), ctxOn, conversationId)
+        List<Map> toolSchemas = withRememberTool(loadToolSchemas(agentId), ctxOn, conversationId)
 
         String runId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgentRun", null, null)
         Map result = [agentRunId: runId, conversationId: conversationId, assistantMessage: null,
                       tokensIn: 0L, tokensOut: 0L, iterations: 0, truncated: false, statusId: "AI_RUN_RUNNING",
                       structuredResult: null, servedByModelId: primary.modelName as String,
                       servedProviderName: primary.providerName as String, providerRunId: null, estimatedCost: 0G]
-        persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentName: agentName, conversationId: conversationId,
+        persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentId: agentId,
+            agentName: agent.agentName, conversationId: conversationId,
             userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
             providerName: primary.providerName, modelName: primary.modelName, userMessage: userMessage])
 
@@ -173,13 +175,13 @@ class AgentRunner {
                 // (refinement 1) do NOT persist the assistant turn yet — the approval gate may suspend.
 
                 // ----- approval gate: if any call this turn needs approval, SUSPEND the whole turn -----
-                List<Map> needApproval = (toolCalls as List<Map>).findAll { ai.getTool(it.name as String)?.requiresApproval }
+                List<Map> needApproval = (toolCalls as List<Map>).findAll { ai.getToolByName(it.name as String)?.requiresApproval }
                 if (needApproval) {
                     List<String> approvalIds = []
                     for (Map tc in needApproval) {
                         String approvalId = ec.entity.sequencedIdPrimary("moqui.ai.AiToolApproval", null, null)
                         approvalIds.add(approvalId)
-                        Map td = ai.getTool(tc.name as String)
+                        Map td = ai.getToolByName(tc.name as String)
                         persistRequired("create#moqui.ai.AiToolApproval", [approvalId: approvalId, agentRunId: runId,
                             stepSeqId: stepSeq as String, toolCallId: tc.id, toolName: tc.name, serviceName: td?.serviceName,
                             arguments: JsonOutput.toJson(tc.arguments ?: [:]), statusId: "AI_APPR_PENDING",
@@ -222,11 +224,11 @@ class AgentRunner {
         if (run == null) throw new IllegalArgumentException("Unknown run: ${agentRunId}")
         if (run.statusId != "AI_RUN_SUSPENDED") return [agentRunId: agentRunId, statusId: run.statusId]
 
-        EntityValue agent = ec.entity.find("moqui.ai.AiAgent").condition("agentName", run.agentName).useCache(true).one()
+        EntityValue agent = ec.entity.find("moqui.ai.AiAgent").condition("agentId", run.agentId).useCache(true).one()
         String conversationId = run.conversationId
         boolean ctxOn = (agent.contextStrategy == "window") || (agent.contextStrategy == "summarize")
-        List<Map> candidates = loadModelCandidates(run.agentName as String, agent)
-        List<Map> toolSchemas = withRememberTool(loadToolSchemas(run.agentName as String), ctxOn, conversationId)
+        List<Map> candidates = loadModelCandidates(run.agentId as String, agent)
+        List<Map> toolSchemas = withRememberTool(loadToolSchemas(run.agentId as String), ctxOn, conversationId)
         Map responseSchema = agent.responseSchema ?
             new groovy.json.JsonSlurper().parseText(agent.responseSchema as String) as Map : null
 
@@ -245,7 +247,7 @@ class AgentRunner {
         // production caller (decide#ToolCall) only resumes once the last approval is decided; this guards
         // misuse / a double-fired decide, making a premature resume a safe no-op (not consume-and-deny).
         boolean anyUndecided = turnToolCalls.any { tc ->
-            if (!ai.getTool(tc.name as String)?.requiresApproval) return false   // non-gated: no approval needed
+            if (!ai.getToolByName(tc.name as String)?.requiresApproval) return false   // non-gated: no approval needed
             String s = approvals.get(tc.id as String)?.statusId
             return s != "AI_APPR_APPROVED" && s != "AI_APPR_REJECTED"
         }
@@ -261,9 +263,10 @@ class AgentRunner {
             EntityValue appr = approvals.get(tc.id as String)
             String resultJson
             if (appr != null && appr.statusId == "AI_APPR_REJECTED") {
+                Map rejTd = ai.getToolByName(tc.name as String)
                 resultJson = JsonOutput.toJson([error: "Denied by user${appr.decisionNote ? ': ' + appr.decisionNote : ''}"])
                 persist("create#moqui.ai.AiToolCall", [agentRunId: agentRunId, stepSeqId: stepSeq as String,
-                    toolCallId: tc.id, toolName: tc.name, serviceName: ai.getTool(tc.name as String)?.serviceName,
+                    toolCallId: tc.id, toolId: rejTd?.toolId, toolName: tc.name, serviceName: rejTd?.serviceName,
                     arguments: JsonOutput.toJson(tc.arguments ?: [:]), result: resultJson, success: "N",
                     errorText: "rejected", durationMs: 0])
             } else {
@@ -290,7 +293,7 @@ class AgentRunner {
     /** Dispatch one tool-call Map via ec.service.sync (its own tx; Moqui authz applies). Tool
      *  errors are caught and returned as a JSON error so the loop can recover. */
     private String dispatchTool(String runId, int stepSeq, Map tc) {
-        Map td = ai.getTool(tc.name as String)
+        Map td = ai.getToolByName(tc.name as String)
         long start = System.currentTimeMillis()
         String resultJson; boolean success; String errorText = null
         if (td == null) {
@@ -312,7 +315,7 @@ class AgentRunner {
             }
         }
         persist("create#moqui.ai.AiToolCall", [agentRunId: runId, stepSeqId: stepSeq as String,
-            toolCallId: tc.id, toolName: tc.name, serviceName: td?.serviceName,
+            toolCallId: tc.id, toolId: td?.toolId, toolName: tc.name, serviceName: td?.serviceName,
             arguments: JsonOutput.toJson(tc.arguments ?: [:]), result: resultJson,
             success: success ? "Y" : "N", errorText: errorText,
             durationMs: (System.currentTimeMillis() - start) as int])
@@ -321,10 +324,10 @@ class AgentRunner {
 
     /** Ordered provider/model candidates for failover: AiAgentModel rows by priority, or the agent's
      *  own providerName/modelName when no chain is defined (backward-compatible). */
-    private List<Map> loadModelCandidates(String agentName, EntityValue agent) {
+    private List<Map> loadModelCandidates(String agentId, EntityValue agent) {
         List<Map> candidates = []
         for (EntityValue m in ec.entity.find("moqui.ai.AiAgentModel")
-                .condition("agentName", agentName).orderBy("priority").useCache(true).list())
+                .condition("agentId", agentId).orderBy("priority").useCache(true).list())
             candidates.add([providerName: m.providerName, modelName: m.modelName])
         if (candidates.isEmpty())
             candidates.add([providerName: agent.providerName, modelName: agent.modelName])
@@ -434,14 +437,14 @@ class AgentRunner {
         throw (last ?: new RuntimeException("No model candidates configured for agent run ${runId}"))
     }
 
-    /** Build the agent's granted tools as a List of toolSchema Maps. */
-    private List<Map> loadToolSchemas(String agentName) {
+    /** Build the agent's granted tools as a List of toolSchema Maps (wire name = toolName). */
+    private List<Map> loadToolSchemas(String agentId) {
         List<Map> schemas = []
         for (EntityValue grant in ec.entity.find("moqui.ai.AiAgentTool")
-                .condition("agentName", agentName).useCache(true).list()) {
-            Map td = ai.getTool(grant.toolName as String)
+                .condition("agentId", agentId).useCache(true).list()) {
+            Map td = ai.getToolById(grant.toolId as String)
             if (td == null) {
-                logger.warn("Agent ${agentName} grants unknown tool ${grant.toolName}; skipping")
+                logger.warn("Agent ${agentId} grants unknown/ineligible tool ${grant.toolId}; skipping")
                 continue
             }
             schemas.add([name: td.toolName, description: td.description, parameters: td.schema])

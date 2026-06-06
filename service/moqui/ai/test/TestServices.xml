@@ -14,8 +14,15 @@
         </actions>
     </service>
 
+    <!-- A no-op write-verb service so store#AiTool can derive effect=MUTATING from the verb. -->
+    <service verb="update" noun="Noop">
+        <in-parameters><parameter name="noopId" type="String"/></in-parameters>
+        <out-parameters><parameter name="noopId" type="String"/></out-parameters>
+        <actions><set field="noopId" from="noopId"/></actions>
+    </service>
+
     <!-- Identical to get#Echo; a distinct serviceName so it can be registered as an approval-gated
-         tool (ai/approval-test.tools.xml) without colliding with the ungated get#Echo entry. -->
+         tool (seeded via AiTestToolData.xml) without colliding with the ungated get#Echo entry. -->
     <service verb="get" noun="GatedEcho">
         <in-parameters>
             <parameter name="text" type="String" required="true"><description>Text to echo back.</description></parameter>
