@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Conversations" require-authentication="true">
+    <!-- v1 security: require-authentication only (any logged-in user). AI_OPERATOR group + ArtifactAuthz deferred. -->
+    <parameter name="conversationId"/>
+
+    <actions>
+        <entity-find entity-name="moqui.ai.AiConversation" list="convList">
+            <order-by field-name="-lastActivityDate"/>
+        </entity-find>
+        <if condition="conversationId">
+            <entity-find-one entity-name="moqui.ai.AiConversation" value-field="conv"/>
+            <entity-find entity-name="moqui.ai.AiConversationMessage" list="msgList">
+                <econdition field-name="conversationId"/>
+                <order-by field-name="messageSeqId"/>
+            </entity-find>
+            <entity-find entity-name="moqui.ai.AiConversationFact" list="factList">
+                <econdition field-name="conversationId"/>
+                <order-by field-name="factKey"/>
+            </entity-find>
+        </if>
+    </actions>
+    <widgets>
+        <form-list name="Conversations" list="convList" skip-form="true">
+            <field name="conversationId"><default-field title="Conversation">
+                <link url="." text="${conversationId}" link-type="anchor" parameter-map="[conversationId:conversationId]"/>
+            </default-field></field>
+            <field name="agentName"><default-field title="Agent"><display/></default-field></field>
+            <field name="title"><default-field title="Title"><display/></default-field></field>
+            <field name="statusId"><default-field title="Status"><display-entity entity-name="moqui.basic.StatusItem" text="${description}"/></default-field></field>
+            <field name="lastActivityDate"><default-field title="Last Activity"><display/></default-field></field>
+        </form-list>
+
+        <section name="Detail" condition="conversationId">
+            <widgets>
+                <container-box>
+                    <box-header title="Conversation ${conversationId} — ${conv.title}"/>
+                    <box-body>
+                        <label text="Agent: ${conv.agentName} · status: ${conv.statusId} · last activity: ${conv.lastActivityDate}"/>
+                    </box-body>
+                </container-box>
+
+                <section name="Summary" condition="conv.summaryText">
+                    <widgets>
+                        <container-box>
+                            <box-header title="Rolling summary"/>
+                            <box-body>
+                                <label text="${conv.summaryText}" type="p"/>
+                                <label text="(summarized through message ${conv.summaryThruMessageSeqId})" type="i" condition="conv.summaryThruMessageSeqId"/>
+                            </box-body>
+                        </container-box>
+                    </widgets>
+                </section>
+
+                <section name="Facts" condition="factList">
+                    <widgets>
+                        <container-box>
+                            <box-header title="Pinned facts"/>
+                            <box-body>
+                                <form-list name="Facts" list="factList" skip-form="true">
+                                    <field name="factKey"><default-field title="Key"><display/></default-field></field>
+                                    <field name="factValue"><default-field title="Value"><display/></default-field></field>
+                                </form-list>
+                            </box-body>
+                        </container-box>
+                    </widgets>
+                </section>
+
+                <container-box>
+                    <box-header title="Messages"/>
+                    <box-body>
+                        <form-list name="Messages" list="msgList" skip-form="true">
+                            <field name="messageSeqId"><default-field title="Seq"><display/></default-field></field>
+                            <field name="role"><default-field title="Role"><display/></default-field></field>
+                            <field name="content"><default-field title="Content"><display/></default-field></field>
+                            <field name="fromDate"><default-field title="At"><display/></default-field></field>
+                        </form-list>
+                    </box-body>
+                </container-box>
+            </widgets>
+        </section>
+    </widgets>
+</screen>

@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Composer" require-authentication="true">
+    <!-- Build a new agent by talking to the Composer Assistant. Three regions: chat, live draft, preview.
+         All work goes through the tested ComposerServices + run#Agent. v1 security: require-authentication
+         only (inherits the AiOps ALL_USERS grant); the Composer-role ArtifactAuthz is a follow-up. -->
+    <parameter name="conversationId"/>     <!-- the build session -->
+    <parameter name="draftAgentId"/>       <!-- the draft being shaped -->
+    <parameter name="userMessage"/>
+    <parameter name="agentRunId"/>         <!-- last composer run, for the chat trace -->
+    <parameter name="testMessage"/>
+    <parameter name="previewRunId"/>
+
+    <!-- start (or continue) the build conversation with the composer-assistant -->
+    <transition name="send">
+        <actions>
+            <if condition="!conversationId">
+                <service-call name="ai.AgentServices.create#Conversation" out-map="context"
+                    in-map="[agentName: 'composer-assistant', title: 'Composer session']"/></if>
+            <service-call name="ai.AgentServices.run#Agent" out-map="context"
+                in-map="[agentName: 'composer-assistant', userMessage: userMessage, conversationId: conversationId]"/>
+        </actions>
+        <default-response url="."><parameter name="conversationId"/><parameter name="agentRunId"/><parameter name="draftAgentId"/></default-response>
+    </transition>
+    <!-- preview the current draft on a test input -->
+    <transition name="preview">
+        <service-call name="ai.ComposerServices.preview#Agent" out-map="context"
+            in-map="[agentId: draftAgentId, testMessage: testMessage]"/>
+        <default-response url="."><parameter name="conversationId"/><parameter name="draftAgentId"/>
+            <parameter name="previewRunId" from="agentRunId"/></default-response>
+    </transition>
+    <!-- discard the draft -->
+    <transition name="discard">
+        <service-call name="ai.ComposerServices.discard#Draft" in-map="[agentId: draftAgentId]"/>
+        <default-response url="."><parameter name="conversationId"/></default-response>
+    </transition>
+
+    <actions>
+        <!-- chat history for the live build session -->
+        <if condition="conversationId">
+            <entity-find entity-name="moqui.ai.AiConversationMessage" list="msgList">
+                <econdition field-name="conversationId"/><order-by field-name="messageSeqId"/></entity-find></if>
+        <!-- the live draft: the most recent draft tied to this builder (or the passed draftAgentId) -->
+        <if condition="!draftAgentId &amp;&amp; conversationId">
+            <!-- derive the latest draft (the draft_agent tool sets its agentId) -->
+            <entity-find entity-name="moqui.ai.AiAgent" list="draftList" limit="1">
+                <econdition field-name="statusId" value="AI_AGENT_DRAFT"/><order-by field-name="-agentId"/></entity-find>
+            <if condition="draftList"><set field="draftAgentId" from="draftList[0].agentId"/></if></if>
+        <if condition="draftAgentId">
+            <entity-find-one entity-name="moqui.ai.AiAgent" value-field="draft"><field-map field-name="agentId" from="draftAgentId"/></entity-find-one>
+            <entity-find entity-name="moqui.ai.AiAgentTool" list="draftGrants"><econdition field-name="agentId" from="draftAgentId"/></entity-find></if>
+        <if condition="previewRunId">
+            <entity-find-one entity-name="moqui.ai.AiAgentRun" value-field="prevRun"><field-map field-name="agentRunId" from="previewRunId"/></entity-find-one>
+            <entity-find entity-name="moqui.ai.AiToolApproval" list="heldList"><econdition field-name="agentRunId" from="previewRunId"/><econdition field-name="statusId" value="AI_APPR_PENDING"/></entity-find></if>
+    </actions>
+
+    <widgets>
+        <!-- ===== Region 1: Chat ===== -->
+        <container-box><box-header title="Describe the agent you want"/><box-body>
+            <label text="Talk to the Composer Assistant. It will discover capabilities, draft an agent, and help you preview + activate it." type="p"/>
+            <form-list name="Chat" list="msgList" skip-form="true" condition="msgList">
+                <field name="role"><default-field title="Who"><display/></default-field></field>
+                <field name="content"><default-field title="Message"><display/></default-field></field>
+            </form-list>
+            <form-single name="SendForm" transition="send">
+                <field name="conversationId"><default-field><hidden/></default-field></field>
+                <field name="draftAgentId"><default-field><hidden/></default-field></field>
+                <field name="userMessage"><default-field title="Message"><text-area rows="3" cols="80"/></default-field></field>
+                <field name="submitField"><default-field title=""><submit text="Send"/></default-field></field>
+            </form-single>
+        </box-body></container-box>
+
+        <!-- ===== Region 2: Live draft panel ===== -->
+        <section name="DraftPanel"><condition><expression>draft</expression></condition><widgets>
+            <container-box><box-header title="Draft — ${draft.agentName} (${draft.statusId})"/><box-body>
+                <label text="System prompt:" type="strong"/><label text="${draft.systemPrompt}" type="p"/>
+                <label text="Provider/model: ${draft.providerName} / ${draft.modelName}" type="p"/>
+                <form-list name="DraftGrants" list="draftGrants" skip-form="true" condition="draftGrants">
+                    <field name="toolId"><default-field title="Granted tool (id)"><display/></default-field></field>
+                    <field name="requiresApprovalOverride"><default-field title="Requires approval"><display/></default-field></field>
+                </form-list>
+                <form-single name="DiscardForm" transition="discard">
+                    <field name="conversationId"><default-field><hidden/></default-field></field>
+                    <field name="draftAgentId"><default-field><hidden/></default-field></field>
+                    <field name="submitField"><default-field title=""><submit text="Discard draft" confirmation="Discard this draft?"/></default-field></field>
+                </form-single>
+            </box-body></container-box>
+        </widgets></section>
+
+        <!-- ===== Region 3: Preview pane ===== -->
+        <section name="PreviewPane"><condition><expression>draft</expression></condition><widgets>
+            <container-box><box-header title="Try it live"/><box-body>
+                <label text="Run the draft on a test input. Mutating actions are HELD (shown, not executed); read-only tools run on real data." type="p"/>
+                <form-single name="PreviewForm" transition="preview">
+                    <field name="conversationId"><default-field><hidden/></default-field></field>
+                    <field name="draftAgentId"><default-field><hidden/></default-field></field>
+                    <field name="testMessage"><default-field title="Test input"><text-area rows="2" cols="80"/></default-field></field>
+                    <field name="submitField"><default-field title=""><submit text="Preview"/></default-field></field>
+                </form-single>
+                <section name="PreviewResult"><condition><expression>prevRun</expression></condition><widgets>
+                    <container-box><box-header title="Preview — ${prevRun.statusId}"/><box-body>
+                        <label text="${prevRun.assistantMessage}" type="p"/>
+                        <label text="Held (would-be) actions — NOT executed:" type="strong" condition="heldList"/>
+                        <form-list name="Held" list="heldList" skip-form="true" condition="heldList">
+                            <field name="toolName"><default-field title="Would call"><display/></default-field></field>
+                            <field name="arguments"><default-field title="With args"><display/></default-field></field>
+                        </form-list>
+                    </box-body></container-box>
+                    <include-screen location="component://moqui-ai/screen/includes/AiRunTrace.xml">
+                        <parameter name="agentRunId" from="previewRunId"/></include-screen>
+                </widgets></section>
+            </box-body></container-box>
+        </widgets></section>
+    </widgets>
+</screen>

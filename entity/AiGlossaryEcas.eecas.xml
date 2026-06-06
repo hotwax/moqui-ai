@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<eecas xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-eca-3.xsd">
+    <!-- Floor: capture a naming signal for ANY AiTool write not already captured in-service and not a seed.
+         The in-service hook (rich suggestedName/intentText) is preferred; this backstops direct writes
+         (e.g. a direct EntityValue.store(), or a future builder path that bypasses store#AiTool). -->
+    <eeca id="AiToolNamingSignal" entity="moqui.ai.AiTool" on-create="true" on-update="true">
+        <condition><expression>ec.context.signalGuard != true &amp;&amp; ec.context.signalCaptured != true</expression></condition>
+        <actions>
+            <service-call name="ai.GlossaryServices.capture#NamingSignal"
+                in-map="[signalType: 'AI_SIG_TOOL_NAME', chosenName: toolName]"/>
+        </actions>
+    </eeca>
+    <eeca id="AiAgentNamingSignal" entity="moqui.ai.AiAgent" on-create="true" on-update="true">
+        <condition><expression>ec.context.signalGuard != true &amp;&amp; ec.context.signalCaptured != true</expression></condition>
+        <actions>
+            <service-call name="ai.GlossaryServices.capture#NamingSignal"
+                in-map="[signalType: 'AI_SIG_AGENT_NAME', chosenName: agentName]"/>
+        </actions>
+    </eeca>
+</eecas>

@@ -57,19 +57,29 @@
         </actions>
     </service>
 
-    <!-- Operator queue: with no agentRunId this intentionally returns ALL pending approvals across all
-         runs (for an approvals dashboard). authenticate="true" only — per-approver permissions are
-         deferred to Phase 5; until then any authenticated user can read the pending queue (incl. tool
-         arguments). Do not "lock this down" piecemeal; it's gated by the Phase 5 permissions work. -->
+    <!-- Operator queue (rendered by screen/AiOps/Approvals.xml): with no agentRunId this returns the real
+         pending approvals across all runs; with an agentRunId it scopes to that run. Composer preview runs
+         (AiAgentRun.isPreview=Y) are always excluded — a preview SUSPENDS on would-be mutating calls only
+         to SHOW them, then the run is abandoned, so those AI_APPR_PENDING rows are not real decisions and
+         must not pollute the queue (discard#Draft deletes them outright). authenticate="true" only —
+         per-approver permissions are deferred to Phase 5; until then any authenticated user can read the
+         pending queue (incl. tool arguments). Do not "lock this down" piecemeal; it's gated by the Phase 5
+         permissions work — the preview exclusion here is data hygiene, not a permission gate. -->
     <service verb="get" noun="PendingApproval" authenticate="true">
         <in-parameters><parameter name="agentRunId"/></in-parameters>
         <out-parameters><parameter name="approvalList" type="List"/></out-parameters>
         <actions>
-            <entity-find entity-name="moqui.ai.AiToolApproval" list="approvalList">
-                <econdition field-name="statusId" value="AI_APPR_PENDING"/>
-                <econdition field-name="agentRunId" ignore-if-empty="true"/>
-                <order-by field-name="requestedDate"/>
-            </entity-find>
+            <!-- not-in on the preview run ids is null-safe (runs with a null isPreview are KEPT) and is
+                 added only when the id list is non-empty (an empty not-in would otherwise match nothing). -->
+            <script><![CDATA[
+                def previewRunIds = ec.entity.find("moqui.ai.AiAgentRun").condition("isPreview", "Y")
+                    .selectField("agentRunId").list().collect { it.agentRunId }
+                def ef = ec.entity.find("moqui.ai.AiToolApproval")
+                    .condition("statusId", "AI_APPR_PENDING").orderBy("requestedDate")
+                if (agentRunId) ef.condition("agentRunId", agentRunId)
+                if (previewRunIds) ef.condition("agentRunId", "not-in", previewRunIds)
+                approvalList = ef.list()
+            ]]></script>
         </actions>
     </service>
 </services>

@@ -5,21 +5,33 @@ import org.moqui.ai.provider.MockProvider
 
 class AiConversationTests extends Specification {
     @Shared ExecutionContext ec
+
+    // The active Shiro realm (co.hotwax.auth.OfbizShiroRealm) authenticates against the OFBiz UserLogin
+    // model, not moqui.security.UserAccount, so the test user needs Party/Person/UserLogin rows for
+    // internalLoginUser("AiTestUser") to succeed. Must be called inside a committed (runRequireNew) tx.
+    private void ensureTestUser() {
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Party").setAll([partyId: "AiTestUser", partyTypeId: "PERSON"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Person").setAll([partyId: "AiTestUser", firstName: "AI", lastName: "Test User"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.security.login.UserLogin").setAll([userLoginId: "AiTestUser", partyId: "AiTestUser", enabled: "Y"]).createOrUpdate()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+    }
+
     def setupSpec() {
         ec = Moqui.getExecutionContext()
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiConversationStatusData.xml").load()
-        ec.entity.makeValue("moqui.security.UserAccount")
-            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "ConvAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "remember context", maxIterations: 5,
-            statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiConversationStatusData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "ConvAgent", agentName: "ConvAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "remember context", maxIterations: 5,
+                statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        })
         ec.artifactExecution.enableAuthz()
     }
     def cleanupSpec() {
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "ConvAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ConvAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
         ec.destroy()
     }
@@ -35,6 +47,9 @@ class AiConversationTests extends Specification {
         Map t = ec.service.sync().name("ai.AgentServices.create#Conversation")
             .parameters([agentName: "ConvAgent", title: "t1"]).call()
         String conversationId = t.conversationId
+
+        expect: "conversation is keyed to the agent by id"
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", conversationId).one().agentId == "ConvAgent"
 
         when: "turn 1"
         MockProvider.enqueue([assistantText: "hi there", finishReason: "stop", tokensOut: 2L])

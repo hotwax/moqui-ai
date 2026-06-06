@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<entity-facade-xml type="install">
+<entity-facade-xml type="ext-seed">
     <moqui.basic.StatusType statusTypeId="AiConversationStatus" description="AI Conversation Status"/>
     <moqui.basic.StatusItem statusId="AI_CONV_ACTIVE" statusTypeId="AiConversationStatus" sequenceNum="1" description="Active"/>
     <moqui.basic.StatusItem statusId="AI_CONV_CLOSED" statusTypeId="AiConversationStatus" sequenceNum="2" description="Closed"/>

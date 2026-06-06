@@ -9,6 +9,16 @@ class OpenAiProviderTests extends Specification {
     def setupSpec() { ec = Moqui.getExecutionContext() }
     def cleanupSpec() { if (ec != null) ec.destroy() }
 
+    // The active Shiro realm (co.hotwax.auth.OfbizShiroRealm) authenticates against the OFBiz UserLogin
+    // model, not moqui.security.UserAccount, so the test user needs Party/Person/UserLogin rows for
+    // internalLoginUser("AiTestUser") to succeed. Must be called inside a committed (runRequireNew) tx.
+    private void ensureTestUser() {
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Party").setAll([partyId: "AiTestUser", partyTypeId: "PERSON"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Person").setAll([partyId: "AiTestUser", firstName: "AI", lastName: "Test User"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.security.login.UserLogin").setAll([userLoginId: "AiTestUser", partyId: "AiTestUser", enabled: "Y"]).createOrUpdate()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+    }
+
     def "encodes system as a message, tools as functions"() {
         given:
         def p = new OpenAiProvider("k", "https://api.openai.com/v1", 60)
@@ -38,6 +48,24 @@ class OpenAiProviderTests extends Specification {
         body.messages[0].tool_calls[0].function.arguments == '{"text":"boom"}'   // stringified
         body.messages[1].role == "tool"
         body.messages[1].tool_call_id == "c1"
+    }
+
+    def "encodeRequest emits reasoning_effort when reasoning.effort is set"() {
+        given: def p = new OpenAiProvider("k", "u", 60)
+        when:
+        def body = new groovy.json.JsonSlurper().parseText(p.encodeRequest(
+            [model: "o4-mini", messages: [[role: "user", content: "hi"]], reasoning: [effort: "high"]]))
+        then:
+        body.reasoning_effort == "high"
+    }
+
+    def "encodeRequest omits reasoning_effort when no reasoning is set"() {
+        given: def p = new OpenAiProvider("k", "u", 60)
+        when:
+        def body = new groovy.json.JsonSlurper().parseText(p.encodeRequest(
+            [model: "gpt-4o-mini", messages: [[role: "user", content: "hi"]]]))
+        then:
+        !body.containsKey("reasoning_effort")
     }
 
     def "decodes a tool_calls response (arguments JSON string -> Map)"() {
@@ -127,14 +155,17 @@ class OpenAiProviderTests extends Specification {
     def "live: full agent loop calls a tool via OpenAI and returns an answer"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeValue("moqui.security.UserAccount")
-            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "OpenAiEcho", providerName: "openai",
-            modelName: "gpt-4o-mini", systemPrompt: "Use the get#Echo tool to echo the user's word, then report the result.",
-            maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgentTool")
-            .setAll([agentName: "OpenAiEcho", toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiTestToolData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "OpenAiEcho", agentName: "OpenAiEcho", providerName: "openai",
+                modelName: "gpt-4o-mini", systemPrompt: "Use the get_echo tool to echo the user's word, then report the result.",
+                maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentTool")
+                .setAll([agentId: "OpenAiEcho", toolId: "TL_ECHO"]).createOrUpdate()
+        })
+        ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class).refreshCatalog()
         // keep authz disabled through the run#Agent call (the test user has no service permission);
         // login supplies the authenticated user the tool needs (authenticate=true) — distinct from authz
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
@@ -152,8 +183,8 @@ class OpenAiProviderTests extends Specification {
             .condition("serviceName", "moqui.ai.test.TestServices.get#Echo").condition("success", "Y").list().size() >= 1
         cleanup:
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "OpenAiEcho").deleteAll()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "OpenAiEcho").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "OpenAiEcho").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "OpenAiEcho").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -161,13 +192,14 @@ class OpenAiProviderTests extends Specification {
     def "live: OpenAI returns structured output matching the agent schema"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeValue("moqui.security.UserAccount")
-            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "OpenAiSentiment", providerName: "openai",
-            modelName: "gpt-4o-mini", systemPrompt: "Classify the sentiment of the user's message.",
-            responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"}},"required":["sentiment"],"additionalProperties":false}',
-            maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "OpenAiSentiment", agentName: "OpenAiSentiment", providerName: "openai",
+                modelName: "gpt-4o-mini", systemPrompt: "Classify the sentiment of the user's message.",
+                responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"}},"required":["sentiment"],"additionalProperties":false}',
+                maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        })
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()
         when:
@@ -178,7 +210,41 @@ class OpenAiProviderTests extends Specification {
         (out.structuredResult.sentiment as String)?.toLowerCase()?.contains("pos")
         cleanup:
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "OpenAiSentiment").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "OpenAiSentiment").deleteAll()
         ec.artifactExecution.enableAuthz()
+    }
+
+    @Requires({ System.getenv("ai_openai_key") })
+    def "live: an OpenAI reasoning agent with reasoningEffort completes"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "OpenAiReason", agentName: "OpenAiReason", providerName: "openai",
+                modelName: "o4-mini", systemPrompt: "Answer briefly.", reasoningEffort: "low",
+                maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        })
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "OpenAiReason", userMessage: "What is 17 + 25? Reply with just the number."]).call()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        (out.assistantMessage as String)?.contains("42")
+        (out.tokensOut as long) > 0
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "OpenAiReason").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "sanitizeName is a pass-through for wire-safe verb_noun names (no-op safety net)"() {
+        expect:
+        org.moqui.ai.provider.AbstractLlmProvider.sanitizeName("get_echo") == "get_echo"
+        org.moqui.ai.provider.AbstractLlmProvider.sanitizeName("list_orders") == "list_orders"
+        and: "still defends against a stray unsafe char if one ever reaches the wire"
+        org.moqui.ai.provider.AbstractLlmProvider.sanitizeName("bad.name#x") == "bad_name_x"
     }
 }

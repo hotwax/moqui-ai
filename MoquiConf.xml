@@ -10,4 +10,12 @@
     <tools>
         <tool-factory class="org.moqui.ai.AiToolFactory" init-priority="30" disabled="false"/>
     </tools>
+    <!-- Mount the AI Ops console as a top-level app under the standard apps webapp.
+         Same mechanism the tools/oms/poorti components use (subscreens-item on apps.xml);
+         lives in this component's own MoquiConf so no webroot file is touched. URL: /apps/AiOps -->
+    <screen-facade>
+        <screen location="component://webroot/screen/webroot/apps.xml">
+            <subscreens-item name="AiOps" menu-title="AI Ops" menu-index="97" location="component://moqui-ai/screen/AiOps.xml"/>
+        </screen>
+    </screen-facade>
 </moqui-conf>

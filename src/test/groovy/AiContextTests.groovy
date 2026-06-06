@@ -10,13 +10,24 @@ class AiContextTests extends Specification {
     @Shared ExecutionContext ec
     @Shared AiToolFactory ai
 
+    // The active Shiro realm (co.hotwax.auth.OfbizShiroRealm) authenticates against the OFBiz UserLogin
+    // model, not moqui.security.UserAccount, so the test user needs Party/Person/UserLogin rows for
+    // internalLoginUser("AiTestUser") to succeed. Must be called inside a committed (runRequireNew) tx.
+    private void ensureTestUser() {
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Party").setAll([partyId: "AiTestUser", partyTypeId: "PERSON"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Person").setAll([partyId: "AiTestUser", firstName: "AI", lastName: "Test User"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.security.login.UserLogin").setAll([userLoginId: "AiTestUser", partyId: "AiTestUser", enabled: "Y"]).createOrUpdate()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+    }
+
     def setupSpec() {
         ec = Moqui.getExecutionContext()
         ai = ec.factory.getTool("AI", AiToolFactory.class)
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeValue("moqui.security.UserAccount")
-            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ensureTestUser()
+        })
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.artifactExecution.enableAuthz()
     }
@@ -119,20 +130,22 @@ class AiContextTests extends Specification {
     def "windowed agent sends only the last N replayed messages to the provider"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         org.moqui.ai.provider.MockProvider.reset()
         org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "WinAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "be terse", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
-            contextStrategy: "window", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "WinAgent",
-            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
-        (1..5).each { i ->
-            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
-            m.set("conversationId", convId); m.setSequencedIdSecondary()
-            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
-        }
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "WinAgent", agentName: "WinAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "be terse", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
+                contextStrategy: "window", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"WinAgent",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+            (1..5).each { i ->
+                EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+                m.set("conversationId", convId); m.setSequencedIdSecondary()
+                m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+            }
+        })
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
         new org.moqui.ai.AgentRunner(ec, ai).run("WinAgent", "newest", convId)
@@ -150,14 +163,16 @@ class AiContextTests extends Specification {
     def "agent records a fact via the remember tool"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         org.moqui.ai.provider.MockProvider.reset()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "MemAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
-            contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "MemAgent",
-            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "MemAgent", agentName: "MemAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
+                contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"MemAgent",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        })
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "order_total", factValue: "\$4,812.50"]]],
             tokensIn: 1L, tokensOut: 1L])
@@ -182,14 +197,16 @@ class AiContextTests extends Specification {
     def "remembering the same factKey supersedes the value and preserves createdDate"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         org.moqui.ai.provider.MockProvider.reset()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SupAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
-            contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SupAgent",
-            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "SupAgent", agentName: "SupAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
+                contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SupAgent",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        })
         // run 1: remember order_total = first value
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "order_total", factValue: "\$100.00"]]], tokensIn: 1L, tokensOut: 1L])
@@ -220,19 +237,21 @@ class AiContextTests extends Specification {
     def "context management OFF replays the full history unchanged (no regression)"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         org.moqui.ai.provider.MockProvider.reset()
         org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "NoCtxAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "NoCtxAgent",
-            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
-        (1..5).each { i ->
-            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
-            m.set("conversationId", convId); m.setSequencedIdSecondary()
-            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
-        }
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "NoCtxAgent", agentName: "NoCtxAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"NoCtxAgent",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+            (1..5).each { i ->
+                EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+                m.set("conversationId", convId); m.setSequencedIdSecondary()
+                m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+            }
+        })
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
         new org.moqui.ai.AgentRunner(ec, ai).run("NoCtxAgent", "newest", convId)
@@ -250,14 +269,16 @@ class AiContextTests extends Specification {
     def "a remembered fact survives window eviction and reaches a later call"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         org.moqui.ai.provider.MockProvider.reset()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "FidAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "base", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
-            contextStrategy: "window", contextWindowMessages: 1, contextWindowChars: 1000000]).createOrUpdate()
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "FidAgent",
-            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "FidAgent", agentName: "FidAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "base", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
+                contextStrategy: "window", contextWindowMessages: 1, contextWindowChars: 1000000]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"FidAgent",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+        })
         // Turn 1: agent remembers the total, then stops.
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "order_total", factValue: "\$4,812.50"]]],
@@ -285,20 +306,22 @@ class AiContextTests extends Specification {
     def "summarize strategy compacts overflow into a persisted rolling summary"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         org.moqui.ai.provider.MockProvider.reset()
         org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SumAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
-            contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SumAgent",
-            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
-        (1..5).each { i ->
-            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
-            m.set("conversationId", convId); m.setSequencedIdSecondary()
-            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
-        }
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "SumAgent", agentName: "SumAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
+                contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SumAgent",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+            (1..5).each { i ->
+                EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+                m.set("conversationId", convId); m.setSequencedIdSecondary()
+                m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+            }
+        })
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "SUMMARY: discussed old 1-3", finishReason: "stop", toolCalls: [], tokensIn: 5L, tokensOut: 3L])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
@@ -322,20 +345,22 @@ class AiContextTests extends Specification {
     def "summarization failure falls back to windowing and the run still completes"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         org.moqui.ai.provider.MockProvider.reset()
         org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SumFailAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
-            contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SumFailAgent",
-            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
-        (1..5).each { i ->
-            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
-            m.set("conversationId", convId); m.setSequencedIdSecondary()
-            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
-        }
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "SumFailAgent", agentName: "SumFailAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
+                contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SumFailAgent",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+            (1..5).each { i ->
+                EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+                m.set("conversationId", convId); m.setSequencedIdSecondary()
+                m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+            }
+        })
         org.moqui.ai.provider.MockProvider.enqueue([__error: "summary provider down"])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
@@ -356,19 +381,21 @@ class AiContextTests extends Specification {
     def "summarize does not re-summarize the same overflow across a multi-iteration run"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         org.moqui.ai.provider.MockProvider.reset()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "SumMultiAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "base", maxIterations: 5, statusId: "AI_AGENT_ACTIVE",
-            contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "SumMultiAgent",
-            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
-        (1..5).each { i ->
-            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
-            m.set("conversationId", convId); m.setSequencedIdSecondary()
-            m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
-        }
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "SumMultiAgent", agentName: "SumMultiAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "base", maxIterations: 5, statusId: "AI_AGENT_ACTIVE",
+                contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SumMultiAgent",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+            (1..5).each { i ->
+                EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+                m.set("conversationId", convId); m.setSequencedIdSecondary()
+                m.setAll([role: "user", content: "old ${i}", fromDate: ec.user.nowTimestamp]); m.create()
+            }
+        })
         // [0] summarization call (iter 1); [1] iter-1 answer = call remember (forces iter 2);
         // [2] iter-2 answer = "done". If the loop double-summarized on iter 2, it would consume [2]
         // for the summary and the iter-2 main chat would fall through to the empty default.
@@ -394,19 +421,21 @@ class AiContextTests extends Specification {
     def "a persisted summary carries forward and is reused without re-summarizing"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         org.moqui.ai.provider.MockProvider.reset()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "CarryAgent", providerName: "mock",
-            modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
-            contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
         String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
-        ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentName: "CarryAgent",
-            userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE",
-            summaryText: "earlier: customer confirmed 3 units", summaryThruMessageSeqId: "00003"]).createOrUpdate()
-        // one live message past the watermark -> below window(2) -> NO overflow -> NO summarization call
-        EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
-        m.set("conversationId", convId); m.setSequencedIdSecondary()
-        m.setAll([role: "user", content: "live one", fromDate: ec.user.nowTimestamp]); m.create()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "CarryAgent", agentName: "CarryAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
+                contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"CarryAgent",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE",
+                summaryText: "earlier: customer confirmed 3 units", summaryThruMessageSeqId: "00003"]).createOrUpdate()
+            // one live message past the watermark -> below window(2) -> NO overflow -> NO summarization call
+            EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
+            m.set("conversationId", convId); m.setSequencedIdSecondary()
+            m.setAll([role: "user", content: "live one", fromDate: ec.user.nowTimestamp]); m.create()
+        })
         org.moqui.ai.provider.MockProvider.reset()
         org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
         // only the main answer is enqueued; if the code wrongly re-summarized, it would consume this

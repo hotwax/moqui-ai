@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Runs" require-authentication="true">
+    <!-- v1 security: require-authentication only (any logged-in user). AI_OPERATOR group + ArtifactAuthz deferred. -->
+    <!-- Leaf screen. RunDetail.xml is an auto-discovered sibling subscreen under AiOps/, reached via the drill-in link. -->
+
+    <actions>
+        <entity-find entity-name="moqui.ai.AiAgentRun" list="runList">
+            <search-form-inputs default-order-by="-fromDate"/>
+        </entity-find>
+    </actions>
+    <widgets>
+        <form-list name="RunList" list="runList" skip-form="true" header-dialog="true" show-page-size="true">
+            <field name="agentRunId">
+                <header-field title="Run" show-order-by="true"><text-find size="20" default-operator="begins"/></header-field>
+                <default-field title="Run">
+                    <link url="../RunDetail" text="${agentRunId}" link-type="anchor" url-type="screen" parameter-map="[agentRunId:agentRunId]"/>
+                </default-field>
+            </field>
+            <field name="agentName">
+                <header-field show-order-by="true"><text-find size="20" default-operator="begins"/></header-field>
+                <default-field title="Agent"><display/></default-field>
+            </field>
+            <field name="statusId">
+                <header-field title="Status" show-order-by="true">
+                    <drop-down allow-empty="true">
+                        <entity-options key="${statusId}" text="${description}">
+                            <entity-find entity-name="moqui.basic.StatusItem">
+                                <econdition field-name="statusTypeId" value="AiAgentRunStatus"/>
+                                <order-by field-name="sequenceNum"/>
+                            </entity-find>
+                        </entity-options>
+                    </drop-down>
+                </header-field>
+                <default-field title="Status"><display-entity entity-name="moqui.basic.StatusItem" text="${description}"/></default-field>
+            </field>
+            <field name="servedByModelId"><default-field title="Model"><display/></default-field></field>
+            <field name="providerName"><default-field title="Provider"><display/></default-field></field>
+            <field name="fromDate">
+                <header-field show-order-by="true"><date-period/></header-field>
+                <default-field title="Started"><display/></default-field>
+            </field>
+            <field name="iterations"><default-field title="Iters"><display/></default-field></field>
+            <field name="tokensIn"><default-field title="In"><display/></default-field></field>
+            <field name="tokensOut"><default-field title="Out"><display/></default-field></field>
+            <field name="estimatedCost"><default-field title="Cost"><display/></default-field></field>
+            <field name="find"><header-field><submit text="Find"/></header-field>
+                <default-field><display text=" "/></default-field></field>
+        </form-list>
+    </widgets>
+</screen>

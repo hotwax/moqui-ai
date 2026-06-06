@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Glossary" require-authentication="true">
+    <!-- Builder Knowledgebase curation console: review/approve/reject SUGGESTED terms, list APPROVED,
+         add a curated term, and run the seed / promote maintenance actions. v1 security: require-authentication
+         only (any logged-in user); the AI_OPS_ALL_USERS grant covers these transitions + the ai.* services. -->
+    <transition name="approve"><service-call name="ai.GlossaryServices.approve#DomainTerm" in-map="[termId:termId]"/><default-response url="."/></transition>
+    <transition name="reject"><service-call name="ai.GlossaryServices.reject#DomainTerm" in-map="[termId:termId]"/><default-response url="."/></transition>
+    <transition name="addTerm"><service-call name="ai.GlossaryServices.store#DomainTerm"
+        in-map="[term:term, termKind:termKind, description:description, synonym:synonym]"/><default-response url="."/></transition>
+    <transition name="seed"><service-call name="ai.GlossaryServices.seed#DomainGlossary"/><default-response url="."/></transition>
+    <transition name="promote"><service-call name="ai.GlossaryServices.promote#TermsFromSignals" in-map="[threshold:3]"/><default-response url="."/></transition>
+
+    <actions>
+        <entity-find entity-name="moqui.ai.AiDomainTerm" list="suggestedList">
+            <econdition field-name="statusId" value="AI_TERM_SUGGESTED"/><order-by field-name="-usageCount,term"/></entity-find>
+        <entity-find entity-name="moqui.ai.AiDomainTerm" list="approvedList">
+            <econdition field-name="statusId" value="AI_TERM_APPROVED"/><order-by field-name="termKind,term"/></entity-find>
+    </actions>
+    <widgets>
+        <container-box><box-header title="Suggested terms — approve, reject, or curate"/><box-body>
+            <label text="No suggestions pending." type="p" condition="!suggestedList"/>
+            <form-list name="Suggested" list="suggestedList" skip-form="true" condition="suggestedList">
+                <field name="term"><default-field><display/></default-field></field>
+                <field name="termKind"><default-field title="Kind"><display/></default-field></field>
+                <field name="sourceType"><default-field title="Source"><display/></default-field></field>
+                <field name="usageCount"><default-field title="Seen"><display/></default-field></field>
+                <field name="description"><default-field><display/></default-field></field>
+                <field name="approveAction"><default-field title="">
+                    <link url="approve" text="Approve" link-type="hidden-form-link" btn-type="success"><parameter name="termId"/></link></default-field></field>
+                <field name="rejectAction"><default-field title="">
+                    <link url="reject" text="Reject" link-type="hidden-form-link" btn-type="danger"><parameter name="termId"/></link></default-field></field>
+            </form-list>
+        </box-body></container-box>
+
+        <container-box><box-header title="Approved glossary"/><box-body>
+            <form-list name="Approved" list="approvedList" skip-form="true">
+                <field name="term"><default-field><display/></default-field></field>
+                <field name="termKind"><default-field title="Kind"><display/></default-field></field>
+                <field name="usageCount"><default-field title="Usage"><display/></default-field></field>
+                <field name="description"><default-field><display/></default-field></field>
+            </form-list>
+        </box-body></container-box>
+
+        <container-box><box-header title="Add a curated term / maintain the glossary"/><box-body>
+            <form-single name="AddTerm" transition="addTerm">
+                <field name="term"><default-field title="Term"><text-line size="20"/></default-field></field>
+                <field name="termKind"><default-field title="Kind"><drop-down>
+                    <option key="AI_TERM_NOUN" text="Noun"/><option key="AI_TERM_VERB" text="Verb"/></drop-down></default-field></field>
+                <field name="synonym"><default-field title="Synonym (optional)"><text-line size="20"/></default-field></field>
+                <field name="description"><default-field title="Description"><text-area rows="2" cols="60"/></default-field></field>
+                <field name="submitField"><default-field title=""><submit text="Add term"/></default-field></field>
+            </form-single>
+            <form-single name="Maintenance" transition="seed">
+                <field name="reseed"><default-field title=""><submit text="Re-seed from model + services"/></default-field></field></form-single>
+            <form-single name="PromoteForm" transition="promote">
+                <field name="promote"><default-field title=""><submit text="Promote terms from signals"/></default-field></field></form-single>
+        </box-body></container-box>
+    </widgets>
+</screen>

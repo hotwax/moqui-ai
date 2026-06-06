@@ -9,6 +9,16 @@ class AnthropicProviderTests extends Specification {
     def setupSpec() { ec = Moqui.getExecutionContext() }
     def cleanupSpec() { if (ec != null) ec.destroy() }
 
+    // The active Shiro realm (co.hotwax.auth.OfbizShiroRealm) authenticates against the OFBiz UserLogin
+    // model, not moqui.security.UserAccount, so the test user needs Party/Person/UserLogin rows for
+    // internalLoginUser("AiTestUser") to succeed. Must be called inside a committed (runRequireNew) tx.
+    private void ensureTestUser() {
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Party").setAll([partyId: "AiTestUser", partyTypeId: "PERSON"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Person").setAll([partyId: "AiTestUser", firstName: "AI", lastName: "Test User"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.security.login.UserLogin").setAll([userLoginId: "AiTestUser", partyId: "AiTestUser", enabled: "Y"]).createOrUpdate()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+    }
+
     def "encodes a request body with system, messages, and tools"() {
         given:
         def p = new AnthropicProvider("k", "https://api.anthropic.com", "2023-06-01", 60)
@@ -95,6 +105,52 @@ class AnthropicProviderTests extends Specification {
         body.tool_choice == null
     }
 
+    def "encodeRequest enables thinking + bumps max_tokens when reasoning set and NO business tools"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        when:
+        def body = new groovy.json.JsonSlurper().parseText(p.encodeRequest(
+            [model: "claude-sonnet-4-6", messages: [[role: "user", content: "hi"]], reasoning: [effort: "high"]]))
+        then:
+        body.thinking.type == "enabled"
+        body.thinking.budget_tokens == 24576
+        (body.max_tokens as int) >= 24576 + 4096
+    }
+
+    def "encodeRequest does NOT enable thinking when business tools are present (v1 limit)"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        when:
+        def body = new groovy.json.JsonSlurper().parseText(p.encodeRequest(
+            [model: "claude-sonnet-4-6", messages: [[role: "user", content: "hi"]], reasoning: [effort: "high"],
+             tools: [[name: "x.y#z", description: "d", parameters: [type: "object", properties: [:]]]]]))
+        then:
+        body.thinking == null
+        body.tools.size() == 1   // the business tool is still sent
+    }
+
+    def "reasoning + responseSchema (no business tools): thinking on AND structured tool NOT forced"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        when:
+        def body = new groovy.json.JsonSlurper().parseText(p.encodeRequest(
+            [model: "claude-sonnet-4-6", messages: [[role: "user", content: "hi"]], reasoning: [effort: "low"],
+             responseSchema: [type: "object", properties: [answer: [type: "string"]]]]))
+        then:
+        body.thinking.type == "enabled"
+        body.tool_choice == null                                   // NOT forced (auto) — thinking forbids forcing
+        body.tools.find { it.name == "structured_output" } != null // structured tool still offered
+    }
+
+    def "no reasoning: structured output still forces the synthetic tool (unchanged)"() {
+        given: def p = new AnthropicProvider("k", "u", "v", 60)
+        when:
+        def body = new groovy.json.JsonSlurper().parseText(p.encodeRequest(
+            [model: "claude-sonnet-4-6", messages: [[role: "user", content: "hi"]],
+             responseSchema: [type: "object", properties: [answer: [type: "string"]]]]))
+        then:
+        body.thinking == null
+        body.tool_choice.type == "tool"
+        body.tool_choice.name == "structured_output"
+    }
+
     def "applyStructured lifts the structured_output tool-call into structuredResult"() {
         given: def p = new AnthropicProvider("k", "u", "v", 60)
         Map resp = [toolCalls: [[id: "t1", name: "structured_output", arguments: [sentiment: "positive"]]],
@@ -125,13 +181,14 @@ class AnthropicProviderTests extends Specification {
     def "live: Anthropic returns structured output matching the agent schema"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeValue("moqui.security.UserAccount")
-            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicSentiment", providerName: "anthropic",
-            modelName: "claude-sonnet-4-6", systemPrompt: "Classify the sentiment of the user's message.",
-            responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"}},"required":["sentiment"]}',
-            maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AnthropicSentiment", agentName: "AnthropicSentiment", providerName: "anthropic",
+                modelName: "claude-sonnet-4-6", systemPrompt: "Classify the sentiment of the user's message.",
+                responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"}},"required":["sentiment"]}',
+                maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        })
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()
         when:
@@ -146,7 +203,36 @@ class AnthropicProviderTests extends Specification {
         (out.structuredResult.sentiment as String)?.toLowerCase()?.contains("pos")
         cleanup:
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "AnthropicSentiment").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AnthropicSentiment").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    @Requires({ System.getenv("ai_anthropic_key") })
+    def "live: an Anthropic agent (no tools) with reasoningEffort completes"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AnthropicReason", agentName: "AnthropicReason", providerName: "anthropic",
+                modelName: "claude-sonnet-4-6", systemPrompt: "Answer briefly.", reasoningEffort: "low",
+                maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        })
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentName: "AnthropicReason", userMessage: "What is 17 + 25? Reply with just the number."]).call()
+        if (out.statusId == "AI_RUN_FAILED") {
+            def err = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()?.errorText
+            if (noCredits(err as String)) throw new org.opentest4j.TestAbortedException("Anthropic account has no credits — skipping")
+        }
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        (out.assistantMessage as String)?.contains("42")
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AnthropicReason").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
@@ -173,14 +259,17 @@ class AnthropicProviderTests extends Specification {
     def "live: full agent loop calls a tool via Anthropic and returns an answer"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeValue("moqui.security.UserAccount")
-            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicEcho", providerName: "anthropic",
-            modelName: "claude-sonnet-4-6", systemPrompt: "Use the get#Echo tool to echo the user's word, then report the result.",
-            maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgentTool")
-            .setAll([agentName: "AnthropicEcho", toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiTestToolData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AnthropicEcho", agentName: "AnthropicEcho", providerName: "anthropic",
+                modelName: "claude-sonnet-4-6", systemPrompt: "Use the get_echo tool to echo the user's word, then report the result.",
+                maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentTool")
+                .setAll([agentId: "AnthropicEcho", toolId: "TL_ECHO"]).createOrUpdate()
+        })
+        ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class).refreshCatalog()
         // keep authz disabled through the run#Agent call; login supplies the authenticated user
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()
@@ -202,8 +291,8 @@ class AnthropicProviderTests extends Specification {
             .condition("serviceName", "moqui.ai.test.TestServices.get#Echo").condition("success", "Y").list().size() >= 1
         cleanup:
         ec.artifactExecution.disableAuthz()
-        ec.entity.find("moqui.ai.AiAgentTool").condition("agentName", "AnthropicEcho").deleteAll()
-        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "AnthropicEcho").deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "AnthropicEcho").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AnthropicEcho").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 }

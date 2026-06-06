@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
+
+    <!-- Non-overridable floor (spec D4/§6.3): service-name regex patterns that may NEVER become tools.
+         Checked by store#AiTool; a match forces exposable=N and refuses any override. -->
+    <entity entity-name="AiToolDenylist" package="moqui.ai">
+        <field name="servicePattern" type="text-medium" is-pk="true"><description>Regex of service names that may never be exposed as a tool.</description></field>
+        <field name="reason" type="text-medium"><description>Why — shown to the Curator.</description></field>
+    </entity>
+</entities>

@@ -6,7 +6,8 @@
          writes each manage their own tx (see AgentRunner). -->
     <service verb="run" noun="Agent" transaction="ignore" authenticate="true">
         <in-parameters>
-            <parameter name="agentName" required="true"/>
+            <parameter name="agentId"/>
+            <parameter name="agentName"/>
             <parameter name="userMessage" required="true"/>
             <parameter name="conversationId"><description>Optional. When set, prior turns are replayed and this turn is persisted.</description></parameter>
         </in-parameters>
@@ -30,7 +31,13 @@
         <actions>
             <script><![CDATA[
                 def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentName, userMessage, conversationId)
+                String resolvedId = agentId
+                if (!resolvedId) {
+                    def agent = ec.entity.find("moqui.ai.AiAgent").condition("agentName", agentName).useCache(true).one()
+                    if (agent == null) { ec.message.addError("Unknown agent: ${agentName}"); return }
+                    resolvedId = agent.agentId
+                }
+                def r = new org.moqui.ai.AgentRunner(ec, ai).run(resolvedId, userMessage, conversationId)
                 assistantMessage = r.assistantMessage
                 agentRunId = r.agentRunId
                 conversationId = r.conversationId
@@ -50,16 +57,92 @@
         </actions>
     </service>
 
+    <!-- The Agent Composer authoring gate (spec D2/§6): sequences agentId, enforces unique agentName,
+         defaults DRAFT. Composers can never expose a raw service (tools are authored via store#AiTool). -->
+    <service verb="store" noun="AiAgent" authenticate="true">
+        <in-parameters>
+            <parameter name="agentId"><description>Omit to create (sequenced); set to update by stable id.</description></parameter>
+            <parameter name="agentName"/>
+            <parameter name="description"/>
+            <parameter name="providerName"/><parameter name="modelName"/>
+            <parameter name="systemPrompt"/><parameter name="responseSchema"/>
+            <parameter name="contextStrategy"/><parameter name="contextWindowMessages" type="Integer"/>
+            <parameter name="contextWindowChars" type="Integer"/><parameter name="reasoningEffort"/>
+            <parameter name="maxIterations" type="Integer"/><parameter name="maxTokens" type="Integer"/>
+            <parameter name="maxCost" type="BigDecimal"/><parameter name="maxToolCallsPerTurn" type="Integer"/>
+            <parameter name="statusId"/>
+            <!-- Builder Knowledgebase pass-through (inert to authoring; read only by capture#NamingSignal). -->
+            <parameter name="suggestedName"><description>What the Composer proposed (null if human-authored directly).</description></parameter>
+            <parameter name="intentText"><description>The user's described intent for this agent.</description></parameter>
+        </in-parameters>
+        <out-parameters><parameter name="agentId"/></out-parameters>
+        <actions>
+            <!-- unique agentName check (only when a name is given and it would collide with a DIFFERENT agent) -->
+            <if condition="agentName">
+                <entity-find entity-name="moqui.ai.AiAgent" list="nameClash">
+                    <econdition field-name="agentName" from="agentName"/></entity-find>
+                <iterate list="nameClash" entry="other">
+                    <if condition="other.agentId != agentId">
+                        <return error="true" message="An agent named '${agentName}' already exists (agentId ${other.agentId}); choose a different name."/>
+                    </if>
+                </iterate>
+            </if>
+            <if condition="!agentId">
+                <set field="agentId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiAgent', null, null)"/>
+                <set field="statusId" from="statusId ?: 'AI_AGENT_DRAFT'"/>
+            </if>
+            <!-- Builder Knowledgebase: mark captured-in-service BEFORE the write so the AiAgent EECA skips. -->
+            <set field="ec.context.signalCaptured" value="true"/>
+            <service-call name="store#moqui.ai.AiAgent" in-map="context"/>
+            <!-- record the rich naming signal (suggested vs. chosen agentName, intent). Non-fatal. -->
+            <service-call name="ai.GlossaryServices.capture#NamingSignal" in-map="[signalType: 'AI_SIG_AGENT_NAME',
+                chosenName: agentName, suggestedName: suggestedName, intentText: intentText]"/>
+        </actions>
+    </service>
+
+    <!-- Grant a catalog tool to an agent (the Composer's grant_capability backing service). An explicit
+         service (not entity-auto store#moqui.ai.AiAgentTool) so it can be a tool: entity-auto services have
+         no ServiceDefinition and cannot be introspected by ToolSchemaBuilder. Idempotent create-or-update;
+         only exposable+active tools may be granted (the safety floor — a draft can never reference a service
+         the Curator hasn't blessed). -->
+    <service verb="store" noun="AiAgentTool" authenticate="true">
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+            <parameter name="toolId" required="true"/>
+            <parameter name="requiresApprovalOverride"><description>Optional Y/N — stricter than the tool default.</description></parameter>
+        </in-parameters>
+        <out-parameters><parameter name="agentId"/><parameter name="toolId"/></out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiAgent" value-field="agent">
+                <field-map field-name="agentId"/></entity-find-one>
+            <if condition="agent == null"><return error="true" message="Unknown agent ${agentId}"/></if>
+            <entity-find-one entity-name="moqui.ai.AiTool" value-field="tool">
+                <field-map field-name="toolId"/></entity-find-one>
+            <if condition="tool == null"><return error="true" message="Unknown tool ${toolId}"/></if>
+            <if condition="tool.exposable != 'Y' || tool.statusId != 'AI_TOOL_ACTIVE'">
+                <return error="true" message="Tool ${tool.toolName} (${toolId}) is not exposable/active and cannot be granted."/></if>
+            <service-call name="store#moqui.ai.AiAgentTool"
+                in-map="[agentId: agentId, toolId: toolId, requiresApprovalOverride: requiresApprovalOverride]"/>
+        </actions>
+    </service>
+
     <service verb="create" noun="Conversation" authenticate="true">
         <in-parameters>
-            <parameter name="agentName" required="true"/>
+            <parameter name="agentName"/>
+            <parameter name="agentId"/>
             <parameter name="title"/>
         </in-parameters>
         <out-parameters><parameter name="conversationId"/></out-parameters>
         <actions>
+            <if condition="!agentId &amp;&amp; agentName">
+                <entity-find-one entity-name="moqui.ai.AiAgent" value-field="agent" cache="true">
+                    <field-map field-name="agentName" from="agentName"/></entity-find-one>
+                <if condition="agent == null"><return error="true" message="Unknown agent: ${agentName}"/></if>
+                <set field="agentId" from="agent.agentId"/>
+            </if>
             <set field="conversationId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiConversation', null, null)"/>
             <service-call name="create#moqui.ai.AiConversation" in-map="[conversationId: conversationId,
-                agentName: agentName, title: title, userId: ec.user.userId,
+                agentId: agentId, title: title, userId: ec.user.userId,
                 fromDate: ec.user.nowTimestamp, statusId: 'AI_CONV_ACTIVE']"/>
         </actions>
     </service>

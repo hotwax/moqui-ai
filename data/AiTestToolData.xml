@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="ext-seed">
+    <!-- Test-only tools (load explicitly in tests). Mirror the old ai/test.tools.xml + approval-test.tools.xml. -->
+    <moqui.ai.AiTool toolId="TL_ECHO" toolName="get_echo" verb="get" noun="echo"
+        serviceName="moqui.ai.test.TestServices.get#Echo"
+        description="Echoes the given text back, optionally repeated."
+        effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N"
+        sourceComponent="moqui-ai" statusId="AI_TOOL_ACTIVE"/>
+    <moqui.ai.AiTool toolId="TL_GATED" toolName="get_gated_echo" verb="get" noun="gatedEcho"
+        serviceName="moqui.ai.test.TestServices.get#GatedEcho"
+        description="echo (approval-gated)"
+        effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="Y"
+        sourceComponent="moqui-ai" statusId="AI_TOOL_ACTIVE"/>
+</entity-facade-xml>

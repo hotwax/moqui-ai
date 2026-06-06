@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- The Composer Assistant's meta-tools. Each is also an AiTool catalog row (data/AiComposerData.xml)
+         granted to the composer-assistant agent. Authoring tools are ArtifactAuthz-gated to the Composer
+         role (deferred to a v1 follow-up like the rest of the console; authenticate="true" for now).
+         Reconciled to the shipped keystone: AiTool carries effectEnumId (not a plain "effect" field);
+         services surface it under the ergonomic out-param "effect" for the LLM/screen. -->
+
+    <!-- Search the catalog by intent/keyword/noun. ONLY exposable + active tools (grant-eligible). -->
+    <service verb="find" noun="Capability" authenticate="true">
+        <in-parameters>
+            <parameter name="query"><description>intent/keyword/noun, matched against toolName, verb, noun, description</description></parameter>
+            <parameter name="maxResults" type="Integer" default-value="25"/>
+        </in-parameters>
+        <out-parameters><parameter name="capabilityList" type="List"/></out-parameters>
+        <actions>
+            <!-- Only the grant-eligible (exposable + active) catalog; keyword-filter in Groovy so an empty
+                 query returns all (a like '%${query}%' would render the literal '%null%' on a null query). -->
+            <entity-find entity-name="moqui.ai.AiTool" list="toolList">
+                <econdition field-name="exposable" value="Y"/>
+                <econdition field-name="statusId" value="AI_TOOL_ACTIVE"/>
+                <select-field field-name="toolId,toolName,verb,noun,description,effectEnumId,exposable,statusId"/>
+                <order-by field-name="toolName"/>
+            </entity-find>
+            <set field="capabilityList" from="[]"/>
+            <script><![CDATA[
+                String q = (query ?: "").toLowerCase().trim()
+                int max = (maxResults ?: 25) as int
+                for (def t in toolList) {
+                    if (q) {
+                        String hay = "${t.toolName ?: ''} ${t.verb ?: ''} ${t.noun ?: ''} ${t.description ?: ''}".toLowerCase()
+                        if (!hay.contains(q)) continue
+                    }
+                    def m = t.getMap()
+                    m.effect = m.effectEnumId   // ergonomic alias the LLM/screen reads
+                    capabilityList.add(m)
+                    if (capabilityList.size() >= max) break
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- One tool's purpose + on-demand input schema, so the assistant can reason about fit. -->
+    <service verb="describe" noun="Capability" authenticate="true">
+        <in-parameters>
+            <parameter name="toolId"/>
+            <parameter name="toolName"><description>alternative lookup key</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="toolId"/><parameter name="toolName"/><parameter name="description"/>
+            <parameter name="effect"/><parameter name="serviceName"/><parameter name="exposable"/>
+            <parameter name="inputSchema" type="Map"/>
+        </out-parameters>
+        <actions>
+            <entity-find entity-name="moqui.ai.AiTool" list="found">
+                <econdition field-name="toolId" ignore-if-empty="true"/>
+                <econdition field-name="toolName" ignore-if-empty="true"/>
+            </entity-find>
+            <if condition="!found"><return error="true" message="No such capability: ${toolId ?: toolName}"/></if>
+            <set field="tool" from="found[0]"/>
+            <script>
+                context.toolId = tool.toolId; context.toolName = tool.toolName
+                context.description = tool.description; context.effect = tool.effectEnumId
+                context.serviceName = tool.serviceName; context.exposable = tool.exposable
+                // schema generated on demand from the live service definition (never stored)
+                context.inputSchema = org.moqui.ai.ToolSchemaBuilder.build(ec.factory, tool.serviceName as String)
+            </script>
+        </actions>
+    </service>
+
+    <!-- The business vocabulary the assistant grounds in. Now backed by the Builder Knowledgebase: the
+         APPROVED domain glossary (ai.GlossaryServices) is the primary source, with the grant-eligible
+         catalog nouns merged in as a floor. source flips to "knowledgebase" whenever the glossary
+         contributes a term, else stays "catalog" (an un-seeded deployment behaves exactly like the v1
+         stub). The contract (termList + source) is unchanged so the assistant needs no edit. -->
+    <service verb="list" noun="DomainTerm" authenticate="true">
+        <in-parameters><parameter name="query"/></in-parameters>
+        <out-parameters>
+            <parameter name="termList" type="List"/>
+            <parameter name="source"><description>"catalog" (glossary empty) | "knowledgebase" (glossary contributed)</description></parameter>
+        </out-parameters>
+        <actions>
+            <!-- catalog floor: distinct nouns from the grant-eligible catalog. Keyword-filter + de-dupe in
+                 Groovy (an empty query must return all; a like '%${query}%' renders the literal '%null%'). -->
+            <entity-find entity-name="moqui.ai.AiTool" list="toolList">
+                <econdition field-name="exposable" value="Y"/>
+                <econdition field-name="statusId" value="AI_TOOL_ACTIVE"/>
+                <select-field field-name="noun"/><order-by field-name="noun"/>
+            </entity-find>
+            <script><![CDATA[
+                String q = (query ?: "").toLowerCase().trim()
+                List catalogNouns = toolList.collect { it.noun }.findAll { it && (!q || (it as String).toLowerCase().contains(q)) }.unique()
+
+                // Builder Knowledgebase: real grounded terms. With a query, snap via lexical find; without
+                // one, return all APPROVED glossary terms (the full grounding slice).
+                List<String> kbTerms = []
+                if (q) {
+                    def found = ec.service.sync().name("ai.GlossaryServices.find#DomainTerm")
+                        .parameters([text: query]).call()
+                    kbTerms = (found.terms ?: []).collect { (it.term as String) }
+                } else {
+                    kbTerms = ec.entity.find("moqui.ai.AiDomainTerm").condition("statusId", "AI_TERM_APPROVED")
+                        .orderBy("term").list().collect { (it.term as String) }
+                }
+
+                // glossary is primary; catalog nouns merged as a floor. source reflects whether the KB spoke.
+                source = kbTerms ? "knowledgebase" : "catalog"
+                termList = (kbTerms + catalogNouns).findAll { it }.unique()
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Best-guess agent naming (decision §12.3): KB-grounded heuristic + optional LLM refinement.
+         Wire-safe by construction. The grounding is now REAL — list#DomainTerm is backed by the Builder
+         Knowledgebase glossary, and the chosen noun is snapped to its canonical glossary term (so a
+         dialect word like "rma" resolves to "return"). Falls back gracefully if the glossary is empty
+         or no provider/key is configured, so it never fails the build. -->
+    <service verb="propose" noun="Naming" authenticate="true">
+        <in-parameters>
+            <parameter name="intent" required="true"><description>what the user wants the agent to do</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="agentNameSuggestion"/>
+            <parameter name="descriptionSuggestion"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                // heuristic floor: derive a slug from the intent + KB-grounded nouns. list#DomainTerm with
+                // no query returns the full grounding slice (APPROVED glossary terms + catalog nouns);
+                // pick the term that appears in the intent.
+                def terms = ec.service.sync().name("ai.ComposerServices.list#DomainTerm").parameters([:]).call().termList ?: []
+                String noun = terms.find { (intent as String).toLowerCase().contains((it as String).toLowerCase()) } ?: "assistant"
+                // snap the chosen noun to its canonical glossary term (dialect -> canonical), if the KB knows it
+                if (noun != "assistant") {
+                    try {
+                        def snap = ec.service.sync().name("ai.GlossaryServices.propose#Naming")
+                            .parameters([proposedNoun: noun, intentText: intent]).call()
+                        if (snap?.noun) noun = snap.noun
+                    } catch (Throwable t) { ec.logger.warn("propose#Naming glossary snap skipped: ${t.message}") }
+                }
+                String slug = (noun == "assistant" ? "assistant" : "${noun}-assistant")
+                agentNameSuggestion = slug.toLowerCase().replaceAll(/[^a-z0-9-]+/, "-").replaceAll(/-+/, "-")
+                descriptionSuggestion = "Assistant for: ${intent}"
+                // optional LLM refinement (best-guess): only if a provider is configured. Guarded — never aborts.
+                try {
+                    def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
+                    String providerName = System.getProperty("ai_openai_key") ? "openai" :
+                        (System.getProperty("ai_anthropic_key") ? "anthropic" : null)
+                    if (providerName) {
+                        def provider = ai.getProvider(providerName)
+                        def resp = provider.chat([model: providerName == "openai" ? "gpt-4o-mini" : "claude-3-5-haiku-latest",
+                            systemContext: "Suggest a short, lowercase, hyphenated agent name (<=4 words) and a one-line description. " +
+                                "Ground the name in these business terms when relevant: ${terms.join(', ')}. " +
+                                "Reply as JSON {\"name\":\"...\",\"description\":\"...\"}.",
+                            messages: [[role: "user", content: intent as String]]])
+                        if (resp?.assistantText) {
+                            def j = new groovy.json.JsonSlurper().parseText(resp.assistantText as String)
+                            if (j.name) agentNameSuggestion = (j.name as String).toLowerCase().replaceAll(/[^a-z0-9-]+/, "-").replaceAll(/-+/, "-")
+                            if (j.description) descriptionSuggestion = j.description
+                        }
+                    }
+                } catch (Throwable t) { ec.logger.warn("propose#Naming LLM refine skipped: ${t.message}") }
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Set per-grant approval strictness on a draft (decision: an agent can be STRICTER than the tool
+         default, never looser — a read-only tool stays runnable; only mutating gets gated). Writes the
+         keystone's AiAgentTool.requiresApprovalOverride. -->
+    <service verb="set" noun="Guardrail" authenticate="true">
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+            <parameter name="toolId" required="true"/>
+            <parameter name="requiresApproval" required="true"><description>Y/N</description></parameter>
+        </in-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiAgentTool" value-field="grant"/>
+            <if condition="grant == null"><return error="true" message="Agent ${agentId} has no grant for tool ${toolId}"/></if>
+            <service-call name="update#moqui.ai.AiAgentTool"
+                in-map="[agentId: agentId, toolId: toolId, requiresApprovalOverride: requiresApproval]"/>
+        </actions>
+    </service>
+
+    <!-- Record a capability gap for the Curator. The assistant calls this instead of fabricating a tool. -->
+    <service verb="request" noun="Capability" authenticate="true">
+        <in-parameters>
+            <parameter name="intent" required="true"/>
+            <parameter name="suggestedVerb"/><parameter name="suggestedNoun"/>
+            <parameter name="notes"/><parameter name="agentRunId"/><parameter name="conversationId"/>
+        </in-parameters>
+        <out-parameters><parameter name="capabilityRequestId"/></out-parameters>
+        <actions>
+            <set field="capabilityRequestId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiCapabilityRequest', null, null)"/>
+            <service-call name="create#moqui.ai.AiCapabilityRequest" in-map="[capabilityRequestId: capabilityRequestId,
+                intent: intent, suggestedVerb: suggestedVerb, suggestedNoun: suggestedNoun, notes: notes,
+                agentRunId: agentRunId, conversationId: conversationId, requestedByUserId: ec.user.userId,
+                requestedDate: ec.user.nowTimestamp, statusId: 'AI_CAPREQ_OPEN']"/>
+        </actions>
+    </service>
+
+    <!-- Sandbox-run a draft on a user-supplied test message. Mutating tools are held by the approval
+         gate (AgentRunner.runPreview); read-only tools run on real data (decision §12.4). Returns the
+         run result + the held (would-be) calls so the screen can show "would call X(...)".
+         transaction="ignore": runPreview drives LLM calls that must hold no enclosing tx (mirrors run#Agent). -->
+    <service verb="preview" noun="Agent" transaction="ignore" authenticate="true">
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+            <parameter name="testMessage" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="agentRunId"/><parameter name="statusId"/>
+            <parameter name="assistantMessage"/>
+            <parameter name="heldCalls" type="List"><description>each: toolName, serviceName, arguments (JSON)</description></parameter>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
+                def r = new org.moqui.ai.AgentRunner(ec, ai).runPreview(agentId as String, testMessage as String)
+                agentRunId = r.agentRunId; statusId = r.statusId; assistantMessage = r.assistantMessage
+                heldCalls = []
+                for (def a in ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", agentRunId)
+                        .condition("statusId", "AI_APPR_PENDING").orderBy("requestedDate").list())
+                    heldCalls.add([toolName: a.toolName, serviceName: a.serviceName, arguments: a.arguments])
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Commit: draft -> active. Re-checks every grant is still exposable + active (a tool can be
+         un-exposed/disabled by the Curator after it was granted). Fail-loud on any non-exposable grant.
+         HUMAN APPROVAL is enforced UPSTREAM: activate_agent is a requiresApproval AiTool, so the Composer
+         Assistant proposing it suspends its own run via the existing gate; this service runs only after a
+         human approves (decision §12.2). Also callable directly by an operator (the screen's Activate button). -->
+    <service verb="activate" noun="Agent" authenticate="true">
+        <in-parameters><parameter name="agentId" required="true"/></in-parameters>
+        <out-parameters><parameter name="agentId"/><parameter name="statusId"/></out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiAgent" value-field="agent"/>
+            <if condition="agent == null"><return error="true" message="Unknown agent ${agentId}"/></if>
+            <if condition="agent.statusId != 'AI_AGENT_DRAFT'">
+                <return error="true" message="Agent ${agentId} is not a draft (status ${agent.statusId})"/></if>
+            <!-- re-check grants: every granted tool must still be exposable + active -->
+            <entity-find entity-name="moqui.ai.AiAgentTool" list="grants">
+                <econdition field-name="agentId"/></entity-find>
+            <iterate list="grants" entry="g">
+                <entity-find-one entity-name="moqui.ai.AiTool" value-field="tool">
+                    <field-map field-name="toolId" from="g.toolId"/></entity-find-one>
+                <if condition="tool == null || tool.exposable != 'Y' || tool.statusId != 'AI_TOOL_ACTIVE'">
+                    <return error="true" message="Cannot activate: granted tool ${g.toolId} is not exposable/active"/></if>
+            </iterate>
+            <service-call name="update#moqui.ai.AiAgent" in-map="[agentId: agentId, statusId: 'AI_AGENT_ACTIVE']"/>
+            <set field="statusId" value="AI_AGENT_ACTIVE"/>
+        </actions>
+    </service>
+
+    <!-- Cleanup: drop a draft, its grants, AND the preview runs it spawned (with the steps / tool-calls /
+         held approvals hanging off them). A draft is exercised only via preview#Agent, whose would-be
+         mutating calls SUSPEND and write AI_APPR_PENDING rows; deleting those runs here is what keeps the
+         abandoned approvals out of the operator queue (ApprovalServices.get#PendingApproval). AiAgentRunStep
+         has a real FK to AiAgentRun, so steps are deleted before the run. The screen "Discard draft" action. -->
+    <service verb="discard" noun="Draft" authenticate="true">
+        <in-parameters><parameter name="agentId" required="true"/></in-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiAgent" value-field="agent"/>
+            <if condition="agent == null"><return/></if>
+            <if condition="agent.statusId != 'AI_AGENT_DRAFT'">
+                <return error="true" message="Refusing to discard a non-draft agent ${agentId}"/></if>
+            <script><![CDATA[
+                for (run in ec.entity.find("moqui.ai.AiAgentRun").condition("agentId", agentId).list()) {
+                    ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", run.agentRunId).deleteAll()
+                    ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", run.agentRunId).deleteAll()
+                    ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", run.agentRunId).deleteAll()
+                }
+                ec.entity.find("moqui.ai.AiAgentRun").condition("agentId", agentId).deleteAll()
+            ]]></script>
+            <entity-find entity-name="moqui.ai.AiAgentTool" list="grants"><econdition field-name="agentId"/></entity-find>
+            <iterate list="grants" entry="g">
+                <service-call name="delete#moqui.ai.AiAgentTool" in-map="[agentId: g.agentId, toolId: g.toolId]"/>
+            </iterate>
+            <service-call name="delete#moqui.ai.AiAgent" in-map="[agentId: agentId]"/>
+        </actions>
+    </service>
+</services>

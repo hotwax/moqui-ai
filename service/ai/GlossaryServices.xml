@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- ====================================================================================
+         Builder Knowledgebase / domain glossary. Backs the Composer Assistant's grounding +
+         naming: a curated, OMS-grounded glossary of typed terms (NOUN/VERB) + dialect synonyms
+         that seeds from the live model, learns each deployment's words from authoring signals,
+         serves lexical APPROVED-only terms, and gets better through a suggest->approve loop.
+         v1 = lexical + suggest-only (nothing auto-enters the approved glossary).
+         ==================================================================================== -->
+
+    <!-- Build/refresh the starting glossary from the live model + service catalog. SEEDED + APPROVED.
+         Idempotent: a term already present (any status) is left untouched. Re-runnable to absorb new
+         entities/services. Intended to be called once at install (ext data service-call) and on demand. -->
+    <service verb="seed" noun="DomainGlossary" authenticate="true">
+        <in-parameters>
+            <parameter name="ownerScope"/><!-- null = global (v1) -->
+        </in-parameters>
+        <out-parameters>
+            <parameter name="nounsAdded" type="Integer"/>
+            <parameter name="verbsAdded" type="Integer"/>
+        </out-parameters>
+        <actions>
+            <set field="nounsAdded" from="0"/><set field="verbsAdded" from="0"/>
+            <set field="signalGuard" value="true"/><!-- not a real authoring write: skip capture (Task 4) -->
+            <script><![CDATA[
+                import org.moqui.impl.service.ServiceDefinition
+
+                // ----- NOUNS: domain objects from the non-view entity model + curated UDM concepts -----
+                // Map known OMS entity names to their domain noun (singularized, lowercased). Keep this a
+                // small, deliberate set — we want domain nouns, not every framework table.
+                Map<String,String> entityNoun = [
+                    "OrderHeader":"order", "OrderItem":"order item", "ReturnHeader":"return",
+                    "ReturnItem":"return item", "Shipment":"shipment", "ShipmentItem":"shipment item",
+                    "Facility":"facility", "InventoryItem":"inventory", "Product":"product",
+                    "Party":"party", "Picklist":"picklist", "Invoice":"invoice", "Payment":"payment"]
+                // Curated concepts from the UDM domain-practices guide (not 1:1 with an entity name).
+                List<String> udmConcepts = ["allocation", "reservation", "fulfillment", "brokering",
+                    "store", "warehouse", "carrier", "kit", "variant", "catalog"]
+
+                Set<String> presentEntityNames = ec.entity.getAllEntityNames() as Set
+                Map<String,String> nouns = [:]
+                for (Map.Entry<String,String> e in entityNoun.entrySet()) {
+                    // only seed a noun whose backing entity actually exists in THIS deployment
+                    if (presentEntityNames.contains("mantle.order." + e.key) || presentEntityNames.any { it.endsWith("." + e.key) })
+                        nouns.put(e.value, "Domain object: ${e.key}".toString())
+                }
+                for (String c in udmConcepts) nouns.put(c, "UDM domain concept".toString())
+
+                for (Map.Entry<String,String> n in nouns.entrySet()) {
+                    boolean exists = ec.entity.find("moqui.ai.AiDomainTerm")
+                        .condition("term", n.key).condition("termKind", "AI_TERM_NOUN").condition("ownerScope", ownerScope).one() != null
+                    if (exists) continue
+                    String termId = ec.entity.sequencedIdPrimary("moqui.ai.AiDomainTerm", null, null)
+                    ec.service.sync().name("create#moqui.ai.AiDomainTerm").parameters([termId: termId, term: n.key,
+                        termKind: "AI_TERM_NOUN", description: n.value, sourceType: "AI_TSRC_SEEDED",
+                        statusId: "AI_TERM_APPROVED", usageCount: 0, ownerScope: ownerScope]).call()
+                    nounsAdded = (nounsAdded as int) + 1
+                }
+
+                // ----- VERBS: the verbs of existing exposable services (soft, observed vocabulary) -----
+                Set<String> verbs = new TreeSet<String>()
+                for (String sn in ec.service.getKnownServiceNames()) {
+                    String v = ServiceDefinition.getVerbFromName(sn)
+                    if (v) verbs.add(v.toLowerCase())
+                }
+                for (String v in verbs) {
+                    boolean exists = ec.entity.find("moqui.ai.AiDomainTerm")
+                        .condition("term", v).condition("termKind", "AI_TERM_VERB").condition("ownerScope", ownerScope).one() != null
+                    if (exists) continue
+                    String termId = ec.entity.sequencedIdPrimary("moqui.ai.AiDomainTerm", null, null)
+                    ec.service.sync().name("create#moqui.ai.AiDomainTerm").parameters([termId: termId, term: v,
+                        termKind: "AI_TERM_VERB", description: "Observed capability verb".toString(),
+                        sourceType: "AI_TSRC_SEEDED", statusId: "AI_TERM_APPROVED", usageCount: 0, ownerScope: ownerScope]).call()
+                    verbsAdded = (verbsAdded as int) + 1
+                }
+                ec.logger.info("seed#DomainGlossary: +${nounsAdded} nouns, +${verbsAdded} verbs")
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Lexical retrieval backing the Composer's grounding + propose#Naming. Match text tokens
+         against term + approved synonyms; filter APPROVED (+ kind + scope); rank by match x usage. -->
+    <service verb="find" noun="DomainTerm" authenticate="true">
+        <in-parameters>
+            <parameter name="text" required="true"/>
+            <parameter name="kind"><description>AI_TERM_NOUN | AI_TERM_VERB; null = both</description></parameter>
+            <parameter name="ownerScope"/>
+            <parameter name="maxResults" type="Integer" default="20"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="terms" type="List"><description>ranked [termId, term, termKind, description, usageCount, score]</description></parameter>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                Set<String> tokens = (text.toLowerCase().replaceAll(/[^a-z0-9 ]/, " ").split(/\s+/) as List)
+                    .findAll { it } as Set
+                def find = ec.entity.find("moqui.ai.AiDomainTerm").condition("statusId", "AI_TERM_APPROVED")
+                if (kind) find.condition("termKind", kind)
+                if (ownerScope != null) find.condition("ownerScope", ownerScope)
+                List<Map> scored = []
+                for (def t in find.list()) {
+                    // synonyms (approved only) for this term
+                    Set<String> aliases = ec.entity.find("moqui.ai.AiTermSynonym")
+                        .condition("termId", t.termId).condition("statusId", "AI_TERM_APPROVED")
+                        .list().collect { (it.synonym as String).toLowerCase() } as Set
+                    int score = 0
+                    String tl = (t.term as String).toLowerCase()
+                    if (tokens.contains(tl)) score += 2
+                    else if (tokens.any { tl.contains(it) || it.contains(tl) }) score += 1
+                    // synonym hit: exact token == alias, or a near match (one contains the other) for
+                    // dialect inflections like "rmas" <-> "rma" — kept conservative (len >= 3).
+                    boolean aliasHit = aliases.any { a ->
+                        tokens.contains(a) || tokens.any { tk -> a.length() >= 3 && tk.length() >= 3 && (a.contains(tk) || tk.contains(a)) }
+                    }
+                    if (aliasHit) score += 2
+                    if (score == 0) continue
+                    long usage = (t.usageCount ?: 0) as long
+                    scored.add([termId: t.termId, term: t.term, termKind: t.termKind, description: t.description,
+                        usageCount: usage, score: (score * (1 + usage))])
+                }
+                scored.sort { a, b -> (b.score as long) <=> (a.score as long) }
+                terms = scored.take(maxResults as int)
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Record one naming signal. Shared by the in-service hook (rich context) and the defensive EECA
+         (floor). No-op when signalGuard is set (seeding) or when this write was already captured in-service. -->
+    <service verb="capture" noun="NamingSignal" authenticate="false">
+        <in-parameters>
+            <parameter name="signalType" required="true"/><!-- AI_SIG_TOOL_NAME | AI_SIG_AGENT_NAME -->
+            <parameter name="chosenName" required="true"/>
+            <parameter name="suggestedName"/>
+            <parameter name="intentText"/>
+        </in-parameters>
+        <out-parameters><parameter name="signalId"/></out-parameters>
+        <actions>
+            <if condition="ec.context.signalGuard == true"><return/></if>
+            <set field="signalId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiNamingSignal', null, null)"/>
+            <set field="overridden" from="(suggestedName != null &amp;&amp; suggestedName != chosenName) ? 'Y' : 'N'"/>
+            <service-call name="create#moqui.ai.AiNamingSignal" in-map="[signalId: signalId, signalType: signalType,
+                intentText: intentText, suggestedName: suggestedName, chosenName: chosenName,
+                wasOverridden: overridden, userId: ec.user.userId, fromDate: ec.user.nowTimestamp]"/>
+        </actions>
+    </service>
+
+    <!-- Scan naming signals; chosen-name tokens that recur >= threshold and aren't already glossary terms
+         are PROPOSED (LEARNED + SUGGESTED) for a Curator to approve. Suggest-only (D2). Re-runnable. -->
+    <service verb="promote" noun="TermsFromSignals" authenticate="true">
+        <in-parameters>
+            <parameter name="threshold" type="Integer" default="3"/>
+            <parameter name="ownerScope"/>
+        </in-parameters>
+        <out-parameters><parameter name="proposed" type="Integer"/></out-parameters>
+        <actions>
+            <set field="proposed" from="0"/>
+            <script><![CDATA[
+                // approved verbs are the "known verb" set we strip out, leaving the noun token to learn
+                Set<String> approvedVerbs = ec.entity.find("moqui.ai.AiDomainTerm")
+                    .condition("termKind", "AI_TERM_VERB").condition("statusId", "AI_TERM_APPROVED")
+                    .list().collect { (it.term as String).toLowerCase() } as Set
+                Map<String,Integer> counts = [:]
+                for (def s in ec.entity.find("moqui.ai.AiNamingSignal").list()) {
+                    String chosen = (s.chosenName ?: "") as String
+                    for (String tok in chosen.toLowerCase().split(/[_\s]+/)) {
+                        if (!tok || approvedVerbs.contains(tok)) continue
+                        counts.put(tok, (counts.get(tok) ?: 0) + 1)
+                    }
+                }
+                for (Map.Entry<String,Integer> e in counts.entrySet()) {
+                    if (e.value < (threshold as int)) continue
+                    boolean exists = ec.entity.find("moqui.ai.AiDomainTerm")
+                        .condition("term", e.key).condition("termKind", "AI_TERM_NOUN").condition("ownerScope", ownerScope).one() != null
+                    if (exists) continue
+                    String termId = ec.entity.sequencedIdPrimary("moqui.ai.AiDomainTerm", null, null)
+                    ec.service.sync().name("create#moqui.ai.AiDomainTerm").parameters([termId: termId, term: e.key,
+                        termKind: "AI_TERM_NOUN", description: "Learned from authoring (x${e.value})".toString(),
+                        sourceType: "AI_TSRC_LEARNED", statusId: "AI_TERM_SUGGESTED", usageCount: e.value, ownerScope: ownerScope]).call()
+                    proposed = (proposed as int) + 1
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- ===== Composer-facing grounding/naming (the KB makes the Composer's stubs real) ===== -->
+
+    <!-- Grounding slice the assistant grounds in: APPROVED glossary terms for the given text/kind.
+         Thin wrapper over find#DomainTerm. Distinct from ai.ComposerServices.list#DomainTerm (which keeps
+         its catalog-noun contract); this one returns the ranked term Maps the Composer's stub now delegates to. -->
+    <service verb="list" noun="DomainTerm" authenticate="true">
+        <in-parameters>
+            <parameter name="text" required="true"/><parameter name="kind"/><parameter name="ownerScope"/>
+            <parameter name="maxResults" type="Integer" default="20"/>
+        </in-parameters>
+        <out-parameters><parameter name="terms" type="List"/></out-parameters>
+        <actions>
+            <service-call name="ai.GlossaryServices.find#DomainTerm" out-map="context"
+                in-map="[text: text, kind: kind, ownerScope: ownerScope, maxResults: maxResults]"/>
+        </actions>
+    </service>
+
+    <!-- Snap a raw verb/noun guess (from the Composer's LLM) to the nearest APPROVED glossary
+         term/synonym so the suggestion speaks the deployment's dialect. The human still edits. The
+         LLM-proposal half lives in the Composer; this is the glossary-snap the Composer delegates to. -->
+    <service verb="propose" noun="Naming" authenticate="true">
+        <in-parameters>
+            <parameter name="proposedVerb"/><parameter name="proposedNoun"/>
+            <parameter name="intentText"/><parameter name="ownerScope"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="verb"/><parameter name="noun"/><parameter name="toolName"/>
+            <parameter name="groundingTerms" type="List"/>
+        </out-parameters>
+        <actions>
+            <set field="verb" from="proposedVerb"/><set field="noun" from="proposedNoun"/>
+            <set field="groundingTerms" from="[]"/>
+            <script><![CDATA[
+                // snap noun
+                if (proposedNoun) {
+                    def n = ec.service.sync().name("ai.GlossaryServices.find#DomainTerm")
+                        .parameters([text: proposedNoun, kind: "AI_TERM_NOUN", ownerScope: ownerScope, maxResults: 1]).call()
+                    if (n.terms) { noun = (n.terms[0].term); groundingTerms.add(n.terms[0]) }
+                }
+                // snap verb
+                if (proposedVerb) {
+                    def v = ec.service.sync().name("ai.GlossaryServices.find#DomainTerm")
+                        .parameters([text: proposedVerb, kind: "AI_TERM_VERB", ownerScope: ownerScope, maxResults: 1]).call()
+                    if (v.terms) { verb = (v.terms[0].term); groundingTerms.add(v.terms[0]) }
+                }
+                if (verb && noun) toolName = (verb + "_" + noun).toLowerCase().replaceAll(/[^a-z0-9_]/, "_")
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- ===== Curation: create / approve / reject (close the suggest->approve loop) ===== -->
+
+    <!-- Curator: create-or-update a CURATED term (and optionally attach an approved synonym). store = idempotent. -->
+    <service verb="store" noun="DomainTerm" authenticate="true">
+        <in-parameters>
+            <parameter name="termId"/><!-- when set, update / attach synonym to this term -->
+            <parameter name="term"/><parameter name="termKind"/><parameter name="description"/>
+            <parameter name="synonym"/><parameter name="ownerScope"/>
+            <parameter name="statusId" default-value="AI_TERM_APPROVED"/>
+        </in-parameters>
+        <out-parameters><parameter name="termId"/></out-parameters>
+        <actions>
+            <if condition="!termId">
+                <set field="termId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiDomainTerm', null, null)"/>
+                <service-call name="create#moqui.ai.AiDomainTerm" in-map="[termId: termId, term: term, termKind: termKind,
+                    description: description, sourceType: 'AI_TSRC_CURATED', statusId: statusId, usageCount: 0, ownerScope: ownerScope]"/>
+                <else>
+                    <!-- update only the fields actually provided. entity-auto update sets a field to null
+                         when its key is present-but-null in the in-map (setFieldsEv setIfEmpty=true), so we
+                         must omit unset fields to avoid clobbering an existing term/kind/description (e.g.
+                         when this is called only to attach a synonym to an existing canonical term). -->
+                    <script><![CDATA[
+                        Map upd = [termId: termId]
+                        if (statusId != null) upd.statusId = statusId
+                        if (term != null) upd.term = term
+                        if (termKind != null) upd.termKind = termKind
+                        if (description != null) upd.description = description
+                        ec.service.sync().name("update#moqui.ai.AiDomainTerm").parameters(upd).call()
+                    ]]></script>
+                </else>
+            </if>
+            <if condition="synonym">
+                <service-call name="store#moqui.ai.AiTermSynonym" in-map="[termId: termId, synonym: synonym.toLowerCase(),
+                    sourceType: 'AI_TSRC_CURATED', statusId: 'AI_TERM_APPROVED']"/>
+            </if>
+        </actions>
+    </service>
+
+    <service verb="approve" noun="DomainTerm" authenticate="true">
+        <in-parameters><parameter name="termId" required="true"/></in-parameters>
+        <actions><service-call name="update#moqui.ai.AiDomainTerm" in-map="[termId: termId, statusId: 'AI_TERM_APPROVED']"/></actions>
+    </service>
+
+    <service verb="reject" noun="DomainTerm" authenticate="true">
+        <in-parameters><parameter name="termId" required="true"/></in-parameters>
+        <actions><service-call name="update#moqui.ai.AiDomainTerm" in-map="[termId: termId, statusId: 'AI_TERM_REJECTED']"/></actions>
+    </service>
+</services>

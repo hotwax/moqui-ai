@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
+
+    <!-- A gap the Composer Assistant found but cannot fill (only the Curator may create tools).
+         Append-only queue for the future Curator. -->
+    <entity entity-name="AiCapabilityRequest" package="moqui.ai">
+        <field name="capabilityRequestId" type="id" is-pk="true"/>
+        <field name="intent" type="text-long"><description>what the user wanted, in their words</description></field>
+        <field name="suggestedVerb" type="text-short"/>
+        <field name="suggestedNoun" type="text-short"/>
+        <field name="notes" type="text-long"/>
+        <field name="requestedByUserId" type="id"/>
+        <field name="agentRunId" type="id"><description>the compose run that surfaced the gap (provenance)</description></field>
+        <field name="conversationId" type="id"/>
+        <field name="requestedDate" type="date-time"/>
+        <field name="statusId" type="id"><description>AiCapReqStatus: AI_CAPREQ_OPEN | AI_CAPREQ_DONE | AI_CAPREQ_DISMISSED</description></field>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
+    </entity>
+</entities>

@@ -4,7 +4,9 @@
 
     <!-- ===== Definitions ===== -->
     <entity entity-name="AiAgent" package="moqui.ai">
-        <field name="agentName" type="id" is-pk="true"/>
+        <field name="agentId" type="id" is-pk="true"><description>Opaque, stable identity (sequenced for user-created; explicit stable id in seed data).</description></field>
+        <field name="agentName" type="text-short"><description>Editable, human-friendly label. Unique across agents.</description></field>
+        <field name="description" type="text-long"><description>What the agent is for (authored with guidance; may seed the prompt).</description></field>
         <field name="providerName" type="text-short"/>
         <field name="modelName" type="text-medium"/>
         <field name="systemPrompt" type="text-very-long"/>
@@ -12,34 +14,47 @@
         <field name="contextStrategy" type="text-short"><description>off (default) | window. window = bound the replayed history + offer the remember tool + inject pinned facts (ADR 0001 Phase 1).</description></field>
         <field name="contextWindowMessages" type="number-integer"><description>When contextStrategy=window: max replayed prior-turn messages to keep (current turn always kept). Default 20 when unset.</description></field>
         <field name="contextWindowChars" type="number-integer"><description>When contextStrategy=window: char-estimate guard (~chars/4 tokens) for the assembled view. Default 48000 when unset.</description></field>
+        <field name="reasoningEffort" type="text-short"><description>none (default/unset) | low | medium | high. Provider-agnostic reasoning depth. OpenAI → reasoning_effort (reasoning-capable models only). Anthropic → extended thinking budget; v1 applies it ONLY to agents WITHOUT tool grants (reasoning+tools on Anthropic is deferred — needs thinking-block preservation across tool turns). No effect on providers/models that don't support reasoning.</description></field>
         <field name="maxIterations" type="number-integer"/>
         <field name="maxTokens" type="number-integer"/>
         <field name="maxCost" type="number-decimal"/>
         <field name="maxToolCallsPerTurn" type="number-integer"/>
-        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentStatus: AI_AGENT_ACTIVE | AI_AGENT_DISABLED</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentStatus: AI_AGENT_DRAFT | AI_AGENT_ACTIVE | AI_AGENT_DISABLED</description></field>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <index name="AI_AGENT_NAME" unique="true"><index-field name="agentName"/></index>
     </entity>
 
     <entity entity-name="AiTool" package="moqui.ai">
-        <field name="toolName" type="id" is-pk="true"/>
-        <field name="serviceName" type="text-medium"/>
-        <field name="description" type="text-long"/>
-        <field name="requiresApproval" type="text-indicator"><description>Y/N — when Y, a proposed call to this tool suspends the run for human approval (Phase 4 gate; see AiToolApproval + approve/reject#ToolCall)</description></field>
-        <field name="sourceComponent" type="text-medium"/>
+        <field name="toolId" type="id" is-pk="true"><description>Opaque, stable identity (sequenced for user-created; explicit stable id in seed data). Renaming never breaks grants/history.</description></field>
+        <field name="toolName" type="text-short"><description>Derived verb_noun, snake_case, wire-safe (^[a-z0-9_]+$). The LLM-facing name. Unique across tools.</description></field>
+        <field name="verb" type="text-short"><description>Editable verb, e.g. list, cancel.</description></field>
+        <field name="noun" type="text-short"><description>Editable noun, e.g. orders, return.</description></field>
+        <field name="description" type="text-long"><description>LLM-facing "what / when to use".</description></field>
+        <field name="serviceName" type="text-medium"><description>Backing Moqui service FQN — an attribute, NOT a key.</description></field>
+        <field name="effectEnumId" type="id"><description>Enumeration enumTypeId=AiToolEffect: AI_TOOL_READ_ONLY | AI_TOOL_MUTATING (derived from the service verb).</description></field>
+        <field name="exposable" type="text-indicator"><description>Y/N — may agents be granted this tool at all (denylist forces N).</description></field>
+        <field name="requiresApproval" type="text-indicator"><description>Y/N — run-time human gate (Phase 4: a proposed call suspends the run; see AiToolApproval).</description></field>
+        <field name="sourceComponent" type="text-medium"><description>Provenance: which component seeded it; null if user-authored.</description></field>
+        <field name="createdByUserId" type="id"><description>Provenance for user-authored tools.</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiToolStatus: AI_TOOL_ACTIVE | AI_TOOL_DISABLED.</description></field>
+        <relationship type="one" related="moqui.basic.Enumeration" title="AiToolEffect" short-alias="effect">
+            <key-map field-name="effectEnumId" related="enumId"/>
+        </relationship>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <index name="AI_TOOL_NAME" unique="true"><index-field name="toolName"/></index>
     </entity>
 
     <entity entity-name="AiAgentTool" package="moqui.ai">
-        <field name="agentName" type="id" is-pk="true"/>
-        <field name="toolName" type="id" is-pk="true"/>
+        <field name="agentId" type="id" is-pk="true"/>
+        <field name="toolId" type="id" is-pk="true"/>
+        <field name="requiresApprovalOverride" type="text-indicator"><description>Optional Y/N — lets one agent be stricter than the tool's default requiresApproval (never looser; the tool default is a floor).</description></field>
         <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
-        <!-- one-nofk: in slice-1 the tool catalog is in-memory (from ai/*.tools.xml); the AiTool
-             entity is not populated from files yet, so the grant references the catalog logically
-             (integrity enforced at save-time against the catalog, not via a DB FK). -->
+        <!-- one-nofk: the tool may be a seeded/user row; keep the grant resilient to catalog edits. -->
         <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="tool"/>
     </entity>
 
     <entity entity-name="AiAgentModel" package="moqui.ai">
-        <field name="agentName" type="id" is-pk="true"/>
+        <field name="agentId" type="id" is-pk="true"/>
         <field name="priority" type="number-integer" is-pk="true"><description>Lower is tried first (0,1,2,...). Sticky failover advances on provider-call failure.</description></field>
         <field name="providerName" type="text-short"/>
         <field name="modelName" type="text-medium"/>
@@ -50,7 +65,8 @@
     <!-- ===== Observability ===== -->
     <entity entity-name="AiAgentRun" package="moqui.ai">
         <field name="agentRunId" type="id" is-pk="true"/>
-        <field name="agentName" type="id"/>
+        <field name="agentId" type="id"><description>The agent that produced this run (FK by id).</description></field>
+        <field name="agentName" type="text-short"><description>Denormalized snapshot of the agent's label AT RUN TIME, so history reads correctly after a rename.</description></field>
         <field name="userId" type="id"/>
         <field name="fromDate" type="date-time"/>
         <field name="thruDate" type="date-time"/>
@@ -68,6 +84,7 @@
         <field name="errorText" type="text-very-long"/>
         <field name="pendingState" type="text-very-long"><description>Phase 4: JSON loop state when AI_RUN_SUSPENDED (messages, replayCount, stepSeq, candIdx, summary, result, turnToolCalls)</description></field>
         <field name="conversationId" type="id"><description>Phase 2: the conversation this run belongs to (optional)</description></field>
+        <field name="isPreview" type="text-indicator"><description>Composer: Y when this run is a sandbox preview (ComposerServices.preview#Agent / AgentRunner.runPreview), where mutating tools are force-gated so the run SUSPENDS to show would-be calls without executing them. The run is throwaway, so its AI_RUN_SUSPENDED row + AI_APPR_PENDING approvals are excluded from the operator queue (ApprovalServices.get#PendingApproval, screen/AiOps/Approvals.xml) and deleted by discard#Draft. Null/absent = a normal run.</description></field>
         <!-- one-nofk: AiAgentRun is append-only audit; it must not block the agent / conversation lifecycle -->
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
         <relationship type="one-nofk" related="moqui.ai.AiConversation" short-alias="conversation"/>
@@ -90,6 +107,7 @@
         <field name="agentRunId" type="id" is-pk="true"/>
         <field name="stepSeqId" type="id" is-pk="true"/>
         <field name="toolCallId" type="id" is-pk="true"/>
+        <field name="toolId" type="id"><description>The tool that was called (id); toolName/serviceName are display/dispatch snapshots.</description></field>
         <field name="toolName" type="text-medium"/>
         <field name="serviceName" type="text-medium"/>
         <field name="arguments" type="text-very-long"/>

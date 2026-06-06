@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Cost" require-authentication="true">
+    <!-- v1 security: require-authentication only (any logged-in user). AI_OPERATOR group + ArtifactAuthz deferred. -->
+    <parameter name="agentName"/>
+    <parameter name="userId"/>
+    <parameter name="fromDate"/>
+    <parameter name="thruDate"/>
+    <parameter name="groupBy"><default-value>agent</default-value></parameter>
+
+    <actions>
+        <service-call name="ai.CostServices.get#AiSpend" out-map="spend"
+            in-map="[agentName:agentName, userId:userId, fromDate:fromDate, thruDate:thruDate, groupBy:groupBy]"/>
+    </actions>
+    <widgets>
+        <form-single name="Filter" transition=".">
+            <field name="agentName"><default-field title="Agent">
+                <drop-down allow-empty="true">
+                    <entity-options key="${agentName}" text="${agentName}">
+                        <entity-find entity-name="moqui.ai.AiAgent"><order-by field-name="agentName"/></entity-find>
+                    </entity-options>
+                </drop-down>
+            </default-field></field>
+            <field name="userId"><default-field title="User"><text-line size="20"/></default-field></field>
+            <field name="fromDate"><default-field title="From"><date-time type="date"/></default-field></field>
+            <field name="thruDate"><default-field title="Thru"><date-time type="date"/></default-field></field>
+            <field name="groupBy"><default-field title="Group By">
+                <drop-down>
+                    <option key="agent" text="Agent"/>
+                    <option key="user" text="User"/>
+                    <option key="none" text="None"/>
+                </drop-down>
+            </default-field></field>
+            <field name="submitField"><default-field title=""><submit text="Show"/></default-field></field>
+        </form-single>
+
+        <container-box>
+            <box-header title="Total spend"/>
+            <box-body>
+                <label text="Cost: $${spend.totalCost} · tokens in: ${spend.totalTokensIn} · tokens out: ${spend.totalTokensOut} · runs: ${spend.runCount}"/>
+            </box-body>
+        </container-box>
+
+        <form-list name="Breakdown" list="spend.rows" skip-form="true" condition="spend.rows">
+            <field name="key"><default-field title="Group Key"><display/></default-field></field>
+            <field name="totalCost"><default-field title="Cost"><display/></default-field></field>
+            <field name="totalTokensIn"><default-field title="Tokens In"><display/></default-field></field>
+            <field name="totalTokensOut"><default-field title="Tokens Out"><display/></default-field></field>
+            <field name="runCount"><default-field title="Runs"><display/></default-field></field>
+        </form-list>
+    </widgets>
+</screen>

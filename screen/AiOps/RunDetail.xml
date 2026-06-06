@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Run Detail" default-menu-include="false" require-authentication="true">
+    <!-- v1 security: require-authentication only. AI_OPERATOR group + ArtifactAuthz deferred. -->
+    <parameter name="agentRunId" required="true"/>
+    <actions>
+        <entity-find-one entity-name="moqui.ai.AiAgentRun" value-field="run"/>
+    </actions>
+    <widgets>
+        <container-box>
+            <box-header title="Run ${agentRunId} — ${run.agentName}"/>
+            <box-toolbar><link url="../Runs" text="Back to Runs" link-type="anchor" url-type="screen"/></box-toolbar>
+            <box-body>
+                <label text="Status: ${run.statusId} · iterations: ${run.iterations} · tokens: ${run.tokensIn}/${run.tokensOut} · cost: $${run.estimatedCost}"/>
+                <label text="Provider: ${run.providerName} · served by: ${run.servedByModelId} · provider run id: ${run.providerRunId}"/>
+                <label text="Started: ${run.fromDate} · ended: ${run.thruDate}"/>
+            </box-body>
+        </container-box>
+
+        <container-box>
+            <box-header title="Conversation"/>
+            <box-body>
+                <label text="User message" type="strong"/>
+                <label text="${run.userMessage}" type="p"/>
+                <label text="Assistant message" type="strong"/>
+                <label text="${run.assistantMessage}" type="p"/>
+                <section name="RunError" condition="run.errorText">
+                    <widgets>
+                        <label text="Error" type="strong"/>
+                        <label text="${run.errorText}" type="p"/>
+                    </widgets>
+                </section>
+            </box-body>
+        </container-box>
+
+        <include-screen location="component://moqui-ai/screen/includes/AiRunTrace.xml">
+            <parameter name="agentRunId" from="agentRunId"/>
+        </include-screen>
+    </widgets>
+</screen>
