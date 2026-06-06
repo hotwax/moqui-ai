@@ -1,5 +1,7 @@
 # Phase 5: Operational UI — Implementation Plan
 
+> **Status: SUPERSEDED** by docs/plans/2026-06-04-operational-ui.md (the version that shipped).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give non-developer operators screens to do their job without a DB client: watch agent

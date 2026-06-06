@@ -1,5 +1,7 @@
 # Phase 3: Cost Awareness — Implementation Plan
 
+> **Status: SUPERSEDED** by docs/plans/2026-06-03-cost-awareness.md (the version that shipped). Note: the per-period spend aggregation was implemented in Groovy inside `get#AiSpend`, not as the summing view-entity sketched here.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the raw token counts Phase 1 already captures into money: compute an estimated

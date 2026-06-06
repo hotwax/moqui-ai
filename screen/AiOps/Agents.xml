@@ -46,7 +46,7 @@
                     <field name="agentId"><default-field title="Agent id (edit)"><hidden/></default-field></field>
                     <field name="agentName"><default-field title="Agent name"><text-line size="30"/></default-field></field>
                     <field name="providerName"><default-field title="Provider">
-                        <drop-down><option key="openai" text="openai"/><option key="anthropic" text="anthropic"/><option key="google" text="google"/></drop-down></default-field></field>
+                        <drop-down><option key="openai" text="openai"/><option key="anthropic" text="anthropic"/></drop-down></default-field></field>
                     <field name="modelName"><default-field title="Model"><text-line size="30" default-value="gpt-4o-mini"/></default-field></field>
                     <field name="maxIterations"><default-field title="Max iterations"><text-line size="4" default-value="5"/></default-field></field>
                     <field name="statusId"><default-field title="Status">

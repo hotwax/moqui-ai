@@ -45,7 +45,7 @@ deepest dogfood.)
 | `find_capability` | `find#Capability` | search the catalog (`exposable=Y`, `active`) by intent/keyword/noun — "what can an agent here actually do?" |
 | `describe_capability` | `describe#Capability` | a tool's purpose + inputs (for the assistant to reason about fit) |
 | `list_domain_terms` | `list#DomainTerm` | the business vocabulary/nouns the assistant can ground in (from the ontology / knowledgebase) |
-| `propose_naming` | `propose#Naming` | suggest agent/tool name + description, grounded in the glossary (thin in v1; deepens with the KB spec) |
+| `propose_naming` | `propose#Naming` | suggest agent/tool name + description, grounded in the glossary (snaps the noun to its canonical term via the KB — §5) |
 | `draft_agent` | `store#AiAgent` (status `draft`) | create/update the draft (name, description, system prompt, model) |
 | `grant_capability` | grant `AiAgentTool` | add a catalog tool to the draft (only `exposable=Y` tools resolve) |
 | `set_guardrail` | `AiAgentTool.requiresApprovalOverride` | mark which of the draft's tools need human approval |
@@ -75,13 +75,16 @@ agent), the build is resumable, and the approval step (§7) has a concrete recor
 
 ## 5. Grounding — "knows your business"
 
-For v1 the assistant grounds in what the keystone already exposes:
+The assistant grounds in what the keystone exposes plus the Builder Knowledgebase glossary:
 - the **capability catalog** (`AiTool`) — what agents can do here;
 - the **domain ontology** — the nouns/terms it can reason about (`list_domain_terms`).
 
-The richer "learns your vocabulary, gets better over time" behavior is the **Builder Knowledgebase**
-spec (separate). This design only wires the seams: `propose_naming` and `list_domain_terms` read from
-whatever grounding source exists, so the KB drops in later without reshaping the assistant.
+**KB grounding — SHIPPED** (via `docs/specs/2026-06-05-builder-knowledgebase-design.md`). The richer
+"learns your vocabulary, gets better over time" behavior is now real: `list#DomainTerm` queries the
+**APPROVED domain glossary** (`AiDomainTerm`) as its primary source with the grant-eligible catalog
+nouns merged in as a floor, and `propose#Naming` snaps the chosen noun to its canonical glossary term
+via `GlossaryServices.propose#Naming` (so a dialect word like "rma" resolves to "return"). An un-seeded
+deployment still behaves like the original catalog-only stub, so the contract is unchanged.
 
 **Gap handling.** The assistant cannot create capabilities (that's the Curator's gated job). When the
 intent needs a tool that doesn't exist, it calls `request_capability` to record the gap for the
@@ -95,6 +98,11 @@ the preview.** So the run *suspends* at each would-be write and shows the intend
 call `cancel_order(123)`") via the existing approval/suspend machinery — the user sees exactly what
 the agent would do, with nothing irreversible executed. Read-only tools run normally **on real data**
 (decided — preview shows true results). The result + trace render in the Composer screen.
+
+These suspended preview runs are throwaway, so their held approvals **never reach the operator
+Approvals queue** (SHIPPED): the run is stamped `AiAgentRun.isPreview=Y` (by `AgentRunner.runPreview`'s
+force-gate-on-mutating flag) and `ApprovalServices.get#PendingApproval` excludes preview-run approvals;
+`discard#Draft` deletes the draft's preview runs along with their held approvals/steps/tool-calls.
 
 ## 7. Safety & authorization
 
@@ -153,11 +161,14 @@ when we build it.)
 > (`data/AiComposerData.xml`, ext-seed); the Composer screen (chat + live draft panel + preview pane,
 > `screen/AiOps/Composer.xml`); the unit + compose→preview→gated-activate e2e (MockProvider). Suite green
 > on MySQL `hcsd_notnaked` (111 tests, 0 failed, 8 skipped live-provider).
-> **Deferred:** KB-grounded `list#DomainTerm`/`propose#Naming` (v1 = catalog nouns + heuristic); the Curator
-> assistant + `request_capability`/`AiCapabilityRequest` UI; stale-draft TTL; the Composer-role `ArtifactAuthz`
-> (v1 is `authenticate="true"` under the AiOps `ALL_USERS` grant); a direct "Activate" button on the screen
-> (activation rides the in-conversation approval gate + Approvals tab); excluding abandoned preview runs from
-> the operator Approvals queue.
+> Also shipped: **abandoned preview runs are excluded from the operator Approvals queue** —
+> `AiAgentRun.isPreview` (set `Y` by `AgentRunner.runPreview`), `ApprovalServices.get#PendingApproval`
+> drops preview-run approvals, and `discard#Draft` deletes a draft's preview runs + their held
+> approvals/steps/tool-calls; and **KB-grounded `list#DomainTerm`/`propose#Naming`** (§5) via the
+> Builder Knowledgebase glossary (`GlossaryServices`).
+> **Deferred:** the Curator assistant + `request_capability`/`AiCapabilityRequest` UI; stale-draft TTL;
+> the Composer-role `ArtifactAuthz` (v1 is `authenticate="true"` under the AiOps `ALL_USERS` grant);
+> a direct "Activate" button on the screen (activation rides the in-conversation approval gate + Approvals tab).
 
 ## 12. Boundaries & resolved decisions
 
@@ -167,5 +178,6 @@ when we build it.)
   1. **Draft state** → a real `draft`-status `AiAgent` row (Option A). Cleanup via a discard action +
      optional TTL (planning detail).
   2. **Commit approval** → `activate#Agent` **requires human approval**.
-  3. **Naming in v1** → best-guess (LLM + catalog heuristic) now; KB-grounded later.
+  3. **Naming in v1** → best-guess (LLM + catalog heuristic); now KB-grounded — snaps to the canonical
+     glossary term via `GlossaryServices.propose#Naming` (§5).
   4. **Preview on real data** → read-only tools run on real data; mutating tools held by the gate.

@@ -28,7 +28,7 @@ handled by convention.
 |---|---|
 | 1 own state · 3 no built-in tools · 8 tool-arg validation | ✅ **already implemented** |
 | **5 structured output (agent-defined, locked)** | ✅ **SHIPPED** — agent-defined `responseSchema` → normalized `structuredResult`; verified live on OpenAI + Anthropic |
-| 6 reasoning — OpenAI | ✅ **closed for v1** — works today via `modelName` (o-series), no framework change; normalized flag deferred |
+| **6 reasoning (effort flag)** | ✅ **SHIPPED** (OpenAI + Anthropic, 2026-06-04) — `AiAgent.reasoningEffort` → OpenAI `reasoning_effort` / Anthropic `thinking{budget_tokens}`; Anthropic reasoning + tools is a v1 limitation |
 | **7 multi-provider fallback chain** | ✅ **SHIPPED** — `AiAgentModel` priority chain + sticky failover on provider-call failures; run records served provider/model; failed attempts logged as `llm_call_failed` steps |
 | **cost awareness — stamping + query** | ✅ **SHIPPED** — `estimatedCost` stamped per run from an effective-dated `AiModelPrice` (priced off the *served* model, post-fallback); `get#AiSpend` aggregates by agent / user / time window; `store#AiModelPrice` upserts prices. `maxCost` *enforcement* still ⏳ **deferred** (later policy task) — field intentionally unused |
 | **2 context management — Phase 1 (windowing + pinned facts) · Phase 2 (compaction)** | ✅ **SHIPPED** — agent-defined `remember` tool → `AiConversationFact`, injected into `systemContext`; message-count + char-guard windowing of replayed history (tool-pair-safe); drops logged as `context_trim` steps; gated by `AiAgent.contextStrategy` (default off = no behavior change). **Phase 2:** `contextStrategy=summarize` rolls overflow into a persisted `AiConversation.summaryText` (+ watermark) via the agent's own model, summarized once per run, injected as a `## Conversation summary` block; falls back to windowing on summarization failure; logged as `compaction` steps. Tool-result clearing (Phase 3), semantic retrieval (Phase 6) remain ⏳ **deferred** |
@@ -106,15 +106,15 @@ cost/context shipped work for one decision record.
 | **3** | Provider built-in tools — not supported | **ALIGNED** | All tools resolve via the file catalog → a Moqui service (`dispatchTool` → `ec.service.sync()`). No provider-side execution path exists. | none |
 | **4** | Streaming — optional, off by default | **MISSING** | `provider.chat()` is sync-only; no `stream` flag, no SSE. "Off by default" satisfied trivially. | **not building** |
 | **5** | Structured output — normalized, schema-driven | **SHIPPED** | Agent-defined `AiAgent.responseSchema` → normalized `structuredResult` out-param. OpenAI via `response_format` json_schema (strict); Anthropic via forced synthetic `structured_output` tool on the closing turn. Verified live on both providers. | **done (v1)** — see Decision Record below |
-| **6** | Reasoning / thinking | **MISSING (flag)** | No `reasoning`/`reasoningBudgetTokens` on `AiAgent`; no thinking storage. **But** OpenAI reasoning needs zero framework work — it's model selection (`modelName` = o-series). | **defer flag**; document OpenAI-via-`modelName` |
+| **6** | Reasoning / thinking | **SHIPPED** (OpenAI + Anthropic, 2026-06-04) | `AiAgent.reasoningEffort` (`none|low|medium|high`) normalizes to a `reasoning.effort` translated per provider: OpenAI `reasoning_effort` (reasoning-capable models only), Anthropic extended `thinking{budget_tokens}` (1024/8192/24576). Default unset ⇒ byte-for-byte unchanged. See the Reasoning SHIPPED section above. | **done (v1)** — Anthropic reasoning + tools is a v1 limitation |
 | **7** | Multi-provider fallback chain | **SHIPPED** | `AiAgentModel` priority chain + sticky failover on provider-call failures; run records served provider/model; failed attempts logged as `llm_call_failed` steps. `servedByModelId` + `providerName` exposed as `run#Agent` out-params. | **done (v1)** |
 | **8** | Tool argument validation | **ALIGNED** | Moqui validates service in-params; `dispatchTool` returns a **structured JSON error** to the model (not an exception) on invalid args, on tool error, and on unknown tool ("Tool not in catalog"). All logged to `AiToolCall`. | none |
 | **9** | Tool-result size — cap + overflow | **MISSING** | `dispatchTool` serializes the full result with no cap. No `maxResultTokens`/`overflowStrategy` on `AiTool`. | **defer** — design-around via convention (below) |
 | **10** | Metadata/correlation in our entities; none to provider | **DIVERGES → narrowed** | Provider side: no metadata sent (ALIGNED). Entity side: have `agentRunId`, `agentName`, `userId`, `fromDate`/`thruDate`, `providerName`, `modelName`, `tokensIn/Out`, `estimatedCost`, `conversationId`. **`tenantId` removed from scope** (single-business). `servedByModelId` + `providerRunId` correlation fields **shipped** — populated on `AiAgentRun` and exposed as `run#Agent` out-params. **Cost stamping + query shipped:** `estimatedCost` is now stamped per run from an effective-dated `AiModelPrice` (priced off the *served* model, post-fallback); `get#AiSpend` aggregates spend by agent / user / time window; `store#AiModelPrice` upserts prices. `maxCost` *enforcement* remains **deferred** (later policy task) — the field is intentionally still unused. | none for v1 |
 | **11** | PII/masking — hook-based | **MISSING** | No `preRequestHook`/`postResponseHook`; no hook points in `AgentRunner`. | **defer** — tools own AI-safe output (below) |
 
-**Tally:** 3 ALIGNED (1, 3, 8) · 1 narrowed (10) · shipped 3 (5, 7, 2-Phases 1–2) + cost stamping/query (under 10) ·
-defer 2 (9, 11) + context Phases 3/6 + `maxCost` enforcement · not building 2 (4, 10-tenantId) · closed-for-v1 1 (6).
+**Tally:** 3 ALIGNED (1, 3, 8) · 1 narrowed (10) · shipped 4 (5, 6, 7, 2-Phases 1–2) + cost stamping/query (under 10) ·
+defer 2 (9, 11) + context Phases 3/6 + `maxCost` enforcement + Anthropic reasoning-with-tools · not building 2 (4, 10-tenantId).
 
 ---
 
@@ -142,14 +142,15 @@ defer 2 (9, 11) + context Phases 3/6 + `maxCost` enforcement · not building 2 (
    `AiAgent.responseSchema` normalizes to a `structuredResult` out-param; OpenAI uses `response_format`
    json_schema (strict), Anthropic uses a forced synthetic `structured_output` tool on the closing turn.
    Verified live on both providers.
-6. **Reasoning — closed for v1; free for OpenAI today.** OpenAI reasoning works today via `modelName`
-   (o-series) with **no framework change** — Decision 6 is closed for v1 (the normalized flag is deferred).
+6. **Reasoning — SHIPPED (OpenAI + Anthropic, 2026-06-04).** The normalized `AiAgent.reasoningEffort`
+   flag (`none|low|medium|high`, default unset) translates to OpenAI `reasoning_effort` (reasoning-capable
+   models only) and Anthropic extended `thinking{budget_tokens}`; see the Reasoning SHIPPED section above.
    Value is real only for *planner-type*
    agents (multi-step/multi-constraint flows: fulfillment-source selection, SLA root-cause,
    turning vague asks into correct tool sequences). It's overhead for the bulk of OMS traffic
-   (lookups, status, extraction). OpenAI reasoning already works via `modelName`; the normalized
-   `reasoning`/`reasoningBudgetTokens` flag (which only adds Anthropic/Google parity) is deferred
-   to a future reasoning slice.
+   (lookups, status, extraction). **v1 limitation:** Anthropic applies thinking only when the request
+   carries no tools (reasoning + tools on Anthropic needs thinking-block preservation across `tool_result`
+   turns — deferred); OpenAI has no such limit. Gemini `thinkingConfig` lands with the Gemini provider.
 7. **Fallback chain — SHIPPED in v1.** `AiAgentModel` priority chain + sticky failover on
    provider-call failures; run records served provider/model; failed attempts logged as
    `llm_call_failed` steps.

@@ -1,5 +1,7 @@
 # Phase 6: Knowledge Retrieval (RAG) — Implementation Plan
 
+> **Status: NOT IMPLEMENTED (deferred).** Semantic / RAG retrieval (embeddings, vector index, kNN, chunking, `search#Knowledge`, auto-retrieve) described below was never built — none of it exists in the code. The shipped 'knowledge' capability is instead the lexical **domain Glossary**; see docs/specs/2026-06-05-builder-knowledgebase-design.md and docs/plans/2026-06-05-builder-knowledgebase.md.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let an agent draw on a large knowledge base beyond what fits in the always-injected

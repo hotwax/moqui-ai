@@ -1,150 +1,167 @@
 # moqui-ai
 
-LLM integration for [Moqui Framework](https://github.com/moqui/moqui-framework) via a first-class `ec.ai` facade.
+A Moqui-native AI agent framework, packaged as a self-contained component. Declare
+agents and tools as ordinary Moqui data and services, then run an agent with a single
+service call — no core-framework changes, no `ec.ai` facade, no Spring, no annotations.
 
-Adds AI capability to Moqui following the same pattern as the built-in `ec.elastic` facade — so any Groovy service, screen action, or scheduled job can call an LLM with a single line:
-
-```groovy
-ec.ai.getDefault().chat(messages)
-```
+Agents are LLM loops that call your existing Moqui services as tools. The framework
+handles the provider wire formats, the agentic loop, persistence, observability, cost,
+human-approval gating, context management, and an operational console.
 
 ---
 
-## Design principles
+## What it is
 
-- **Follows Moqui conventions** — same registration pattern as `ElasticFacadeImpl`, same config pattern as `entity-facade` with named, switchable connections
-- **Provider-agnostic** — configure OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint without changing code
-- **Multiple named configs** — define many `<model-config>` entries, pick a default, reference others by name at runtime
-- **No code change to switch providers** — change `MoquiConf.xml`, restart, done
-- **Secrets handled correctly** — `api-key` uses Moqui's `is-secret="true"` mechanism, never logged
+- **Agents** (`AiAgent`) — a system prompt + model choice + a set of granted tools, run
+  as a Moqui service. Identified by an opaque `agentId`; `agentName` is the editable label.
+- **Tools** (`AiTool`) — a thin, gated wrapper around one Moqui service. The agentic loop
+  exposes granted tools to the model and dispatches the model's tool calls back through
+  `ec.service.sync()`, so existing Moqui authz applies to every call.
+- **Observability** — every run, step, tool call, and approval is persisted, viewable in
+  the AiOps console.
 
 ---
 
 ## Architecture
 
-`ec.ai` is registered as a singleton facade on `ExecutionContextFactoryImpl` (ECFI), exactly like `ec.elastic`:
+The component registers a single `ToolFactory` via Moqui's tool SPI. There is **no core
+facade and no `ec.ai`** — agents are reached through ordinary services, and the factory
+(holding the provider registry and the tool catalog) is fetched with `ec.factory.getTool`.
 
+`org.moqui.ai.AiToolFactory implements ToolFactory`, `getName() == "AI"`, registered in
+this component's `MoquiConf.xml`:
+
+```xml
+<tools>
+    <tool-factory class="org.moqui.ai.AiToolFactory" init-priority="30" disabled="false"/>
+</tools>
 ```
-ExecutionContextFactoryImpl  (singleton)
-  └── aiFacade: AiFacadeImpl
 
-ExecutionContextImpl  (per thread)
-  └── aiFacade  ←  ecfi.aiFacade
+What the factory does at boot:
 
-ExecutionContext  (public interface)
-  └── getAi()  →  ec.ai
-```
+- Always registers the `mock` provider (no config needed — used by tests).
+- Registers `anthropic` and/or `openai` **only when their API key is configured**, reading
+  config from System properties / environment (no `ExecutionContext` exists yet at
+  `ToolFactory.init`). Provider init failures are isolated — a bad key never breaks boot.
+- Builds the tool catalog lazily from `AiTool` rows on first access (the database is the
+  source of truth); `refreshCatalog()` rebuilds it after authoring changes.
+
+The agentic loop lives in `org.moqui.ai.AgentRunner`. It is provider-agnostic and Map-based,
+holds **no enclosing transaction** (LLM calls run outside any tx; each tool call and each
+observability write manages its own tx), and enforces per-run ceilings
+(`maxIterations`, `maxTokens`, `maxToolCallsPerTurn`).
+
+A new provider implements one interface, `org.moqui.ai.LlmProvider` (`Map chat(Map request)`).
 
 ---
 
-## Configuration
+## Quick start
 
-In `MoquiDefaultConf.xml`:
+### 1. Configure a provider
 
-```xml
-<!-- AI Facade settings -->
-<default-property name="ai_provider"  value=""/>
-<default-property name="ai_model"     value=""/>
-<default-property name="ai_base_url"  value=""/>
-<default-property name="ai_api_key"   value="" is-secret="true"/>
-<default-property name="ai_timeout"   value="60"/>
-<default-property name="ai_pool_max"  value="10"/>
+Set an API key (and optionally override the defaults) via `MoquiConf.xml` `default-property`
+entries or environment variables. The keys are:
 
-<ai-facade default-config="default">
-    <model-config name="default"
-                  provider="${ai_provider}"
-                  model="${ai_model}"
-                  base-url="${ai_base_url}"
-                  api-key="${ai_api_key}"
-                  timeout="${ai_timeout}"
-                  pool-max="${ai_pool_max}"/>
-</ai-facade>
-```
-
-In your `MoquiConf.xml` at runtime:
-
-```xml
-<default-property name="ai_provider"  value="openai"/>
-<default-property name="ai_model"     value="gpt-4o-mini"/>
-<default-property name="ai_base_url"  value="https://api.openai.com/v1"/>
-<default-property name="ai_api_key"   value="sk-..."/>
-```
-
-Or set environment variables — Moqui picks them up automatically:
+| Property                 | Default                       | Notes                          |
+|--------------------------|-------------------------------|--------------------------------|
+| `ai_anthropic_key`       | _(empty)_                     | secret; enables Anthropic when set |
+| `ai_anthropic_base_url`  | `https://api.anthropic.com`   |                                |
+| `ai_anthropic_version`   | `2023-06-01`                  | Anthropic API version header   |
+| `ai_openai_key`          | _(empty)_                     | secret; enables OpenAI when set |
+| `ai_openai_base_url`     | `https://api.openai.com/v1`   | point at any OpenAI-compatible endpoint to reuse the `openai` provider |
+| `ai_timeout_seconds`     | `60`                          | HTTP timeout for provider calls |
 
 ```bash
-export ai_provider=anthropic
-export ai_model=claude-sonnet-4-6
-export ai_base_url=https://api.anthropic.com
-export ai_api_key=sk-ant-...
+export ai_anthropic_key=sk-ant-...
+# or
+export ai_openai_key=sk-...
 ```
 
-### Multiple providers
+The **provider and model are chosen per agent** (`AiAgent.providerName` / `modelName`, plus
+an optional `AiAgentModel` failover chain) — not in config.
 
-```xml
-<ai-facade default-config="openai">
-    <model-config name="openai"
-                  provider="openai"
-                  model="gpt-4o"
-                  base-url="https://api.openai.com/v1"
-                  api-key="${openai_api_key}"/>
-
-    <model-config name="anthropic"
-                  provider="anthropic"
-                  model="claude-sonnet-4-6"
-                  base-url="https://api.anthropic.com"
-                  api-key="${anthropic_api_key}"/>
-
-    <model-config name="local"
-                  provider="openai-compatible"
-                  model="llama-3-70b"
-                  base-url="http://localhost:11434/v1"
-                  api-key=""/>
-</ai-facade>
-```
-
----
-
-## Usage
+### 2. Run an agent
 
 ```groovy
-// Use the default configured provider
-def response = ec.ai.getDefault().chat([
-    [role: "user", content: "Summarize this order in one sentence."]
-])
+def r = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([
+    agentName:      "order-helper",
+    userMessage:    "Cancel order 12345 and tell me the refund total.",
+    conversationId: null          // pass an id to replay + persist multi-turn history
+]).call()
 
-// Use a specific named config
-def response = ec.ai.getConfig("anthropic").chat(messages)
+r.assistantMessage   // the model's final text
+r.structuredResult   // parsed Map when the agent declares a responseSchema
+r.agentRunId         // the persisted run (drill in via AiOps > Runs)
+r.statusId           // AI_RUN_COMPLETED | AI_RUN_TRUNCATED | AI_RUN_ABORTED | AI_RUN_FAILED | AI_RUN_SUSPENDED
+r.tokensIn / r.tokensOut / r.estimatedCost
 ```
 
----
+When a run proposes a tool that `requiresApproval`, it returns `statusId =
+AI_RUN_SUSPENDED` with `approvalIds`; decide it via `ai.ApprovalServices.approve#ToolCall`
+/ `reject#ToolCall`, which resumes the run.
 
-## Development plan
+### 3. Open the console
 
-- [x] Step 1 — Config: `default-property` entries and `<ai-facade>` block in `MoquiDefaultConf.xml`
-- [ ] Step 2 — Interface: `AiFacade.java` in `org.moqui.context`
-- [ ] Step 3 — Implementation: `AiFacadeImpl.groovy` in `org.moqui.impl.context`
-- [ ] Step 4 — Wiring: `getAi()` on `ExecutionContext.java`, field on `ExecutionContextImpl.java`, init/destroy in `ExecutionContextFactoryImpl.groovy`
-- [ ] Step 5 — Smoke test: minimal Groovy service calling `ec.ai.getDefault().chat(...)`
-- [ ] Step 6 — Usage examples in screen actions and services
+The component mounts the **AiOps** operational console at **`/apps/AiOps`** (added via this
+component's `MoquiConf.xml`, so no webroot file is touched).
 
 ---
 
-## Key design decisions
+## Providers
 
-**Why `<model-config>` and not `<provider>`?**
-In Moqui, "model" in everyday developer conversation refers to the AI model being used (GPT-4o, Claude, Llama). Using `<model-config>` as the element name follows that convention. `provider` is kept as an attribute pointing to the LLM company (openai, anthropic), parallel to how `database-conf-name` points to the DB vendor in `<datasource>`.
+Three providers ship, under `src/main/groovy/org/moqui/ai/provider/`:
 
-**Why follow ElasticFacade and not a component ToolFactory?**
-`ec.elastic` is a first-class facade — available everywhere in Moqui with no imports, no service calls, no component dependency. AI capability deserves the same status. A ToolFactory would make it optional and harder to reference.
-
-**Why ECFI singleton and not per-thread?**
-HTTP clients and connection pools are expensive to create. One instance per JVM, shared across threads, is the right model — same as `ElasticFacadeImpl`.
+- **`anthropic`** — Anthropic Messages API; maps tools to `tool_use` / `tool_result`
+  blocks, supports extended thinking and structured output.
+- **`openai`** — OpenAI Chat Completions API; maps tools to function calls, supports
+  `reasoning_effort` and JSON-Schema structured output. Point `ai_openai_base_url` at any
+  OpenAI-compatible endpoint to reuse this provider.
+- **`mock`** — deterministic, scripted responses for tests; always registered.
 
 ---
 
-## Related
+## Feature overview
 
-- [Moqui Framework](https://github.com/moqui/moqui-framework)
-- [ElasticFacade.java](https://github.com/moqui/moqui-framework/blob/master/framework/src/main/java/org/moqui/context/ElasticFacade.java) — the pattern this follows
-- [Mastra](https://mastra.ai) — TypeScript AI framework, useful reference for provider/model terminology
+- **Provider-agnostic agentic loop** — `AgentRunner`; no enclosing tx; per-run
+  `maxIterations` / `maxTokens` / `maxToolCallsPerTurn` ceilings.
+- **Agent + tool registry** — DB-backed catalog with opaque `toolId` / `agentId` and
+  `verb_noun` tool names. `store#AiTool` is the single authoring gate: it validates the
+  backing service, derives effect (read-only vs mutating), applies an `AiToolDenylist`
+  non-overridable floor, and gates exposure with an `exposable` flag. `store#AiAgent`
+  sequences ids and enforces unique names.
+- **Composer Assistant** — build agents conversationally: draft → preview on real data
+  (mutating tool calls are force-held, never executed) → approve to activate
+  (`preview#Agent`, `activate#Agent`, `discard#Draft`).
+- **Builder Knowledgebase / domain Glossary** — curated domain terms (`AiDomainTerm`),
+  synonyms (`AiTermSynonym`), and captured naming signals (`AiNamingSignal`) that record
+  what the Composer proposed vs. what the author kept.
+- **Human-approval gate** — tools flagged `requiresApproval` suspend the run; an operator
+  approves/rejects and the run resumes (`AiToolApproval`).
+- **Cost awareness** — per-model pricing (`store#AiModelPrice`), `estimatedCost` on each
+  run, and a queryable `get#AiSpend` (grouped by agent or user).
+- **Context management** — `contextStrategy = window` (bound replayed history) or
+  `summarize` (compaction into a rolling conversation summary). A built-in `remember` tool
+  pins durable facts (`AiConversationFact`) injected into later turns.
+- **Provider fallback chain** — `AiAgentModel` rows define an ordered candidate list;
+  failover is sticky (once a candidate works the run stays on it).
+- **Reasoning** — `AiAgent.reasoningEffort` (low / medium / high) maps to OpenAI
+  `reasoning_effort` and Anthropic extended-thinking budget.
+- **Structured output** — `AiAgent.responseSchema` (JSON Schema) yields a typed
+  `structuredResult` Map, translated to each provider's native mechanism.
+- **AiOps console** — operational screens mounted at `/apps/AiOps`: Playground, Composer,
+  Agents, Runs (with a RunDetail drill-in), Approvals, Cost, Conversations, Glossary.
+
+### Observability entities
+
+`AiAgentRun` (one per run) → `AiAgentRunStep` (LLM call / tool call / context trim /
+compaction / failover) → `AiToolCall` (each dispatched tool, with args, result, timing) and
+`AiToolApproval` (each human-gated decision).
+
+---
+
+## Design docs & plans
+
+- **Specs** — `docs/specs/` (framework design, registry, Builder Knowledgebase, Composer)
+- **Per-phase plans** — `docs/plans/` (agentic loop, conversations, cost, approval,
+  operational UI, context window, fallback chain, reasoning, …)
+- **Decisions** — `docs/decisions/0001-context-window-management.md`
