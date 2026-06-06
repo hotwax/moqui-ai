@@ -71,6 +71,9 @@
             <parameter name="maxIterations" type="Integer"/><parameter name="maxTokens" type="Integer"/>
             <parameter name="maxCost" type="BigDecimal"/><parameter name="maxToolCallsPerTurn" type="Integer"/>
             <parameter name="statusId"/>
+            <!-- Builder Knowledgebase pass-through (inert to authoring; read only by capture#NamingSignal). -->
+            <parameter name="suggestedName"><description>What the Composer proposed (null if human-authored directly).</description></parameter>
+            <parameter name="intentText"><description>The user's described intent for this agent.</description></parameter>
         </in-parameters>
         <out-parameters><parameter name="agentId"/></out-parameters>
         <actions>
@@ -88,7 +91,12 @@
                 <set field="agentId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiAgent', null, null)"/>
                 <set field="statusId" from="statusId ?: 'AI_AGENT_DRAFT'"/>
             </if>
+            <!-- Builder Knowledgebase: mark captured-in-service BEFORE the write so the AiAgent EECA skips. -->
+            <set field="ec.context.signalCaptured" value="true"/>
             <service-call name="store#moqui.ai.AiAgent" in-map="context"/>
+            <!-- record the rich naming signal (suggested vs. chosen agentName, intent). Non-fatal. -->
+            <service-call name="ai.GlossaryServices.capture#NamingSignal" in-map="[signalType: 'AI_SIG_AGENT_NAME',
+                chosenName: agentName, suggestedName: suggestedName, intentText: intentText]"/>
         </actions>
     </service>
 

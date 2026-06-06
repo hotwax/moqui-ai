@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
+
+    <!-- The glossary: curated domain nouns + capability verbs, typed + provenanced + status-gated. -->
+    <entity entity-name="AiDomainTerm" package="moqui.ai">
+        <field name="termId" type="id" is-pk="true"/>
+        <field name="term" type="text-short"><description>canonical term (order, cancel); unique per termKind + ownerScope</description></field>
+        <field name="termKind" type="id"><description>Enumeration enumTypeId=AiTermKind: AI_TERM_NOUN | AI_TERM_VERB</description></field>
+        <field name="description" type="text-long"/>
+        <field name="sourceType" type="id"><description>Enumeration enumTypeId=AiTermSource: AI_TSRC_SEEDED | AI_TSRC_LEARNED | AI_TSRC_CURATED</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiDomainTermStatus: AI_TERM_SUGGESTED | AI_TERM_APPROVED | AI_TERM_REJECTED</description></field>
+        <field name="usageCount" type="number-integer"><description>chosen-in-authoring reinforcement count</description></field>
+        <field name="ownerScope" type="id"><description>reserved for tenant/deployment scope; null = global in v1</description></field>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <relationship type="one-nofk" title="AiTermKind" related="moqui.basic.Enumeration" short-alias="kindEnum">
+            <key-map field-name="termKind" related="enumId"/></relationship>
+        <index name="AI_TERM_UNIQUE" unique="true">
+            <index-field name="term"/><index-field name="termKind"/><index-field name="ownerScope"/></index>
+    </entity>
+
+    <!-- The dialect: aliases that map to a canonical term ("rma" -> return). -->
+    <entity entity-name="AiTermSynonym" package="moqui.ai">
+        <field name="termId" type="id" is-pk="true"/>
+        <field name="synonym" type="text-short" is-pk="true"/>
+        <field name="sourceType" type="id"/>
+        <field name="statusId" type="id"/>
+        <relationship type="one" related="moqui.ai.AiDomainTerm" short-alias="domainTerm"/>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+    </entity>
+
+    <!-- The learning log: what the Composer proposed vs. what the human kept, per authoring event. -->
+    <entity entity-name="AiNamingSignal" package="moqui.ai">
+        <field name="signalId" type="id" is-pk="true"/>
+        <field name="signalType" type="id"><description>Enumeration enumTypeId=AiSignalType: AI_SIG_TOOL_NAME | AI_SIG_AGENT_NAME</description></field>
+        <field name="intentText" type="text-long"><description>the user's described intent / the backing service</description></field>
+        <field name="suggestedName" type="text-medium"><description>what the Composer proposed (null if human-authored directly)</description></field>
+        <field name="chosenName" type="text-medium"><description>what the human kept</description></field>
+        <field name="wasOverridden" type="text-indicator"><description>Y if chosen != suggested</description></field>
+        <field name="userId" type="id"/>
+        <field name="fromDate" type="date-time"/>
+    </entity>
+</entities>

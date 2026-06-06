@@ -9,7 +9,8 @@ import org.moqui.Moqui
         AgentRunnerTests.class, RunAgentServiceTests.class, AnthropicProviderTests.class,
         AiConversationTests.class, OpenAiProviderTests.class, AiCostTests.class,
         AiContextTests.class, AiApprovalTests.class, AiReasoningTests.class,
-        AiRegistryTests.class, NotNakedSeedTests.class, AiComposerTests.class ])
+        AiRegistryTests.class, NotNakedSeedTests.class, AiComposerTests.class,
+        AiGlossaryTests.class ])
 class MoquiSuite {
     @AfterAll
     static void destroyMoqui() { Moqui.destroyActiveExecutionContextFactory() }

@@ -11,6 +11,7 @@
         <subscreens-item name="Approvals" menu-title="Approvals" menu-index="5" location="component://moqui-ai/screen/AiOps/Approvals.xml"/>
         <subscreens-item name="Cost" menu-title="Cost" menu-index="6" location="component://moqui-ai/screen/AiOps/Cost.xml"/>
         <subscreens-item name="Conversations" menu-title="Conversations" menu-index="7" location="component://moqui-ai/screen/AiOps/Conversations.xml"/>
+        <subscreens-item name="Glossary" menu-title="Glossary" menu-index="8" location="component://moqui-ai/screen/AiOps/Glossary.xml"/>
     </subscreens>
     <widgets>
         <subscreens-active/>

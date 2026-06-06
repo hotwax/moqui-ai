@@ -17,6 +17,10 @@
             <parameter name="effectEnumId"><description>Optional Curator override; defaults to the verb-derived effect.</description></parameter>
             <parameter name="sourceComponent"/>
             <parameter name="statusId"/>
+            <!-- Builder Knowledgebase pass-through (inert to authoring; read only by capture#NamingSignal):
+                 what the Composer proposed + the described intent, so an override becomes a learnable signal. -->
+            <parameter name="suggestedName"><description>What the Composer proposed (null if human-authored directly).</description></parameter>
+            <parameter name="intentText"><description>The user's described intent for this tool.</description></parameter>
         </in-parameters>
         <out-parameters><parameter name="toolId"/><parameter name="toolName"/></out-parameters>
         <actions>
@@ -68,6 +72,10 @@
             </iterate>
 
             <set field="statusId" from="statusId ?: 'AI_TOOL_ACTIVE'"/>
+            <!-- Builder Knowledgebase: mark this write as captured-in-service so the defensive EECA on
+                 AiTool skips it (the rich in-service capture below is preferred over the floor). Set
+                 BEFORE the entity write — the EECA fires during create#/update#. -->
+            <set field="ec.context.signalCaptured" value="true"/>
             <!-- create vs update by stable id: explicit branches so createdByUserId is set on create
                  and preserved (never nulled) on update. -->
             <if condition="!toolId">
@@ -86,6 +94,11 @@
 
             <!-- refresh the in-memory catalog so the new/edited tool is immediately grant-eligible -->
             <script>ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class).refreshCatalog()</script>
+
+            <!-- Builder Knowledgebase: record the rich naming signal (suggested vs. chosen, intent). This
+                 is the single authoring gate — the semantic capture point. Non-fatal to authoring. -->
+            <service-call name="ai.GlossaryServices.capture#NamingSignal" in-map="[signalType: 'AI_SIG_TOOL_NAME',
+                chosenName: toolName, suggestedName: suggestedName, intentText: intentText]"/>
         </actions>
     </service>
 </services>

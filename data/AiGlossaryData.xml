@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="ext-seed">
+    <!-- term lifecycle -->
+    <moqui.basic.StatusType statusTypeId="AiDomainTermStatus" description="AI Domain Term Status"/>
+    <moqui.basic.StatusItem statusId="AI_TERM_SUGGESTED" statusTypeId="AiDomainTermStatus" sequenceNum="1" description="Suggested"/>
+    <moqui.basic.StatusItem statusId="AI_TERM_APPROVED"  statusTypeId="AiDomainTermStatus" sequenceNum="2" description="Approved"/>
+    <moqui.basic.StatusItem statusId="AI_TERM_REJECTED"  statusTypeId="AiDomainTermStatus" sequenceNum="3" description="Rejected"/>
+    <moqui.basic.StatusFlow statusFlowId="AiDomainTermFlow" statusTypeId="AiDomainTermStatus" description="Glossary term curation"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiDomainTermFlow" statusId="AI_TERM_SUGGESTED" toStatusId="AI_TERM_APPROVED" transitionSequence="1" transitionName="Approve"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiDomainTermFlow" statusId="AI_TERM_SUGGESTED" toStatusId="AI_TERM_REJECTED" transitionSequence="2" transitionName="Reject"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiDomainTermFlow" statusId="AI_TERM_APPROVED"  toStatusId="AI_TERM_REJECTED" transitionSequence="3" transitionName="Retire"/>
+
+    <!-- fixed, code-referenced types (Enumeration archetype per the UDM guide) -->
+    <moqui.basic.EnumerationType enumTypeId="AiTermKind" description="AI Glossary Term Kind"/>
+    <moqui.basic.Enumeration enumId="AI_TERM_NOUN" enumTypeId="AiTermKind" sequenceNum="1" enumCode="NOUN" description="Domain noun"/>
+    <moqui.basic.Enumeration enumId="AI_TERM_VERB" enumTypeId="AiTermKind" sequenceNum="2" enumCode="VERB" description="Capability verb"/>
+
+    <moqui.basic.EnumerationType enumTypeId="AiTermSource" description="AI Glossary Term Source"/>
+    <moqui.basic.Enumeration enumId="AI_TSRC_SEEDED"  enumTypeId="AiTermSource" sequenceNum="1" enumCode="SEEDED"  description="Seeded from the ontology"/>
+    <moqui.basic.Enumeration enumId="AI_TSRC_LEARNED" enumTypeId="AiTermSource" sequenceNum="2" enumCode="LEARNED" description="Learned from authoring signals"/>
+    <moqui.basic.Enumeration enumId="AI_TSRC_CURATED" enumTypeId="AiTermSource" sequenceNum="3" enumCode="CURATED" description="Human-edited"/>
+
+    <moqui.basic.EnumerationType enumTypeId="AiSignalType" description="AI Naming Signal Type"/>
+    <moqui.basic.Enumeration enumId="AI_SIG_TOOL_NAME"  enumTypeId="AiSignalType" sequenceNum="1" enumCode="TOOL"  description="Tool name signal"/>
+    <moqui.basic.Enumeration enumId="AI_SIG_AGENT_NAME" enumTypeId="AiSignalType" sequenceNum="2" enumCode="AGENT" description="Agent name signal"/>
+</entity-facade-xml>
