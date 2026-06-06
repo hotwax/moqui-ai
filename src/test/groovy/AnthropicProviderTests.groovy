@@ -9,6 +9,16 @@ class AnthropicProviderTests extends Specification {
     def setupSpec() { ec = Moqui.getExecutionContext() }
     def cleanupSpec() { if (ec != null) ec.destroy() }
 
+    // The active Shiro realm (co.hotwax.auth.OfbizShiroRealm) authenticates against the OFBiz UserLogin
+    // model, not moqui.security.UserAccount, so the test user needs Party/Person/UserLogin rows for
+    // internalLoginUser("AiTestUser") to succeed. Must be called inside a committed (runRequireNew) tx.
+    private void ensureTestUser() {
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Party").setAll([partyId: "AiTestUser", partyTypeId: "PERSON"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.party.party.Person").setAll([partyId: "AiTestUser", firstName: "AI", lastName: "Test User"]).createOrUpdate()
+        ec.entity.makeValue("org.apache.ofbiz.security.login.UserLogin").setAll([userLoginId: "AiTestUser", partyId: "AiTestUser", enabled: "Y"]).createOrUpdate()
+        ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
+    }
+
     def "encodes a request body with system, messages, and tools"() {
         given:
         def p = new AnthropicProvider("k", "https://api.anthropic.com", "2023-06-01", 60)
@@ -171,13 +181,14 @@ class AnthropicProviderTests extends Specification {
     def "live: Anthropic returns structured output matching the agent schema"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeValue("moqui.security.UserAccount")
-            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicSentiment", providerName: "anthropic",
-            modelName: "claude-sonnet-4-6", systemPrompt: "Classify the sentiment of the user's message.",
-            responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"}},"required":["sentiment"]}',
-            maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicSentiment", providerName: "anthropic",
+                modelName: "claude-sonnet-4-6", systemPrompt: "Classify the sentiment of the user's message.",
+                responseSchema: '{"type":"object","properties":{"sentiment":{"type":"string"}},"required":["sentiment"]}',
+                maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        })
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()
         when:
@@ -200,12 +211,13 @@ class AnthropicProviderTests extends Specification {
     def "live: an Anthropic agent (no tools) with reasoningEffort completes"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeValue("moqui.security.UserAccount")
-            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicReason", providerName: "anthropic",
-            modelName: "claude-sonnet-4-6", systemPrompt: "Answer briefly.", reasoningEffort: "low",
-            maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicReason", providerName: "anthropic",
+                modelName: "claude-sonnet-4-6", systemPrompt: "Answer briefly.", reasoningEffort: "low",
+                maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        })
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()
         when:
@@ -247,14 +259,15 @@ class AnthropicProviderTests extends Specification {
     def "live: full agent loop calls a tool via Anthropic and returns an answer"() {
         given:
         ec.artifactExecution.disableAuthz()
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
-        ec.entity.makeValue("moqui.security.UserAccount")
-            .setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicEcho", providerName: "anthropic",
-            modelName: "claude-sonnet-4-6", systemPrompt: "Use the get#Echo tool to echo the user's word, then report the result.",
-            maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
-        ec.entity.makeValue("moqui.ai.AiAgentTool")
-            .setAll([agentName: "AnthropicEcho", toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentName: "AnthropicEcho", providerName: "anthropic",
+                modelName: "claude-sonnet-4-6", systemPrompt: "Use the get#Echo tool to echo the user's word, then report the result.",
+                maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentTool")
+                .setAll([agentName: "AnthropicEcho", toolName: "moqui.ai.test.TestServices.get#Echo"]).createOrUpdate()
+        })
         // keep authz disabled through the run#Agent call; login supplies the authenticated user
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()

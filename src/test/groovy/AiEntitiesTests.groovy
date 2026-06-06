@@ -9,8 +9,10 @@ class AiEntitiesTests extends Specification {
     def setupSpec() {
         ec = Moqui.getExecutionContext()
         ec.artifactExecution.disableAuthz()
-        // component install data isn't auto-loaded into a non-empty test DB; load it explicitly
-        ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            // component install data isn't auto-loaded into a non-empty test DB; load it explicitly
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        })
         ec.artifactExecution.enableAuthz()
     }
     def cleanupSpec() { if (ec != null) ec.destroy() }
