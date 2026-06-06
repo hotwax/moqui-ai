@@ -55,6 +55,15 @@
     <moqui.basic.StatusFlowTransition statusFlowId="AiToolFlow" statusId="AI_TOOL_ACTIVE"   toStatusId="AI_TOOL_DISABLED" transitionSequence="1" transitionName="Disable"/>
     <moqui.basic.StatusFlowTransition statusFlowId="AiToolFlow" statusId="AI_TOOL_DISABLED" toStatusId="AI_TOOL_ACTIVE"   transitionSequence="2" transitionName="Enable"/>
 
+    <!-- Capability-request queue (Composer gap -> Curator) -->
+    <moqui.basic.StatusType statusTypeId="AiCapReqStatus" description="AI Capability Request Status"/>
+    <moqui.basic.StatusItem statusId="AI_CAPREQ_OPEN"      statusTypeId="AiCapReqStatus" sequenceNum="1" description="Open"/>
+    <moqui.basic.StatusItem statusId="AI_CAPREQ_DONE"      statusTypeId="AiCapReqStatus" sequenceNum="2" description="Fulfilled"/>
+    <moqui.basic.StatusItem statusId="AI_CAPREQ_DISMISSED" statusTypeId="AiCapReqStatus" sequenceNum="3" description="Dismissed"/>
+    <moqui.basic.StatusFlow statusFlowId="AiCapReqFlow" statusTypeId="AiCapReqStatus" description="Capability request lifecycle"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiCapReqFlow" statusId="AI_CAPREQ_OPEN" toStatusId="AI_CAPREQ_DONE"      transitionSequence="1" transitionName="Fulfill"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiCapReqFlow" statusId="AI_CAPREQ_OPEN" toStatusId="AI_CAPREQ_DISMISSED" transitionSequence="2" transitionName="Dismiss"/>
+
     <!-- Denylist floor: admin/security/internal service patterns (spec §4.4/§6.3). Non-overridable. -->
     <moqui.ai.AiToolDenylist servicePattern=".*\.delete#.*"          reason="Deletes must not be AI-exposable"/>
     <moqui.ai.AiToolDenylist servicePattern="org\.moqui\.impl\..*"    reason="Framework-internal services"/>

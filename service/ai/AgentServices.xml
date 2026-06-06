@@ -92,6 +92,32 @@
         </actions>
     </service>
 
+    <!-- Grant a catalog tool to an agent (the Composer's grant_capability backing service). An explicit
+         service (not entity-auto store#moqui.ai.AiAgentTool) so it can be a tool: entity-auto services have
+         no ServiceDefinition and cannot be introspected by ToolSchemaBuilder. Idempotent create-or-update;
+         only exposable+active tools may be granted (the safety floor — a draft can never reference a service
+         the Curator hasn't blessed). -->
+    <service verb="store" noun="AiAgentTool" authenticate="true">
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+            <parameter name="toolId" required="true"/>
+            <parameter name="requiresApprovalOverride"><description>Optional Y/N — stricter than the tool default.</description></parameter>
+        </in-parameters>
+        <out-parameters><parameter name="agentId"/><parameter name="toolId"/></out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiAgent" value-field="agent">
+                <field-map field-name="agentId"/></entity-find-one>
+            <if condition="agent == null"><return error="true" message="Unknown agent ${agentId}"/></if>
+            <entity-find-one entity-name="moqui.ai.AiTool" value-field="tool">
+                <field-map field-name="toolId"/></entity-find-one>
+            <if condition="tool == null"><return error="true" message="Unknown tool ${toolId}"/></if>
+            <if condition="tool.exposable != 'Y' || tool.statusId != 'AI_TOOL_ACTIVE'">
+                <return error="true" message="Tool ${tool.toolName} (${toolId}) is not exposable/active and cannot be granted."/></if>
+            <service-call name="store#moqui.ai.AiAgentTool"
+                in-map="[agentId: agentId, toolId: toolId, requiresApprovalOverride: requiresApprovalOverride]"/>
+        </actions>
+    </service>
+
     <service verb="create" noun="Conversation" authenticate="true">
         <in-parameters>
             <parameter name="agentName"/>

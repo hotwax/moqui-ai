@@ -11,6 +11,12 @@
     <!-- entity reads/writes used by the screens + the agent loop (moqui.ai.*) -->
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
         artifactName="moqui\.ai\..*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
+    <!-- status lifecycle reads: entity-auto update# of any AI entity with a statusId change validates the
+         transition by reading moqui.basic.StatusFlowTransition / StatusItem (EntityAutoServiceRunner.checkStatus).
+         AI status changes happen via authenticate services (run#Agent suspend/complete, activate#Agent draft->active),
+         so a logged-in operator needs read access to these or the transition check is denied. -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
+        artifactName="moqui\.basic\.Status.*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
     <!-- AI services invoked from the screens (run#Agent, approvals, cost) + the NotNaked OMS tool/runner -->
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
         artifactName="ai\..*" artifactTypeEnumId="AT_SERVICE" nameIsPattern="Y"/>

@@ -29,6 +29,9 @@ class AiEntitiesTests extends Specification {
         given:
         ec.artifactExecution.disableAuthz()
         ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        // idempotency on the persistent test DB: clear any leftover row sharing this fixed PK / unique toolName
+        ec.entity.find("moqui.ai.AiTool").condition("toolId", "TOOL_T1").deleteAll()
+        ec.entity.find("moqui.ai.AiTool").condition("toolName", "list_orders").deleteAll()
         when:
         ec.entity.makeValue("moqui.ai.AiTool").setAll([toolId: "TOOL_T1", toolName: "list_orders",
             verb: "list", noun: "orders", description: "List orders",
@@ -76,6 +79,11 @@ class AiEntitiesTests extends Specification {
         given:
         ec.artifactExecution.disableAuthz()
         ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+        // idempotency on the persistent test DB: clear leftovers sharing these fixed PKs / unique names
+        // (TL_ECHO is also seeded by other specs' setupSpec via AiTestToolData.xml)
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "AG_T2").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AG_T2").deleteAll()
+        ec.entity.find("moqui.ai.AiTool").condition("toolId", "TL_ECHO").deleteAll()
         when:
         ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AG_T2", agentName: "T2Agent",
             providerName: "mock", modelName: "mock-1", systemPrompt: "test", maxIterations: 5,

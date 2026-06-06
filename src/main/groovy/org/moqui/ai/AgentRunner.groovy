@@ -21,10 +21,23 @@ class AgentRunner {
     private final ExecutionContext ec
     private final AiToolFactory ai
 
+    /** Preview mode: treat EVERY mutating tool as requiresApproval, so a draft can be sandbox-run on
+     *  real data with nothing irreversible executed (mutating calls suspend via the normal gate). */
+    private boolean forceApprovalOnMutating = false
+
     AgentRunner(ExecutionContext ec, AiToolFactory ai) { this.ec = ec; this.ai = ai }
 
     /** Phase 1 entry — stateless single turn. */
     Map run(String agentId, String userMessage) { return run(agentId, userMessage, null) }
+
+    /** Phase-Composer preview: run an agent (typically a draft) once, with mutating tools forced to
+     *  suspend for approval. Always stateless (no conversation): read-only tools run on real data,
+     *  mutating ones are held. Returns the run result (statusId AI_RUN_SUSPENDED if it proposed a write). */
+    Map runPreview(String agentNameOrId, String userMessage) {
+        this.forceApprovalOnMutating = true
+        try { return run(agentNameOrId, userMessage, null) }
+        finally { this.forceApprovalOnMutating = false }
+    }
 
     /** @param agentId the agent's stable id (resolve agentName -> agentId in the caller, e.g. run#Agent).
      *  @param conversationId optional; when set, prior conversation messages are replayed and
@@ -175,7 +188,13 @@ class AgentRunner {
                 // (refinement 1) do NOT persist the assistant turn yet — the approval gate may suspend.
 
                 // ----- approval gate: if any call this turn needs approval, SUSPEND the whole turn -----
-                List<Map> needApproval = (toolCalls as List<Map>).findAll { ai.getToolByName(it.name as String)?.requiresApproval }
+                List<Map> needApproval = (toolCalls as List<Map>).findAll { Map tc ->
+                    Map td = ai.getToolByName(tc.name as String)
+                    if (td == null) return false
+                    if (td.requiresApproval) return true
+                    // preview: force-gate any MUTATING tool so a draft never executes a write on real data
+                    return forceApprovalOnMutating && (td.effectEnumId == "AI_TOOL_MUTATING")
+                }
                 if (needApproval) {
                     List<String> approvalIds = []
                     for (Map tc in needApproval) {

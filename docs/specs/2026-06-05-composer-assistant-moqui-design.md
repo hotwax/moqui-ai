@@ -5,7 +5,7 @@
 > (`docs/specs/2026-06-05-agent-tool-registry-design.md`).
 
 - **Date:** 2026-06-05
-- **Status:** Draft design — under review
+- **Status:** Shipped (2026-06-06)
 - **Component:** `moqui-ai` (branch `feature/ai-agent-framework`)
 - **Platform:** HotWax fork of Moqui, **JDK 11**
 - **Builds on:** the Agent & Tool Registry keystone (stable ids, editable names, DB-as-source,
@@ -144,6 +144,20 @@ when we build it.)
   agent runs.
 - **Acceptance (live, NotNaked):** talk to the Composer Assistant, build a small order-summary agent
   from the seeded `list_orders` capability, preview it on real orders, activate it, run it.
+
+> **Shipped 2026-06-06:** the 10 meta-tools (`find#`/`describe#Capability`, `list#DomainTerm`,
+> `propose#Naming`, `set#Guardrail`, `request#Capability`, `preview#Agent`, `activate#Agent`,
+> plus the `draft_agent`/`grant_capability` aliases pointing at `ai.AgentServices.store#AiAgent` /
+> `ai.AgentServices.store#AiAgentTool`); `AiCapabilityRequest` + `AiCapReqStatus`; the `AgentRunner.runPreview`
+> force-gate-on-mutating override; the seeded `composer-assistant` agent + meta-tool catalog + grants
+> (`data/AiComposerData.xml`, ext-seed); the Composer screen (chat + live draft panel + preview pane,
+> `screen/AiOps/Composer.xml`); the unit + compose→preview→gated-activate e2e (MockProvider). Suite green
+> on MySQL `hcsd_notnaked` (111 tests, 0 failed, 8 skipped live-provider).
+> **Deferred:** KB-grounded `list#DomainTerm`/`propose#Naming` (v1 = catalog nouns + heuristic); the Curator
+> assistant + `request_capability`/`AiCapabilityRequest` UI; stale-draft TTL; the Composer-role `ArtifactAuthz`
+> (v1 is `authenticate="true"` under the AiOps `ALL_USERS` grant); a direct "Activate" button on the screen
+> (activation rides the in-conversation approval gate + Approvals tab); excluding abandoned preview runs from
+> the operator Approvals queue.
 
 ## 12. Boundaries & resolved decisions
 

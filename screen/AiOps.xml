@@ -5,11 +5,12 @@
          ArtifactAuthz gating is deferred to a follow-up so the demo isn't gated. -->
     <subscreens default-item="Playground">
         <subscreens-item name="Playground" menu-title="Playground" menu-index="1" location="component://moqui-ai/screen/AiOps/Playground.xml"/>
-        <subscreens-item name="Agents" menu-title="Agents" menu-index="2" location="component://moqui-ai/screen/AiOps/Agents.xml"/>
-        <subscreens-item name="Runs" menu-title="Runs" menu-index="3" location="component://moqui-ai/screen/AiOps/Runs.xml"/>
-        <subscreens-item name="Approvals" menu-title="Approvals" menu-index="4" location="component://moqui-ai/screen/AiOps/Approvals.xml"/>
-        <subscreens-item name="Cost" menu-title="Cost" menu-index="5" location="component://moqui-ai/screen/AiOps/Cost.xml"/>
-        <subscreens-item name="Conversations" menu-title="Conversations" menu-index="6" location="component://moqui-ai/screen/AiOps/Conversations.xml"/>
+        <subscreens-item name="Composer" menu-title="Composer" menu-index="2" location="component://moqui-ai/screen/AiOps/Composer.xml"/>
+        <subscreens-item name="Agents" menu-title="Agents" menu-index="3" location="component://moqui-ai/screen/AiOps/Agents.xml"/>
+        <subscreens-item name="Runs" menu-title="Runs" menu-index="4" location="component://moqui-ai/screen/AiOps/Runs.xml"/>
+        <subscreens-item name="Approvals" menu-title="Approvals" menu-index="5" location="component://moqui-ai/screen/AiOps/Approvals.xml"/>
+        <subscreens-item name="Cost" menu-title="Cost" menu-index="6" location="component://moqui-ai/screen/AiOps/Cost.xml"/>
+        <subscreens-item name="Conversations" menu-title="Conversations" menu-index="7" location="component://moqui-ai/screen/AiOps/Conversations.xml"/>
     </subscreens>
     <widgets>
         <subscreens-active/>

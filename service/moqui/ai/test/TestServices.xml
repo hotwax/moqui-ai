@@ -21,6 +21,21 @@
         <actions><set field="noopId" from="noopId"/></actions>
     </service>
 
+    <!-- A write-verb echo: a deterministic MUTATING tool fixture for Composer preview tests. The verb
+         "set" makes store#AiTool derive effect=MUTATING. Body is a harmless echo (no real write). -->
+    <service verb="set" noun="Echo">
+        <in-parameters>
+            <parameter name="text" type="String" required="true"><description>Text to echo back.</description></parameter>
+            <parameter name="repeat" type="Integer"/>
+        </in-parameters>
+        <out-parameters><parameter name="echoed" type="String"/></out-parameters>
+        <actions>
+            <if condition="repeat != null &amp;&amp; repeat &lt; 0"><return error="true" message="repeat must be >= 0"/></if>
+            <set field="echoed" value="${text}"/>
+            <if condition="repeat"><set field="echoed" value="${echoed * repeat}"/></if>
+        </actions>
+    </service>
+
     <!-- Identical to get#Echo; a distinct serviceName so it can be registered as an approval-gated
          tool (seeded via AiTestToolData.xml) without colliding with the ungated get#Echo entry. -->
     <service verb="get" noun="GatedEcho">

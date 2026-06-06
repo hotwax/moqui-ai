@@ -10,7 +10,10 @@ import org.moqui.entity.EntityValue
 class DefinitionLoader {
     static Map<String, Map> loadCatalog(ExecutionContextFactory ecf) {
         Map<String, Map> catalog = [:]
-        boolean disabled = ecf.getExecutionContext().artifactExecution.disableAuthz()
+        // disableAuthz() returns whether authz was ALREADY disabled; only re-enable if WE disabled it
+        // (matches the framework idiom). The previous `if (disabled) enableAuthz()` inverted this and
+        // re-enabled authz for callers that had already disabled it (e.g. tests, data loads).
+        boolean alreadyDisabled = ecf.getExecutionContext().artifactExecution.disableAuthz()
         try {
             for (EntityValue t in ecf.getExecutionContext().entity.find("moqui.ai.AiTool")
                     .condition("statusId", "AI_TOOL_ACTIVE").condition("exposable", "Y").list()) {
@@ -31,7 +34,7 @@ class DefinitionLoader {
                     schema: schema])
             }
         } finally {
-            if (disabled) ecf.getExecutionContext().artifactExecution.enableAuthz()
+            if (!alreadyDisabled) ecf.getExecutionContext().artifactExecution.enableAuthz()
         }
         return catalog
     }

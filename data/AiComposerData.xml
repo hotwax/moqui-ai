@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Composer Assistant ships out of the box: an AiAgent whose tools are the registry's authoring
+     + introspection services. ext-seed (install only; mirror critical rows in an ext-upgrade file if they
+     must reach existing envs). The deepest dogfood: the builder is configured THROUGH the registry it manages.
+     Reconciled to the shipped keystone: AiTool carries effectEnumId (not "effect"); the authoring meta-tools
+     point at the keystone service names (ai.AgentServices.store#AiAgent; entity-auto store#moqui.ai.AiAgentTool). -->
+<entity-facade-xml type="ext-seed">
+
+    <!-- ===== meta-tool catalog rows (stable ids) ===== -->
+    <moqui.ai.AiTool toolId="AICMP_FIND_CAP"   toolName="find_capability"     verb="find"     noun="capability"
+        serviceName="ai.ComposerServices.find#Capability"     effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="Search the capability catalog by intent/keyword/noun. Use FIRST to discover what an agent here can actually do. Returns only grant-eligible (exposable, active) tools."/>
+    <moqui.ai.AiTool toolId="AICMP_DESC_CAP"   toolName="describe_capability" verb="describe" noun="capability"
+        serviceName="ai.ComposerServices.describe#Capability" effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="Get one capability's purpose + input schema, to reason about whether it fits the user's need."/>
+    <moqui.ai.AiTool toolId="AICMP_LIST_TERM"  toolName="list_domain_terms"   verb="list"     noun="domain_terms"
+        serviceName="ai.ComposerServices.list#DomainTerm"     effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="List the business vocabulary/nouns you can ground naming + descriptions in."/>
+    <moqui.ai.AiTool toolId="AICMP_PROP_NAME"  toolName="propose_naming"      verb="propose"  noun="naming"
+        serviceName="ai.ComposerServices.propose#Naming"      effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="Suggest an agent name + description for an intent, grounded in the business glossary."/>
+    <!-- authoring tools: point at the keystone store services (the same path a human Composer uses) -->
+    <moqui.ai.AiTool toolId="AICMP_DRAFT"      toolName="draft_agent"         verb="draft"    noun="agent"
+        serviceName="ai.AgentServices.store#AiAgent"          effectEnumId="AI_TOOL_MUTATING" exposable="Y" requiresApproval="N" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="Create or update the DRAFT agent (name, description, system prompt, provider, model). Always pass statusId=AI_AGENT_DRAFT. Save early and refine across turns."/>
+    <moqui.ai.AiTool toolId="AICMP_GRANT"      toolName="grant_capability"    verb="grant"    noun="capability"
+        serviceName="ai.AgentServices.store#AiAgentTool"      effectEnumId="AI_TOOL_MUTATING" exposable="Y" requiresApproval="N" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="Add a catalog tool (by toolId) to the draft agent (pass agentId + toolId). Only exposable tools resolve at run time."/>
+    <moqui.ai.AiTool toolId="AICMP_GUARD"      toolName="set_guardrail"       verb="set"      noun="guardrail"
+        serviceName="ai.ComposerServices.set#Guardrail"       effectEnumId="AI_TOOL_MUTATING" exposable="Y" requiresApproval="N" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="Mark which of the draft's tools need human approval at run time (requiresApproval Y/N per grant)."/>
+    <moqui.ai.AiTool toolId="AICMP_PREVIEW"    toolName="preview_agent"       verb="preview"  noun="agent"
+        serviceName="ai.ComposerServices.preview#Agent"       effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="Sandbox-run the draft on a test message. Mutating tools are HELD (shown, not executed); read-only tools run on real data. Use to show the user what the agent would do."/>
+    <!-- THE COMMIT GATE: activation requires human approval (requiresApproval=Y) -->
+    <moqui.ai.AiTool toolId="AICMP_ACTIVATE"   toolName="activate_agent"      verb="activate" noun="agent"
+        serviceName="ai.ComposerServices.activate#Agent"      effectEnumId="AI_TOOL_MUTATING" exposable="Y" requiresApproval="Y" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="Put the draft to work: flip draft -> active so the team can run it. Requires human approval. Only call when the user has confirmed they are happy with the preview."/>
+    <moqui.ai.AiTool toolId="AICMP_REQ_CAP"    toolName="request_capability"  verb="request"  noun="capability"
+        serviceName="ai.ComposerServices.request#Capability"  effectEnumId="AI_TOOL_MUTATING" exposable="Y" requiresApproval="N" statusId="AI_TOOL_ACTIVE" sourceComponent="moqui-ai"
+        description="When NO existing tool covers the user's need, record the gap for the Curator. NEVER invent or claim a capability that does not exist — call this and tell the user honestly."/>
+
+    <!-- ===== the agent ===== -->
+    <moqui.ai.AiAgent agentId="AICMP_AGENT" agentName="composer-assistant"
+        providerName="openai" modelName="gpt-4o-mini" maxIterations="12"
+        contextStrategy="window" statusId="AI_AGENT_ACTIVE"
+        description="The builder: composes new agents from the curated capability catalog by talking to the user."
+        systemPrompt="You are the Composer Assistant. You help a business user build a NEW AI agent by talking with them — describe, clarify, preview, activate. You build agents; you do not answer their domain questions yourself.
+
+WORKFLOW:
+1. Understand the goal. Use find_capability and describe_capability to learn what tools exist here, and list_domain_terms / propose_naming to ground a good name + description.
+2. Save a DRAFT early with draft_agent (statusId=AI_AGENT_DRAFT) and refine it across turns. Grant the right tools with grant_capability. Use set_guardrail to require approval for any risky (mutating) tool.
+3. When the user wants to see it work, call preview_agent with their test input and show them the result and any HELD (would-be) actions.
+4. Only when the user confirms they are happy, call activate_agent. This REQUIRES human approval; tell the user a person must approve before it goes live.
+
+RULES:
+- You can only grant tools that already exist and are exposable. If the user needs something no tool covers, call request_capability to log the gap and tell them honestly — NEVER pretend a capability exists or fabricate one.
+- Prefer the smallest set of tools that meets the goal. Keep prompts and descriptions concrete.
+- Agent names must be unique; if draft_agent reports a name collision, pick another name.
+- Ask one focused question at a time when intent is unclear."/>
+
+    <!-- ===== grants: the agent's tools ARE the meta-tools ===== -->
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_FIND_CAP"/>
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_DESC_CAP"/>
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_LIST_TERM"/>
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_PROP_NAME"/>
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_DRAFT"/>
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_GRANT"/>
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_GUARD"/>
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_PREVIEW"/>
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_ACTIVATE"/>
+    <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_REQ_CAP"/>
+</entity-facade-xml>
