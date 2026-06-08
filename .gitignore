@@ -1,5 +1,7 @@
 build/
 .gradle/
+# built component jar, mirrored here for the Moqui runtime classpath (see build.gradle refreshLibJar)
+lib/moqui-ai.jar
 dev.env
 
 # macOS

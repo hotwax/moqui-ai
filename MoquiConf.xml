@@ -7,6 +7,10 @@
     <default-property name="ai_openai_key" value="" is-secret="true"/>
     <default-property name="ai_openai_base_url" value="https://api.openai.com/v1"/>
     <default-property name="ai_timeout_seconds" value="60"/>
+    <!-- Default LLM for newly DRAFTED agents (the Composer's draft_agent / store#AiAgent on create).
+         The user describes WHAT an agent does; the system picks the model. Override per deployment. -->
+    <default-property name="ai_default_provider" value="openai"/>
+    <default-property name="ai_default_model" value="gpt-4o-mini"/>
     <tools>
         <tool-factory class="org.moqui.ai.AiToolFactory" init-priority="30" disabled="false"/>
     </tools>

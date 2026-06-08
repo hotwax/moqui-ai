@@ -162,6 +162,26 @@ class AiComposerTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
+    def "store#AiAgent defaults a runnable provider/model/prompt for a fresh draft"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        dropAgentByName("DefaultsDraft")
+        ec.message.clearErrors()
+        when: "the Composer drafts an agent with only a name + description (no model specified)"
+        Map a = ec.service.sync().name("ai.AgentServices.store#AiAgent").parameters([
+            agentName: "DefaultsDraft", description: "summarize recent orders"]).call()
+        then: "the created draft is runnable without hand-editing — defaulted provider/model/bound/prompt"
+        def ag = ec.entity.find("moqui.ai.AiAgent").condition("agentId", a.agentId).one()
+        ag.statusId == "AI_AGENT_DRAFT"
+        ag.providerName == "openai"
+        ag.modelName == "gpt-4o-mini"
+        ag.maxIterations == 5
+        ag.systemPrompt == "summarize recent orders"
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", a.agentId).deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
     // ---- Task 4: request#Capability + AiCapabilityRequest ----
 
     def "request#Capability records a gap in AI_CAPREQ_OPEN status"() {
