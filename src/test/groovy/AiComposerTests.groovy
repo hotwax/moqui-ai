@@ -434,6 +434,10 @@ class AiComposerTests extends Specification {
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", draftAgentId).deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", draftAgentId).deleteAll()
         ec.entity.find("moqui.ai.AiTool").condition("toolId", target.toolId).deleteAll()
+        // restore the seeded composer-assistant provider (flipped to mock at setup for this test) so a
+        // shared dev DB (e.g. a live demo's hcsd_notnaked) isn't left with composer-assistant on mock.
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "composer-assistant")
+            .updateAll([providerName: "openai", modelName: "gpt-4o-mini"])
         ai.refreshCatalog()
         ec.artifactExecution.enableAuthz()
     }
