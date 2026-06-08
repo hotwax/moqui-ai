@@ -1,5 +1,7 @@
 # Composer Assistant — Moqui Realization (Level 2)
 
+> **Reconciled 2026-06-08.** The canonical as-built state is in ../reference/ and ../explanation/. Where this spec and the code disagree, the code wins.
+
 > The engineering vision for how the Composer Assistant (see the tech-agnostic overview in
 > `docs/product/composer-assistant-overview.md`) is built in Moqui, on top of the registry keystone
 > (`docs/specs/2026-06-05-agent-tool-registry-design.md`).
@@ -42,12 +44,12 @@ deepest dogfood.)
 
 | Tool (`verb_noun`) | Backing service | Responsibility |
 |---|---|---|
-| `find_capability` | `find#Capability` | search the catalog (`exposable=Y`, `active`) by intent/keyword/noun — "what can an agent here actually do?" |
+| `find_capability` | `find#Capability` | search the catalog (`exposable=Y`, `active`) by intent/keyword/noun — "what can an agent here actually do?" **As built: tokenizes the query and includes a tool if ANY term hits its `toolName`/`verb`/`noun`/`description`, then ranks results by hit count (best match first). Only exposable + active tools are considered.** (The old whole-phrase `like '%query%'` match is superseded.) |
 | `describe_capability` | `describe#Capability` | a tool's purpose + inputs (for the assistant to reason about fit) |
 | `list_domain_terms` | `list#DomainTerm` | the business vocabulary/nouns the assistant can ground in (from the ontology / knowledgebase) |
-| `propose_naming` | `propose#Naming` | suggest agent/tool name + description, grounded in the glossary (snaps the noun to its canonical term via the KB — §5) |
+| `propose_naming` | `propose#Naming` | suggest agent/tool name + description, grounded in the glossary (snaps the noun to its canonical term via the KB — §5). **As built: snaps the chosen dialect noun to its canonical glossary term, then optionally refines via the configured provider — model `gpt-4o-mini` (openai) or `claude-3-5-haiku-latest` (anthropic).** |
 | `draft_agent` | `store#AiAgent` (status `draft`) | create/update the draft (name, description, system prompt, model) |
-| `grant_capability` | grant `AiAgentTool` | add a catalog tool to the draft (only `exposable=Y` tools resolve) |
+| `grant_capability` | `store#AiAgentTool` | add a catalog tool to the draft (only `exposable=Y` tools resolve). **As built: backed by an explicit, exposable+active-gated `ai.AgentServices.store#AiAgentTool` wrapper (not entity-auto `store#moqui.ai.AiAgentTool`) — so it can be introspected as a tool and enforces the safety floor (a draft can never reference a service the Curator hasn't blessed).** |
 | `set_guardrail` | `AiAgentTool.requiresApprovalOverride` | mark which of the draft's tools need human approval |
 | `preview_agent` | `preview#Agent` | sandbox-run the draft on a test input (§6) |
 | `activate_agent` | `activate#Agent` | draft → active (the commit) |
