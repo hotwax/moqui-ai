@@ -1,11 +1,13 @@
 # Agent & Tool Registry — Design Spec
 
+> **Reconciled 2026-06-08.** The canonical as-built state is in ../reference/ and ../explanation/. Where this spec and the code disagree, the code wins.
+
 > **Agent-Builder Keystone.** The foundational layer that makes tools and agents *mutable data
 > with stable identity*, so they can be authored at runtime. The builder agent and its domain
 > knowledgebase are separate specs that sit on top of this one.
 
 - **Date:** 2026-06-05
-- **Status:** Draft design — under review
+- **Status:** Shipped (reconciled 2026-06-08)
 - **Component:** `moqui-ai` (https://github.com/hotwax/moqui-ai, branch `feature/ai-agent-framework`)
 - **Platform:** HotWax fork of Moqui, **JDK 11**
 - **Supersedes for tools/agents:** the in-memory catalog built from `ai/*.tools.xml` by `DefinitionLoader`
@@ -94,8 +96,21 @@ Removed: `toolName` as PK. Note: the JSON schema is **not** stored — generated
 |---|---|---|
 | `agentId` | `id` (PK) | opaque, stable identity |
 | `agentName` | `text-short`, unique index | editable, human-friendly label |
-| `description` | `text-long` | what the agent is for (authored with guidance; may seed the prompt) |
-| `systemPrompt`, `providerName`, `modelName`, `responseSchema`, `contextStrategy`, `contextWindowMessages`, `contextWindowChars`, `reasoningEffort`, `maxIterations`, `maxTokens`, `maxCost`, `maxToolCallsPerTurn`, `statusId` | — | unchanged (only `agentName`-as-PK is removed) |
+| `description` | `text-long` | what the agent is for (authored with guidance; seeds the prompt — see defaults below) |
+| `systemPrompt`, `providerName`, `modelName`, `responseSchema`, `contextStrategy`, `contextWindowMessages`, `contextWindowChars`, `reasoningEffort`, `maxIterations`, `maxTokens`, `maxCost`, `maxToolCallsPerTurn`, `statusId` | — | same fields/types as before; only `agentName`-as-PK is removed. **Several are defaulted on create** — see below. |
+
+> **As-built correction (was "unchanged").** This spec originally said these fields were "unchanged."
+> The shipped `ai.AgentServices.store#AiAgent` **defaults them on create** so a freshly drafted agent is
+> runnable without hand-editing entities (the user/Composer describes *what* it does and the system picks
+> the model, so `preview#Agent`/`activate#Agent` work out of the box):
+> - `providerName` ← `ai_default_provider` (system property) → fallback `openai`
+> - `modelName` ← `ai_default_model` (system property) → fallback `gpt-4o-mini`
+> - `maxIterations` ← `5`
+> - `systemPrompt` ← `description`
+> - `statusId` ← `AI_AGENT_DRAFT`
+>
+> These are **create-only** (guarded by "no `agentId`") and use `?:` — they never override an explicit
+> value and never run on update.
 
 ### 4.3 Grant + config + observability (re-keyed to ids)
 
@@ -158,6 +173,24 @@ stale.
 **Authz.** Creating/updating tools (`store#AiTool`) is gated to the Curator role; assembling agents
 (`store#AiAgent` + grants) to the Composer role. Standard Moqui `ArtifactAuthz`. The Composer can
 only grant tools where `exposable=Y` and `statusId=AI_TOOL_ACTIVE`.
+
+**Naming-signal seam (as-built).** Both `store#AiTool` and `store#AiAgent` accept two pass-through
+inputs — `suggestedName` (what the Composer proposed) and `intentText` (the user's described intent) —
+that are inert to authoring. After the entity write, each calls
+`ai.GlossaryServices.capture#NamingSignal` (with `signalType = AI_SIG_TOOL_NAME` / `AI_SIG_AGENT_NAME`,
+`chosenName`, `suggestedName`, `intentText`) so an override becomes a learnable signal for the Builder
+Knowledgebase. This is the framework's single semantic-capture point. Each store service sets
+`ec.context.signalCaptured = true` **before** the write so the defensive `AiGlossaryEcas` EECA floor on
+`AiTool`/`AiAgent` skips that row — the rich in-service capture is preferred over the EECA floor. The
+signal write is non-fatal to authoring.
+
+**`grant_capability` is an explicit wrapper, not entity-auto.** The Composer's `grant_capability`
+backing service is the **explicit** `ai.AgentServices.store#AiAgentTool`, *not* the entity-auto
+`store#moqui.ai.AiAgentTool`. It must be explicit so it can itself be exposed as a tool (entity-auto
+services have no `ServiceDefinition` and cannot be introspected by `ToolSchemaBuilder`). It enforces the
+safety floor — it loads the tool and **refuses the grant unless `exposable=Y` and
+`statusId=AI_TOOL_ACTIVE`** (a draft can never reference a service the Curator hasn't blessed) — and only
+then delegates to the entity-auto `store#moqui.ai.AiAgentTool` for the actual idempotent write.
 
 ## 7. Data flow
 
