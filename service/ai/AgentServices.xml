@@ -33,7 +33,7 @@
                 def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
                 String resolvedId = agentId
                 if (!resolvedId) {
-                    def agent = ec.entity.find("moqui.ai.AiAgent").condition("agentName", agentName).useCache(true).one()
+                    def agent = ec.entity.find("moqui.ai.AiAgent").condition("agentName", agentName).useCache(false).one()
                     if (agent == null) { ec.message.addError("Unknown agent: ${agentName}"); return }
                     resolvedId = agent.agentId
                 }
@@ -90,6 +90,15 @@
             <if condition="!agentId">
                 <set field="agentId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiAgent', null, null)"/>
                 <set field="statusId" from="statusId ?: 'AI_AGENT_DRAFT'"/>
+                <!-- Make a freshly drafted agent runnable WITHOUT hand-editing: the user/Composer describes
+                     WHAT it does, the system picks the model. Provider/model from MoquiConf
+                     (ai_default_provider / ai_default_model) with hardcoded fallbacks; iteration bound + a
+                     systemPrompt (falls back to the description) so preview/activate work out of the box.
+                     Create-only — never overrides an explicit value on update. -->
+                <set field="providerName" from="providerName ?: System.getProperty('ai_default_provider') ?: 'openai'"/>
+                <set field="modelName" from="modelName ?: System.getProperty('ai_default_model') ?: 'gpt-4o-mini'"/>
+                <set field="maxIterations" from="maxIterations ?: 5"/>
+                <set field="systemPrompt" from="systemPrompt ?: description"/>
             </if>
             <!-- Builder Knowledgebase: mark captured-in-service BEFORE the write so the AiAgent EECA skips. -->
             <set field="ec.context.signalCaptured" value="true"/>

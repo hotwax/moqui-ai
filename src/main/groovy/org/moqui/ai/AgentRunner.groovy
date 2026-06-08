@@ -46,8 +46,13 @@ class AgentRunner {
      *  iterations, truncated, statusId, servedByModelId, servedProviderName, providerRunId,
      *  structuredResult, estimatedCost] */
     Map run(String agentId, String userMessage, String conversationId) {
+        // useCache(false): the agent registry mutates at runtime (the Composer drafts/activates
+        // agents) and seed data may be loaded out-of-band by a separate `gradlew load` process,
+        // which cannot invalidate this JVM's cache. A cached by-PK miss would otherwise survive as
+        // a stale "Unknown agent" even after the row exists. This lookup runs once per agent run,
+        // immediately before multi-second provider calls, so a fresh read costs nothing meaningful.
         EntityValue agent = ec.entity.find("moqui.ai.AiAgent")
-            .condition("agentId", agentId).useCache(true).one()
+            .condition("agentId", agentId).useCache(false).one()
         if (agent == null) throw new IllegalArgumentException("Unknown agent: ${agentId}")
 
         boolean ctxSummarize = (agent.contextStrategy == "summarize")
@@ -244,7 +249,7 @@ class AgentRunner {
         if (run == null) throw new IllegalArgumentException("Unknown run: ${agentRunId}")
         if (run.statusId != "AI_RUN_SUSPENDED") return [agentRunId: agentRunId, statusId: run.statusId]
 
-        EntityValue agent = ec.entity.find("moqui.ai.AiAgent").condition("agentId", run.agentId).useCache(true).one()
+        EntityValue agent = ec.entity.find("moqui.ai.AiAgent").condition("agentId", run.agentId).useCache(false).one()  // fresh read (see run(): registry mutates at runtime / out-of-band loads)
         String conversationId = run.conversationId
         boolean ctxOn = (agent.contextStrategy == "window") || (agent.contextStrategy == "summarize")
         List<Map> candidates = loadModelCandidates(run.agentId as String, agent)
@@ -347,7 +352,7 @@ class AgentRunner {
     private List<Map> loadModelCandidates(String agentId, EntityValue agent) {
         List<Map> candidates = []
         for (EntityValue m in ec.entity.find("moqui.ai.AiAgentModel")
-                .condition("agentId", agentId).orderBy("priority").useCache(true).list())
+                .condition("agentId", agentId).orderBy("priority").useCache(false).list())
             candidates.add([providerName: m.providerName, modelName: m.modelName])
         if (candidates.isEmpty())
             candidates.add([providerName: agent.providerName, modelName: agent.modelName])
@@ -461,7 +466,7 @@ class AgentRunner {
     private List<Map> loadToolSchemas(String agentId) {
         List<Map> schemas = []
         for (EntityValue grant in ec.entity.find("moqui.ai.AiAgentTool")
-                .condition("agentId", agentId).useCache(true).list()) {
+                .condition("agentId", agentId).useCache(false).list()) {   // fresh: the Composer grants tools to agents at runtime; a stale grant list would hide a just-granted capability
             Map td = ai.getToolById(grant.toolId as String)
             if (td == null) {
                 logger.warn("Agent ${agentId} grants unknown/ineligible tool ${grant.toolId}; skipping")

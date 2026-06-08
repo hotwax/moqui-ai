@@ -17,13 +17,32 @@
          so a logged-in operator needs read access to these or the transition check is denied. -->
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
         artifactName="moqui\.basic\.Status.*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
+    <!-- form-list rendering reads per-user column config (moqui.screen.form.FormConfigUser, FormConfig, ...).
+         Without this member a non-admin operator hits "not authorized for View on Entity FormConfigUser"
+         and EVERY form-list on the AI Ops screens (including the Composer conversation) fails to render. -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
+        artifactName="moqui\.screen\.form\..*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
     <!-- AI services invoked from the screens (run#Agent, approvals, cost) + the NotNaked OMS tool/runner -->
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
         artifactName="ai\..*" artifactTypeEnumId="AT_SERVICE" nameIsPattern="Y"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
         artifactName="notnaked\.OmsAiServices\..*" artifactTypeEnumId="AT_SERVICE" nameIsPattern="Y"/>
-    <!-- inheritAuthz="Y": the screen grant cascades to the entities + services used inside the AiOps
-         screens (entity-finds, run#Agent, etc.) — without it, nested artifacts are denied (inheritable:false). -->
+    <!-- ALLOW all actions to every authenticated user. NOTE: in this framework version ArtifactAuthz has no
+         inheritAuthz column, so authz does NOT auto-cascade to nested artifacts — each entity/service the
+         screens touch must be listed as a group member above (moqui.ai.*, ai.*, moqui.basic.Status.*,
+         moqui.screen.form.*, notnaked.OmsAiServices.*). -->
     <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_ALL_USERS" userGroupId="ALL_USERS"
-        artifactGroupId="AI_OPS_SCREENS" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL" inheritAuthz="Y"/>
+        artifactGroupId="AI_OPS_SCREENS" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+
+    <!-- Read-only access to the business data the seeded agent tools summarize. A SEPARATE, VIEW-only group
+         so it does NOT inherit the all-actions grant above. An agent runs AS the signed-in user, so that
+         user needs read access to what its tools read, or the tool is denied — e.g. the NotNaked order
+         tool (notnaked.OmsAiServices.get#OrderSummaryList) reads org.apache.ofbiz.order.*.
+         NOTE: v1 grants ALL_USERS for the demo; a real deployment should scope this to an operator group
+         that legitimately sees order data. -->
+    <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_DATA_READ" description="Read-only business data the AI Ops agent tools summarize (orders, etc.)"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_READ"
+        artifactName="org\.apache\.ofbiz\.order\..*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
+    <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_DATA_READ_ALL" userGroupId="ALL_USERS"
+        artifactGroupId="AI_OPS_DATA_READ" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_VIEW"/>
 </entity-facade-xml>

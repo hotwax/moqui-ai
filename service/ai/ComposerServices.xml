@@ -28,14 +28,26 @@
             <script><![CDATA[
                 String q = (query ?: "").toLowerCase().trim()
                 int max = (maxResults ?: 25) as int
+                // Tokenize the query; include a tool if ANY term hits its name/verb/noun/description,
+                // ranked by how many terms hit. A whole-phrase contains() missed obvious matches —
+                // e.g. query "summarize recent orders" vs a description containing "summarize" and
+                // "orders" non-contiguously returned nothing.
+                List<String> terms = q ? (q.split(/\s+/).findAll { it } as List) : []
+                List scored = []
                 for (def t in toolList) {
-                    if (q) {
-                        String hay = "${t.toolName ?: ''} ${t.verb ?: ''} ${t.noun ?: ''} ${t.description ?: ''}".toLowerCase()
-                        if (!hay.contains(q)) continue
-                    }
                     def m = t.getMap()
                     m.effect = m.effectEnumId   // ergonomic alias the LLM/screen reads
-                    capabilityList.add(m)
+                    int hits = 0
+                    if (terms) {
+                        String hay = "${t.toolName ?: ''} ${t.verb ?: ''} ${t.noun ?: ''} ${t.description ?: ''}".toLowerCase()
+                        hits = terms.count { hay.contains(it) } as int
+                        if (hits == 0) continue
+                    }
+                    scored.add([m: m, hits: hits])
+                }
+                scored.sort { a, b -> b.hits <=> a.hits }   // best match first; stable for ties (toolName order)
+                for (def s in scored) {
+                    capabilityList.add(s.m)
                     if (capabilityList.size() >= max) break
                 }
             ]]></script>

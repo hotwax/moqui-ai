@@ -38,3 +38,13 @@ test {
     classpath += files(projectDir.absolutePath)
     classpath = classpath.filter { it.exists() }
 }
+
+// Deploy hygiene: the Moqui runtime loads this component from its lib/*.jar, but `jar` only writes to
+// build/libs/. Mirror the freshly built jar into lib/ on every build so the dev server never runs a
+// stale component jar — a stale lib/moqui-ai.jar once shadowed the current classes and caused an
+// "Unknown agent" failure. lib/moqui-ai.jar is git-ignored (a build artifact regenerated here).
+task refreshLibJar(type: Copy) {
+    from jar
+    into "${projectDir}/lib"
+}
+jar.finalizedBy refreshLibJar
