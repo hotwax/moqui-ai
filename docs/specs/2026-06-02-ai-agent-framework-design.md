@@ -1,5 +1,7 @@
 # Moqui-Native AI Agent Framework — Design Spec
 
+> **Reconciled 2026-06-08.** Design history — the canonical as-built state is in ../reference/ and ../explanation/. Where this spec and the code disagree, the code wins.
+
 - **Date:** 2026-06-02
 - **Status:** Approved design — ready for implementation planning
 - **Component:** `moqui-ai` (https://github.com/hotwax/moqui-ai, branch `main`)
@@ -164,9 +166,14 @@ interface LlmProvider {
     String getName()        // "openai" | "anthropic" | "google" | "mock"
     Map chat(Map request)   // request Map in, response Map out
 }
-// request  Map: [model, systemContext, messages: List<Map>, tools: List<Map>]
+// request  Map: [model, systemContext, messages: List<Map>, tools: List<Map>,
+//                responseSchema: Map (JSON-Schema; when set, the provider returns
+//                  structured output), reasoning (reasoning-depth passthrough —
+//                  OpenAI reasoning_effort / Anthropic thinking budget)]
 // response Map: [assistantText (null if only tool calls), toolCalls: List<Map>,
-//                tokensIn, tokensOut, finishReason]
+//                tokensIn, tokensOut, finishReason, providerRunId (the provider's
+//                  own response id), structuredResult: Map (the parsed structured
+//                  answer, when responseSchema was set)]
 // message  Map: [role, content, toolCalls: List<Map>, toolCallId]
 // toolCall Map: [id, name, arguments: Map]
 ```
@@ -231,12 +238,24 @@ Every run, step, and tool call is persisted so "what did the AI do and when" is 
 | Entity | One row per | Key fields |
 |---|---|---|
 | `AiAgentRun` | agent invocation | `agentRunId` (PK), `agentName`, `userId`, `fromDate`, `thruDate`, `statusId` → `StatusItem` (`AI_RUN_*`), `userMessage`, `assistantMessage`, `provider`, `model`, `iterations`, `tokensIn`, `tokensOut`, `estimatedCost`, `errorText` |
-| `AiAgentRunStep` | one loop iteration | `agentRunId` + `stepSeqId` (PK), `stepType` (llm_call / tool_call), `fromDate`, `thruDate`, `tokensIn`, `tokensOut`, `finishReason` |
+| `AiAgentRunStep` | one loop iteration | `agentRunId` + `stepSeqId` (PK), `stepType`, `fromDate`, `thruDate`, `tokensIn`, `tokensOut`, `finishReason` |
 | `AiToolCall` | one tool dispatch | `agentRunId` + `stepSeqId` + `toolCallId` (PK), `toolId`, `toolName`, `serviceName`, `arguments` (JSON), `result` (JSON), `success`, `errorText`, `durationMs` |
 
+- **`AiAgentRunStep.stepType` — declared vs emitted.** The entity field *declares*
+  `llm_call | tool_call`, but `AgentRunner` actually writes four values: `llm_call`,
+  `llm_call_failed` (a failed provider call before a sticky-failover retry), `context_trim`
+  (windowing), and `compaction` (rolling-summary overflow). `tool_call` is declared-but-not-emitted
+  — the runner records no per-iteration `tool_call` step; per-tool detail lives on `AiToolCall`
+  instead (one row per dispatch, linked by `stepSeqId`).
 - Token + estimated-cost capture lives here in Phase 1 (raw data); the later cost phase
   aggregates over it.
 - `arguments` / `result` stored as JSON text fields for full audit fidelity.
+- **`AiAgentModel` (failover-candidate chain).** Beyond the observability trio above, the entity
+  inventory also includes `AiAgentModel` (`agentId` + `priority` PK; `providerName` / `modelName`).
+  It holds an agent's priority-ordered provider/model failover candidates (lower `priority` tried
+  first); the loop's sticky failover walks this chain on a provider-call failure and persists the
+  candidate that actually served the run as `AiAgentRun.servedByModelId`. Listed in the §16
+  `AiEntities.xml` inventory.
 - **Persistence never aborts a run:** writes occur in a guarded block that logs a warning via
   `ec.logger` on failure and continues.
 - **Status fields follow the framework convention** (per the UDM Domain Object Practices Guide
@@ -275,7 +294,9 @@ ai.AgentServices.run#Agent
   in:  agentId | agentName (one req), userMessage (req), conversationId?
   out: assistantMessage, structuredResult (map; when the agent has a responseSchema),
        agentRunId, conversationId, tokensIn, tokensOut, estimatedCost, iterations,
-       truncated, statusId, providerName, servedByModelId, providerRunId
+       truncated, statusId, providerName, servedByModelId, providerRunId,
+       awaitingApproval (bool; run suspended on an approval-gated tool),
+       approvalIds (list; the AiToolApproval ids to decide)
 
 ai.ToolServices.store#AiTool          (the Curator authoring gate — register/edit a tool)
 ai.AgentServices.store#AiAgent        (author/edit an agent; defaults AI_AGENT_DRAFT)

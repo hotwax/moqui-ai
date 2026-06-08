@@ -1,5 +1,7 @@
 # Builder Knowledgebase / Domain Glossary — Design Spec
 
+> **Reconciled 2026-06-08.** The canonical as-built state is in ../reference/ and ../explanation/. Where this spec and the code disagree, the code wins.
+
 > The builder's "brain" — how the Composer Assistant *knows your business* and *gets better over
 > time*. It is the soft-control source for naming ("control, but not too much"): suggestions are
 > drawn from a curated, OMS-grounded glossary that grows, rather than from a fixed vocabulary.
@@ -113,13 +115,38 @@ speaks OMS out of the box:
   inventory, …) + key concepts from the **UDM domain-practices guide**.
 - **Verbs** ← the verbs of existing exposable services in the catalog (`list`, `get`, `cancel`,
   `allocate`, `refund`, …) — a soft, observed vocabulary, not a hard enum.
-Seeded terms are `SEEDED` + `APPROVED`. Run on component install (as data/service) and re-runnable to
-absorb new entities/services.
+Seeded terms are `SEEDED` + `APPROVED`. Re-runnable to absorb new entities/services.
+
+As built, the seed is wired through a **cron `ServiceJob`**, not a one-shot install service-call:
+`data/AiGlossaryJobData.xml` (reader type **`ext`**) ships
+`moqui.service.job.ServiceJob jobName="ai_seed_DomainGlossary"` running
+`ai.GlossaryServices.seed#DomainGlossary` on `cronExpression="0 0 * * *"`, `paused="N"`. Because the
+seed is idempotent, the job seeds a fresh install on its first fire, then no-ops, and keeps the
+glossary in step as the model evolves — so a fresh install is never left with an empty glossary. It
+lives in its own data file (not `AiGlossaryData.xml`) so the glossary test suite, which loads only the
+status/enum reference data, never picks up a runnable job. Operators can also trigger an immediate
+re-seed from the AI Ops → Glossary screen.
 
 ## 6. Learning — from real authoring
 
-- When the Composer (or a human) creates/updates a tool or agent, an **`AiNamingSignal`** is written
-  (hook on `store#AiTool` / `store#AiAgent` — the same single gate the keystone defines).
+- When the Composer (or a human) creates/updates a tool or agent, an **`AiNamingSignal`** is written.
+  As built this is a **two-part mechanism**, not a single hook:
+  1. **In-service capture (preferred, rich context):** `store#AiTool` and `store#AiAgent` call
+     `ai.GlossaryServices.capture#NamingSignal` directly, passing the full context the keystone
+     services already hold (`suggestedName`, `intentText`, the chosen `toolName`/`agentName`). They
+     set `ec.context.signalCaptured = true` **before** their entity write so the EECA below skips.
+  2. **EECA floor (defensive backstop):** `entity/AiGlossaryEcas.eecas.xml` defines two entity-ECAs
+     on `moqui.ai.AiTool` and `moqui.ai.AiAgent` (`on-create`/`on-update`) that also call
+     `capture#NamingSignal`. They fire only when the write was *not* already captured in-service and
+     is not a seed (`condition`: `ec.context.signalGuard != true && ec.context.signalCaptured != true`),
+     so they backstop direct entity writes (e.g. a raw `EntityValue.store()` or a future builder path
+     that bypasses `store#AiTool`).
+  - The EECA is **auto-scanned** from `entity/*.eecas.xml` by the framework — there is **no**
+    `MoquiConf.xml` `<load-entity>` / `entity-eca-list` registration (confirmed: this component's
+    `MoquiConf.xml` declares only `default-property`, the tool-factory `<tools>`, and the AiOps
+    `<screen-facade>` mount).
+  - `capture#NamingSignal` itself no-ops when `signalGuard` is set (so seeding writes no signals) and
+    sets `wasOverridden=Y` when the human's chosen name differs from the Composer's suggestion.
 - A `promote#TermsFromSignals` service periodically scans signals: chosen terms/synonyms that recur
   above a threshold and aren't already in the glossary are inserted as `LEARNED` + **`SUGGESTED`**.
 - Overrides (`wasOverridden=Y`) are the richest signal — they reveal the business's preferred word
