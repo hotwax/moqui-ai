@@ -61,7 +61,7 @@ class AiApprovalTests extends Specification {
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "do it"]]], tokensIn: 1L, tokensOut: 1L])
         MockProvider.enqueue([assistantText: "done after approval", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ApprAgent", userMessage: "go"]).call()
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent", userMessage: "go"]).call()
         then:
         out.statusId == "AI_RUN_SUSPENDED"
         out.awaitingApproval == true
@@ -95,7 +95,7 @@ class AiApprovalTests extends Specification {
         MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
         MockProvider.enqueue([assistantText: "done after approval", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
-        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ApprAgent2", userMessage: "go"]).call()
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent2", userMessage: "go"]).call()
         // mark the approval APPROVED (the service layer is Task 4; here we set it directly)
         ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).updateAll([statusId: "AI_APPR_APPROVED", decidedByUserId: "AiTestUser"])
         when:
@@ -130,7 +130,7 @@ class AiApprovalTests extends Specification {
         ec.message.clearErrors()
         MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
-        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ApprAgent3", userMessage: "go"]).call()
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent3", userMessage: "go"]).call()
         when: // resume WITHOUT deciding the approval (still AI_APPR_PENDING)
         Map r = new org.moqui.ai.AgentRunner(ec, ai).resume(out.agentRunId as String)
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
@@ -163,7 +163,7 @@ class AiApprovalTests extends Specification {
         MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
         MockProvider.enqueue([assistantText: "done after approval", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
-        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ApprAgent4", userMessage: "go"]).call()
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent4", userMessage: "go"]).call()
         String approvalId = ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).list()[0].approvalId
         when:
         Map dec = ec.service.sync().name("ai.ApprovalServices.approve#ToolCall").parameters([approvalId: approvalId]).call()
@@ -198,7 +198,7 @@ class AiApprovalTests extends Specification {
         MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
         MockProvider.enqueue([assistantText: "ok, skipped that", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
-        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ApprAgent5", userMessage: "go"]).call()
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent5", userMessage: "go"]).call()
         String approvalId = ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).list()[0].approvalId
         when:
         Map dec = ec.service.sync().name("ai.ApprovalServices.reject#ToolCall")
@@ -242,7 +242,7 @@ class AiApprovalTests extends Specification {
             [id: "c2", name: "get_gated_echo", arguments: [text: "b"]]], tokensIn: 1L, tokensOut: 1L])
         MockProvider.enqueue([assistantText: "both done", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when: // stateless run (no conversationId)
-        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ApprAgentMix", userMessage: "go"]).call()
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgentMix", userMessage: "go"]).call()
         then: // whole turn suspended: exactly ONE pending approval, for the gated call c2; nothing executed yet
         out.statusId == "AI_RUN_SUSPENDED"
         out.awaitingApproval == true
@@ -282,14 +282,14 @@ class AiApprovalTests extends Specification {
         })
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()
-        Map c = ec.service.sync().name("ai.AgentServices.create#Conversation").parameters([agentName: "ApprAgentA1"]).call()
+        Map c = ec.service.sync().name("ai.AgentServices.create#Conversation").parameters([agentId: "ApprAgentA1"]).call()
         String convId = c.conversationId
         // first run: gated tool_use → suspends
         MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "x"]]], tokensIn: 1L, tokensOut: 1L])
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "ApprAgentA1", userMessage: "go", conversationId: convId]).call()
+            .parameters([agentId: "ApprAgentA1", userMessage: "go", conversationId: convId]).call()
         then: // suspended
         out.statusId == "AI_RUN_SUSPENDED"
         // deterministic A1 guard: the suspended assistant tool-call turn was withheld (refinement 1),
@@ -299,7 +299,7 @@ class AiApprovalTests extends Specification {
         when: // behavioral guard: a SECOND run on the SAME conversation WITHOUT deciding the approval, scripted to a plain stop
         MockProvider.enqueue([assistantText: "hello again", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         Map out2 = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "ApprAgentA1", userMessage: "again", conversationId: convId]).call()
+            .parameters([agentId: "ApprAgentA1", userMessage: "again", conversationId: convId]).call()
         then: // the replayed history has no malformed (dangling tool_call) turn → completes cleanly
         out2.statusId == "AI_RUN_COMPLETED"
         cleanup:

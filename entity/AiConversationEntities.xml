@@ -4,7 +4,7 @@
 
     <entity entity-name="AiConversation" package="moqui.ai">
         <field name="conversationId" type="id" is-pk="true"/>
-        <field name="agentId" type="id"><description>The agent this conversation belongs to (by id).</description></field>
+        <field name="agentId" type="id" required="true"><description>The agent this conversation belongs to (by id).</description></field>
         <field name="userId" type="id"/>
         <field name="title" type="text-medium"/>
         <field name="fromDate" type="date-time"/>

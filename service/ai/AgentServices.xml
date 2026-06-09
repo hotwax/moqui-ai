@@ -6,8 +6,7 @@
          writes each manage their own tx (see AgentRunner). -->
     <service verb="run" noun="Agent" transaction="ignore" authenticate="true">
         <in-parameters>
-            <parameter name="agentId"/>
-            <parameter name="agentName"/>
+            <parameter name="agentId" required="true"/>
             <parameter name="userMessage" required="true"/>
             <parameter name="conversationId"><description>Optional. When set, prior turns are replayed and this turn is persisted.</description></parameter>
         </in-parameters>
@@ -31,13 +30,7 @@
         <actions>
             <script><![CDATA[
                 def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                String resolvedId = agentId
-                if (!resolvedId) {
-                    def agent = ec.entity.find("moqui.ai.AiAgent").condition("agentName", agentName).useCache(false).one()
-                    if (agent == null) { ec.message.addError("Unknown agent: ${agentName}"); return }
-                    resolvedId = agent.agentId
-                }
-                def r = new org.moqui.ai.AgentRunner(ec, ai).run(resolvedId, userMessage, conversationId)
+                def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentId, userMessage, conversationId)
                 assistantMessage = r.assistantMessage
                 agentRunId = r.agentRunId
                 conversationId = r.conversationId
@@ -137,22 +130,58 @@
 
     <service verb="create" noun="Conversation" authenticate="true">
         <in-parameters>
-            <parameter name="agentName"/>
-            <parameter name="agentId"/>
+            <parameter name="agentId" required="true"/>
             <parameter name="title"/>
         </in-parameters>
         <out-parameters><parameter name="conversationId"/></out-parameters>
         <actions>
-            <if condition="!agentId &amp;&amp; agentName">
-                <entity-find-one entity-name="moqui.ai.AiAgent" value-field="agent" cache="true">
-                    <field-map field-name="agentName" from="agentName"/></entity-find-one>
-                <if condition="agent == null"><return error="true" message="Unknown agent: ${agentName}"/></if>
-                <set field="agentId" from="agent.agentId"/>
-            </if>
+            <entity-find-one entity-name="moqui.ai.AiAgent" value-field="agent" cache="true">
+                <field-map field-name="agentId"/></entity-find-one>
+            <if condition="agent == null"><return error="true" message="Unknown agent: ${agentId}"/></if>
             <set field="conversationId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiConversation', null, null)"/>
             <service-call name="create#moqui.ai.AiConversation" in-map="[conversationId: conversationId,
                 agentId: agentId, title: title, userId: ec.user.userId,
                 fromDate: ec.user.nowTimestamp, statusId: 'AI_CONV_ACTIVE']"/>
+        </actions>
+    </service>
+
+    <service verb="run" noun="Conversation" transaction="ignore" authenticate="true">
+        <in-parameters>
+            <parameter name="conversationId" required="true"/>
+            <parameter name="userMessage" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="assistantMessage"/>
+            <parameter name="agentRunId"/>
+            <parameter name="conversationId"/>
+            <parameter name="tokensIn" type="Long"/>
+            <parameter name="tokensOut" type="Long"/>
+            <parameter name="iterations" type="Integer"/>
+            <parameter name="truncated" type="Boolean"/>
+            <parameter name="statusId"/>
+            <parameter name="servedByModelId"/>
+            <parameter name="providerName"/>
+            <parameter name="estimatedCost" type="BigDecimal"/>
+            <parameter name="providerRunId"/>
+            <parameter name="structuredResult" type="Map"/>
+            <parameter name="awaitingApproval" type="Boolean"/>
+            <parameter name="approvalIds" type="List"/>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiConversation" value-field="conv"/>
+            <if condition="conv == null"><return error="true" message="Unknown conversation: ${conversationId}"/></if>
+            <service-call name="ai.AgentServices.run#Agent" out-map="context"
+                in-map="[agentId: conv.agentId, userMessage: userMessage, conversationId: conversationId]"/>
+        </actions>
+    </service>
+
+    <service verb="generate" noun="ConversationTitle" authenticate="true" transaction="use">
+        <in-parameters>
+            <parameter name="conversationId" required="true"/>
+            <parameter name="userMessage" required="true"/>
+        </in-parameters>
+        <actions>
+            <script>org.moqui.ai.AgentRunner.generateConversationTitle(ec, conversationId, userMessage)</script>
         </actions>
     </service>
 </services>

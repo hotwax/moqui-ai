@@ -77,15 +77,25 @@ class AgentRunner {
             providerName: primary.providerName, modelName: primary.modelName, userMessage: userMessage])
 
         // history replay: prior conversation messages, then this turn's user message
-        EntityValue conv = conversationId ? ec.entity.find("moqui.ai.AiConversation")
-            .condition("conversationId", conversationId).one() : null
+        EntityValue conv = null
+        if (conversationId) {
+            conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", conversationId).one()
+            if (conv == null) throw new IllegalArgumentException("Unknown conversation: ${conversationId}")
+            if (conv.agentId != agentId) throw new IllegalArgumentException("Conversation ${conversationId} belongs to a different agent: ${conv.agentId}")
+        }
         String summaryText = conv?.summaryText
         String summaryWatermark = conv?.summaryThruMessageSeqId
         List<Map> messages = conversationId
             ? loadConversationMessages(conversationId, ctxSummarize ? summaryWatermark : null) : []
         int replayCount = messages.size()
         messages.add([role: "user", content: userMessage])
-        if (conversationId) persistConversationMessage(conversationId, runId, [role: "user", content: userMessage])
+        if (conversationId) {
+            persistConversationMessage(conversationId, runId, [role: "user", content: userMessage])
+            if (!conv.title) {
+                ec.service.async().name("ai.AgentServices.generate#ConversationTitle")
+                    .parameters([conversationId: conversationId, userMessage: userMessage]).call()
+            }
+        }
 
         return continueAgent(agent, runId, conversationId, candidates, toolSchemas, responseSchema,
             [messages: messages, replayCount: replayCount, stepSeq: 0, candIdx: 0,
@@ -546,4 +556,45 @@ class AgentRunner {
                 factKey: [type: "string", description: "short stable identifier, e.g. order_total"],
                 factValue: [type: "string", description: "the confirmed value"]]]]]
     }
+
+    /** Asynchronously auto-generate a short, descriptive title for a conversation based on
+     *  its first user message, using the conversation agent's configured LLM provider. */
+    static void generateConversationTitle(ExecutionContext ec, String conversationId, String userMessage) {
+        EntityValue conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", conversationId).one()
+        if (conv == null || conv.title) return
+
+        EntityValue agent = ec.entity.find("moqui.ai.AiAgent").condition("agentId", conv.agentId).one()
+        if (agent == null) return
+
+        def ai = ec.factory.getTool("AI", AiToolFactory.class)
+        def providerName = agent.providerName ?: System.getProperty('ai_default_provider') ?: 'openai'
+        def modelName = agent.modelName ?: System.getProperty('ai_default_model') ?: 'gpt-4o-mini'
+
+        def p = ai.getProvider(providerName)
+        def sysPrompt = "You are a conversation auto-naming assistant. Generate a short, descriptive title (maximum 5-6 words) for a chat conversation based on the first user message. Do not use quotation marks, markdown, or any surrounding text. Just output the clean title."
+
+        try {
+            def resp = p.chat([
+                model: modelName,
+                systemContext: sysPrompt,
+                messages: [[role: 'user', content: userMessage]]
+            ])
+            String title = resp.assistantText
+            if (title) {
+                title = title.trim()
+                if (title.startsWith('"') && title.endsWith('"')) {
+                    title = title.substring(1, title.length() - 1).trim()
+                } else if (title.startsWith("'") && title.endsWith("'")) {
+                    title = title.substring(1, title.length() - 1).trim()
+                }
+                if (title.length() > 255) title = title.substring(0, 252) + "..."
+
+                conv.title = title
+                conv.update()
+            }
+        } catch (Exception e) {
+            logger.warn("Auto-naming conversation ${conversationId} failed: ${e.message}")
+        }
+    }
 }
+
