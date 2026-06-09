@@ -21,6 +21,14 @@
             <parameter name="topicId"/>
         </out-parameters>
         <actions>
+            <!-- Security: the body is injected verbatim into the agent system prompt (authoritative) and
+                 rendered on screen. ai.* services are ALL_USERS-reachable, so an unconstrained location would
+                 be an arbitrary-file-read / SSRF / prompt-poisoning vector. Allowlist component://.../knowledge/*.md
+                 only — blocks file:/http(s):/ftp: schemes and path traversal. -->
+            <if condition="!contentLocation.startsWith('component://') || !contentLocation.contains('/knowledge/') || !contentLocation.endsWith('.md') || contentLocation.contains('..')">
+                <return error="true"
+                    message="contentLocation must be a component:// path under a knowledge/ directory ending in .md (e.g. component://moqui-ai/knowledge/oms-domain-primer.md). Got: ${contentLocation}"/>
+            </if>
             <if condition="!ec.resource.getLocationReference(contentLocation).getExists()">
                 <return error="true"
                     message="Knowledge body file not found: ${contentLocation}. Create the .md file under knowledge/ before registering the topic."/>

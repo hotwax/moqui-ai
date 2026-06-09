@@ -155,6 +155,28 @@ class AiKnowledgeTests extends Specification {
         ec.entity.find("moqui.ai.AiKnowledgeTopic").condition("topicId", "KNOW_TEST_3").deleteAll()
     }
 
+    def "store#KnowledgeTopic rejects unsafe contentLocation (scheme/path allowlist)"() {
+        given:
+        // Security guard: the body is injected into the agent prompt and rendered on screen, and
+        // ai.* services are ALL_USERS-reachable. Only component://.../knowledge/*.md is allowed —
+        // file:/http(s): schemes and path traversal must be refused before the exists-check.
+        List<String> unsafe = ["file:///etc/passwd",
+                               "https://attacker.example/poison.md",
+                               "component://moqui-ai/conf/MoquiConf.xml",
+                               "component://moqui-ai/knowledge/../conf/secret.md"]
+        expect:
+        unsafe.eachWithIndex { String loc, int idx ->
+            ec.message.clearErrors()
+            String tid = "KNOW_TEST_3U_${idx}"
+            ec.entity.find("moqui.ai.AiKnowledgeTopic").condition("topicId", tid).deleteAll()
+            ec.service.sync().name("ai.KnowledgeServices.store#KnowledgeTopic")
+                .parameters([topicId: tid, topicName: "Unsafe Loc ${idx}", contentLocation: loc]).call()
+            assert ec.message.hasError()
+            assert ec.entity.find("moqui.ai.AiKnowledgeTopic").condition("topicId", tid).one() == null
+            ec.message.clearErrors()
+        }
+    }
+
     // ---- Group 3: approve + archive transitions ----
 
     def "approve#KnowledgeTopic transitions DRAFT to APPROVED"() {

@@ -9,9 +9,9 @@
         contentLocation="component://moqui-ai/knowledge/oms-domain-primer.md"
         statusId="AI_KNOW_APPROVED"/>
 
-    <!-- Grant to the Composer agent -->
+    <!-- Grant to the Composer agent (agentId is AICMP_AGENT; "composer-assistant" is the agentName). -->
     <moqui.ai.AiAgentKnowledge
-        agentId="composer-assistant"
+        agentId="AICMP_AGENT"
         topicId="KNOW_OMS_PRIMER"/>
 
 </entity-facade-xml>
