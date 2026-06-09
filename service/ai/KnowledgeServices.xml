@@ -21,22 +21,31 @@
             <parameter name="topicId"/>
         </out-parameters>
         <actions>
-            <if condition="!ec.resource.getLocationReference(contentLocation).exists()">
+            <if condition="!ec.resource.getLocationReference(contentLocation).getExists()">
                 <return error="true"
                     message="Knowledge body file not found: ${contentLocation}. Create the .md file under knowledge/ before registering the topic."/>
             </if>
             <if condition="!topicId">
                 <set field="topicId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiKnowledgeTopic', null, null)"/>
             </if>
-            <entity-make-value entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic">
+            <entity-find-one entity-name="moqui.ai.AiKnowledgeTopic" value-field="existing" cache="false">
                 <field-map field-name="topicId"/>
-            </entity-make-value>
-            <entity-set value-field="topic" include="topicId,topicName,description,contentLocation,fromDate,thruDate"/>
-            <if condition="!topic.statusId"><set field="topic.statusId" value="AI_KNOW_DRAFT"/></if>
-            <if condition="!topic.createdByUserId">
-                <set field="topic.createdByUserId" from="ec.user.userId"/>
+            </entity-find-one>
+            <if condition="existing == null">
+                <service-call name="create#moqui.ai.AiKnowledgeTopic"
+                    in-map="[topicId: topicId, topicName: topicName, description: description,
+                             contentLocation: contentLocation, fromDate: fromDate, thruDate: thruDate,
+                             statusId: 'AI_KNOW_DRAFT', createdByUserId: ec.user.userId]"/>
+                <else>
+                    <script><![CDATA[
+                        Map upd = [topicId: topicId, topicName: topicName, contentLocation: contentLocation]
+                        if (description != null) upd.description = description
+                        if (fromDate != null) upd.fromDate = fromDate
+                        if (thruDate != null) upd.thruDate = thruDate
+                        ec.service.sync().name("update#moqui.ai.AiKnowledgeTopic").parameters(upd).call()
+                    ]]></script>
+                </else>
             </if>
-            <entity-create-or-update value-field="topic"/>
         </actions>
     </service>
 
@@ -46,10 +55,8 @@
         <actions>
             <entity-find-one entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic"/>
             <if condition="topic == null"><return error="true" message="Topic ${topicId} not found"/></if>
-            <service-call name="org.moqui.impl.StatusServices.transition#StatusItem"
-                in-map="[statusId: topic.statusId, toStatusId: 'AI_KNOW_APPROVED', statusFlowId: 'AiKnowledgeFlow']"/>
-            <set field="topic.statusId" value="AI_KNOW_APPROVED"/>
-            <entity-update value-field="topic"/>
+            <service-call name="update#moqui.ai.AiKnowledgeTopic"
+                in-map="[topicId: topicId, statusId: 'AI_KNOW_APPROVED']"/>
         </actions>
     </service>
 
@@ -59,10 +66,8 @@
         <actions>
             <entity-find-one entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic"/>
             <if condition="topic == null"><return error="true" message="Topic ${topicId} not found"/></if>
-            <service-call name="org.moqui.impl.StatusServices.transition#StatusItem"
-                in-map="[statusId: topic.statusId, toStatusId: 'AI_KNOW_ARCHIVED', statusFlowId: 'AiKnowledgeFlow']"/>
-            <set field="topic.statusId" value="AI_KNOW_ARCHIVED"/>
-            <entity-update value-field="topic"/>
+            <service-call name="update#moqui.ai.AiKnowledgeTopic"
+                in-map="[topicId: topicId, statusId: 'AI_KNOW_ARCHIVED']"/>
         </actions>
     </service>
 
@@ -81,10 +86,8 @@
             <if condition="topic.statusId == 'AI_KNOW_ARCHIVED'">
                 <return error="true" message="Cannot grant an archived topic (${topicId}). Restore it to Approved first."/>
             </if>
-            <entity-make-value entity-name="moqui.ai.AiAgentKnowledge" value-field="grant">
-                <field-map field-name="agentId"/><field-map field-name="topicId"/>
-            </entity-make-value>
-            <entity-create-or-update value-field="grant"/>
+            <service-call name="store#moqui.ai.AiAgentKnowledge"
+                in-map="[agentId: agentId, topicId: topicId]"/>
         </actions>
     </service>
 
