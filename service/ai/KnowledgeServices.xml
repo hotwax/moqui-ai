@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- Knowledge base CRUD and injection services.
+         Bodies live as .md files in knowledge/ (component:// scheme). The entity is the queryable
+         spine: lifecycle status, effective dates, and the contentLocation pointer. -->
+
+    <service verb="store" noun="KnowledgeTopic" authenticate="true">
+        <description>Create or update a knowledge topic. Validates that the .md body file exists before
+        writing the row. Does NOT write the body — callers manage the file in git.</description>
+        <in-parameters>
+            <parameter name="topicId"/>
+            <parameter name="topicName" required="true"/>
+            <parameter name="description"/>
+            <parameter name="contentLocation" required="true"/>
+            <parameter name="fromDate" type="Timestamp"/>
+            <parameter name="thruDate" type="Timestamp"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="topicId"/>
+        </out-parameters>
+        <actions>
+            <if condition="!ec.resource.getLocationReference(contentLocation).exists()">
+                <return error="true"
+                    message="Knowledge body file not found: ${contentLocation}. Create the .md file under knowledge/ before registering the topic."/>
+            </if>
+            <if condition="!topicId">
+                <set field="topicId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiKnowledgeTopic', null, null)"/>
+            </if>
+            <entity-make-value entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic">
+                <field-map field-name="topicId"/>
+            </entity-make-value>
+            <entity-set value-field="topic" include="topicId,topicName,description,contentLocation,fromDate,thruDate"/>
+            <if condition="!topic.statusId"><set field="topic.statusId" value="AI_KNOW_DRAFT"/></if>
+            <if condition="!topic.createdByUserId">
+                <set field="topic.createdByUserId" from="ec.user.userId"/>
+            </if>
+            <entity-create-or-update value-field="topic"/>
+        </actions>
+    </service>
+
+    <service verb="approve" noun="KnowledgeTopic" authenticate="true">
+        <description>Transition a knowledge topic from Draft to Approved so it is injected by the runner.</description>
+        <in-parameters><parameter name="topicId" required="true"/></in-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic"/>
+            <if condition="topic == null"><return error="true" message="Topic ${topicId} not found"/></if>
+            <service-call name="org.moqui.impl.StatusServices.transition#StatusItem"
+                in-map="[statusId: topic.statusId, toStatusId: 'AI_KNOW_APPROVED', statusFlowId: 'AiKnowledgeFlow']"/>
+            <set field="topic.statusId" value="AI_KNOW_APPROVED"/>
+            <entity-update value-field="topic"/>
+        </actions>
+    </service>
+
+    <service verb="archive" noun="KnowledgeTopic" authenticate="true">
+        <description>Transition a knowledge topic to Archived so it is no longer injected.</description>
+        <in-parameters><parameter name="topicId" required="true"/></in-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic"/>
+            <if condition="topic == null"><return error="true" message="Topic ${topicId} not found"/></if>
+            <service-call name="org.moqui.impl.StatusServices.transition#StatusItem"
+                in-map="[statusId: topic.statusId, toStatusId: 'AI_KNOW_ARCHIVED', statusFlowId: 'AiKnowledgeFlow']"/>
+            <set field="topic.statusId" value="AI_KNOW_ARCHIVED"/>
+            <entity-update value-field="topic"/>
+        </actions>
+    </service>
+
+    <service verb="store" noun="AgentKnowledge" authenticate="true">
+        <description>Grant a knowledge topic to an agent. DRAFT topics may be granted (they won't inject
+        until Approved). ARCHIVED topics are rejected — restore to Approved first.</description>
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+            <parameter name="topicId" required="true"/>
+        </in-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic"/>
+            <if condition="topic == null">
+                <return error="true" message="Topic ${topicId} not found"/>
+            </if>
+            <if condition="topic.statusId == 'AI_KNOW_ARCHIVED'">
+                <return error="true" message="Cannot grant an archived topic (${topicId}). Restore it to Approved first."/>
+            </if>
+            <entity-make-value entity-name="moqui.ai.AiAgentKnowledge" value-field="grant">
+                <field-map field-name="agentId"/><field-map field-name="topicId"/>
+            </entity-make-value>
+            <entity-create-or-update value-field="grant"/>
+        </actions>
+    </service>
+
+    <service verb="revoke" noun="AgentKnowledge" authenticate="true">
+        <description>Remove a knowledge topic grant from an agent.</description>
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+            <parameter name="topicId" required="true"/>
+        </in-parameters>
+        <actions>
+            <entity-find entity-name="moqui.ai.AiAgentKnowledge" list="grants">
+                <econdition field-name="agentId"/>
+                <econdition field-name="topicId"/>
+            </entity-find>
+            <iterate list="grants" entry="grant">
+                <entity-delete value-field="grant"/>
+            </iterate>
+        </actions>
+    </service>
+
+    <service verb="find" noun="AgentKnowledge" authenticate="true">
+        <description>Single source of truth: returns APPROVED, effective, granted knowledge topics
+        for an agent with resolved body text. Skips topics whose body file is missing (logs warn).
+        Sorted by topicName for deterministic injection order.</description>
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="topics" type="List"/>
+        </out-parameters>
+        <actions>
+            <set field="now" from="ec.user.nowTimestamp"/>
+            <entity-find entity-name="moqui.ai.AiAgentKnowledge" list="grants">
+                <econdition field-name="agentId"/>
+            </entity-find>
+            <set field="topics" from="[]"/>
+            <iterate list="grants" entry="grant">
+                <entity-find-one entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic">
+                    <field-map field-name="topicId" from="grant.topicId"/>
+                </entity-find-one>
+                <if condition="topic == null"><continue/></if>
+                <if condition="topic.statusId != 'AI_KNOW_APPROVED'"><continue/></if>
+                <if condition="topic.fromDate != null &amp;&amp; topic.fromDate > now"><continue/></if>
+                <if condition="topic.thruDate != null &amp;&amp; topic.thruDate &lt;= now"><continue/></if>
+                <set field="content" from="ec.resource.getLocationText(topic.contentLocation, true)"/>
+                <if condition="!content">
+                    <log level="warn" message="Knowledge topic ${topic.topicId} body not found at ${topic.contentLocation} — skipping"/>
+                    <continue/>
+                </if>
+                <script>topics.add([topicId: topic.topicId, topicName: topic.topicName, content: content])</script>
+            </iterate>
+            <set field="topics" from="topics.sort { a, b -> a.topicName &lt;=&gt; b.topicName }"/>
+        </actions>
+    </service>
+
+    <service verb="list" noun="KnowledgeTopic" authenticate="true">
+        <description>List all knowledge topics, optionally filtered by statusId. For the AiOps console.</description>
+        <in-parameters>
+            <parameter name="statusId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="topics" type="List"/>
+        </out-parameters>
+        <actions>
+            <entity-find entity-name="moqui.ai.AiKnowledgeTopic" list="topics">
+                <econdition field-name="statusId" ignore-if-empty="true"/>
+                <order-by field-name="topicName"/>
+            </entity-find>
+        </actions>
+    </service>
+
+</services>

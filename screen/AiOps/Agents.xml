@@ -2,6 +2,9 @@
 <screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
         default-menu-title="Agents" require-authentication="true">
 
+    <transition name="grantKnowledge"><service-call name="ai.KnowledgeServices.store#AgentKnowledge" in-map="[agentId:agentId, topicId:topicId]"/><default-response url="."/></transition>
+    <transition name="revokeKnowledge"><service-call name="ai.KnowledgeServices.revoke#AgentKnowledge" in-map="[agentId:agentId, topicId:topicId]"/><default-response url="."/></transition>
+
     <transition name="saveAgent">
         <service-call name="ai.AgentServices.store#AiAgent"
             in-map="[agentId:agentId, agentName:agentName, providerName:providerName, modelName:modelName,
@@ -12,6 +15,7 @@
     <actions>
         <entity-find entity-name="moqui.ai.AiAgent" list="agentList"><order-by field-name="agentName"/></entity-find>
         <entity-find entity-name="moqui.ai.AiAgentTool" list="grantList"><order-by field-name="agentId,toolId"/></entity-find>
+        <entity-find entity-name="moqui.ai.AiAgentKnowledge" list="knowledgeGrantList"><order-by field-name="agentId,topicId"/></entity-find>
     </actions>
 
     <widgets>
@@ -54,6 +58,23 @@
                     <field name="systemPrompt"><default-field title="System prompt"><text-area rows="4" cols="80"/></default-field></field>
                     <field name="submitField"><default-field title=""><submit text="Save agent"/></default-field></field>
                 </form-single>
+            </box-body>
+        </container-box>
+
+        <container-box>
+            <box-header title="Knowledge grants"/>
+            <box-body>
+                <label text="Topics granted to agents. Only Approved topics are injected at run time." type="p"/>
+                <form-list name="KnowledgeGrantList" list="knowledgeGrantList" skip-form="true" condition="knowledgeGrantList">
+                    <field name="agentId"><default-field title="Agent"><display/></default-field></field>
+                    <field name="topicId"><default-field title="Topic"><display/></default-field></field>
+                    <field name="revokeAction"><default-field title="">
+                        <link url="revokeKnowledge" text="Revoke" link-type="hidden-form-link" btn-type="danger">
+                            <parameter name="agentId"/><parameter name="topicId"/>
+                        </link>
+                    </default-field></field>
+                </form-list>
+                <label text="No knowledge grants yet." type="p" condition="!knowledgeGrantList"/>
             </box-body>
         </container-box>
     </widgets>

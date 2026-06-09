@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="ext-seed">
+
+    <moqui.basic.StatusType statusTypeId="AiKnowledgeStatus"
+        description="AI Knowledge Topic Status"/>
+
+    <moqui.basic.StatusItem statusTypeId="AiKnowledgeStatus"
+        statusId="AI_KNOW_DRAFT"    statusCode="DRAFT"    description="Draft"    sequenceNum="1"/>
+    <moqui.basic.StatusItem statusTypeId="AiKnowledgeStatus"
+        statusId="AI_KNOW_APPROVED" statusCode="APPROVED" description="Approved" sequenceNum="2"/>
+    <moqui.basic.StatusItem statusTypeId="AiKnowledgeStatus"
+        statusId="AI_KNOW_ARCHIVED" statusCode="ARCHIVED" description="Archived" sequenceNum="3"/>
+
+    <moqui.basic.StatusFlow statusFlowId="AiKnowledgeFlow"
+        statusTypeId="AiKnowledgeStatus" description="AI Knowledge Topic Flow"/>
+
+    <moqui.basic.StatusFlowTransition statusFlowId="AiKnowledgeFlow"
+        statusId="AI_KNOW_DRAFT"    toStatusId="AI_KNOW_APPROVED"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiKnowledgeFlow"
+        statusId="AI_KNOW_APPROVED" toStatusId="AI_KNOW_ARCHIVED"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiKnowledgeFlow"
+        statusId="AI_KNOW_ARCHIVED" toStatusId="AI_KNOW_APPROVED"/>
+
+</entity-facade-xml>
