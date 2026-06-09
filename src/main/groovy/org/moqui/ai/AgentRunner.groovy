@@ -134,7 +134,7 @@ class AgentRunner {
                 // later iteration must see the new fact (and re-window the grown history). Do not hoist.
                 String sysCtx = agent.systemPrompt as String
                 // --- Knowledge injection (unconditional — any contextStrategy, even off) ---
-                int knowledgeCap = (agent.knowledgeMaxChars as Integer) ?: (ec.factory.getConf('ai_knowledge_max_chars') as Integer ?: 24000)
+                int knowledgeCap = (agent.knowledgeMaxChars as Integer) ?: (System.getProperty('ai_knowledge_max_chars') as Integer ?: 24000)
                 List<Map> knowledgeTopics = loadAgentKnowledge(agent.agentId as String, runId, knowledgeCap)
                 sysCtx = ContextAssembler.withKnowledge(sysCtx, knowledgeTopics)
                 // --- end knowledge injection ---

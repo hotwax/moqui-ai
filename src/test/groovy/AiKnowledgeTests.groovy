@@ -5,6 +5,7 @@ import org.moqui.ai.ContextAssembler
 import org.moqui.ai.AiToolFactory
 import org.moqui.ai.AgentRunner
 import org.moqui.ai.provider.MockProvider
+import java.sql.Timestamp
 
 /** Agent knowledge base: AiKnowledgeTopic + AiAgentKnowledge lifecycle, ContextAssembler.withKnowledge,
  *  find#AgentKnowledge filtering, and AgentRunner integration.
