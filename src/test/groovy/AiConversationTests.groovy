@@ -45,7 +45,7 @@ class AiConversationTests extends Specification {
     def "second turn replays the first turn's messages"() {
         given: "a conversation"
         Map t = ec.service.sync().name("ai.AgentServices.create#Conversation")
-            .parameters([agentName: "ConvAgent", title: "t1"]).call()
+            .parameters([agentId: "ConvAgent", title: "t1"]).call()
         String conversationId = t.conversationId
 
         expect: "conversation is keyed to the agent by id"
@@ -54,12 +54,12 @@ class AiConversationTests extends Specification {
         when: "turn 1"
         MockProvider.enqueue([assistantText: "hi there", finishReason: "stop", tokensOut: 2L])
         ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "ConvAgent", userMessage: "hello", conversationId: conversationId]).call()
+            .parameters([agentId: "ConvAgent", userMessage: "hello", conversationId: conversationId]).call()
 
         and: "turn 2"
         MockProvider.enqueue([assistantText: "yes, you said hello", finishReason: "stop", tokensOut: 4L])
         Map out2 = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "ConvAgent", userMessage: "what did I say?", conversationId: conversationId]).call()
+            .parameters([agentId: "ConvAgent", userMessage: "what did I say?", conversationId: conversationId]).call()
 
         then: "conversation holds both turns' messages (user+assistant x2 = 4); two runs linked"
         out2.assistantMessage == "yes, you said hello"
@@ -70,14 +70,97 @@ class AiConversationTests extends Specification {
         ec.artifactExecution.disableAuthz()
         ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", conversationId).deleteAll()
         ec.entity.find("moqui.ai.AiConversation").condition("conversationId", conversationId).deleteAll()
+        ec.artifactExecution.enableAuthz()
     }
 
     def "no conversationId behaves as a stateless single turn (Phase 1)"() {
         given: MockProvider.enqueue([assistantText: "stateless", finishReason: "stop"])
         when: Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "ConvAgent", userMessage: "hi"]).call()
+            .parameters([agentId: "ConvAgent", userMessage: "hi"]).call()
         then:
         out.assistantMessage == "stateless"
         out.conversationId == null
+    }
+
+    def "conversation is auto-named when title is not provided"() {
+        given: "a conversation without a title"
+        Map t = ec.service.sync().name("ai.AgentServices.create#Conversation")
+            .parameters([agentId: "ConvAgent"]).call()
+        String conversationId = t.conversationId
+
+        and: "mock provider enqueued response"
+        MockProvider.enqueue([assistantText: "sure, I can help with orders", finishReason: "stop"])
+        MockProvider.enqueue([assistantText: "Order Summary Request", finishReason: "stop"]) // for the auto-naming LLM call
+
+        when: "running the agent turn"
+        ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentId: "ConvAgent", userMessage: "summarize order 10023", conversationId: conversationId]).call()
+
+        then: "the title is auto-generated"
+        long start = System.currentTimeMillis()
+        String title = null
+        while (System.currentTimeMillis() - start < 5000) {
+            title = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", conversationId).one()?.title
+            if (title) break
+            Thread.sleep(100)
+        }
+        title == "Order Summary Request"
+
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", conversationId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", conversationId).deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "running agent on a conversation of a different agent throws exception"() {
+        given: "an agent named OtherAgent"
+        ec.artifactExecution.disableAuthz()
+        ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "OtherAgent", agentName: "OtherAgent", providerName: "mock",
+            modelName: "mock-1", systemPrompt: "other", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        ec.artifactExecution.enableAuthz()
+
+        and: "a conversation created for ConvAgent"
+        Map t = ec.service.sync().name("ai.AgentServices.create#Conversation")
+            .parameters([agentId: "ConvAgent", title: "t1"]).call()
+        String conversationId = t.conversationId
+
+        when: "running OtherAgent on ConvAgent's conversation"
+        ec.service.sync().name("ai.AgentServices.run#Agent")
+            .parameters([agentId: "OtherAgent", userMessage: "hi", conversationId: conversationId]).call()
+
+        then: "it fails with validation error"
+        ec.message.hasError()
+        ec.message.errorsString.contains("belongs to a different agent")
+
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", conversationId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "OtherAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "running conversation with run#Conversation resolves agentId and delegates to run#Agent"() {
+        given: "a conversation created for ConvAgent"
+        Map t = ec.service.sync().name("ai.AgentServices.create#Conversation")
+            .parameters([agentId: "ConvAgent", title: "t1"]).call()
+        String conversationId = t.conversationId
+
+        and: "mock provider enqueued response"
+        MockProvider.enqueue([assistantText: "resolved automatically", finishReason: "stop"])
+
+        when: "running the conversation turn with run#Conversation"
+        Map out = ec.service.sync().name("ai.AgentServices.run#Conversation")
+            .parameters([userMessage: "hi", conversationId: conversationId]).call()
+
+        then: "it succeeds using the conversation's agentId"
+        !ec.message.hasError()
+        out.assistantMessage == "resolved automatically"
+
+        cleanup:
+        ec.artifactExecution.disableAuthz()
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", conversationId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", conversationId).deleteAll()
+        ec.artifactExecution.enableAuthz()
     }
 }

@@ -371,7 +371,7 @@ class AiComposerTests extends Specification {
         dropAgentByName("orders-summary-bot")   // isolation: clear any leftover from a prior run
         String draftAgentId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgent", null, null)
         Map conv = ec.service.sync().name("ai.AgentServices.create#Conversation")
-            .parameters([agentName: "composer-assistant"]).call()
+            .parameters([agentId: "AICMP_AGENT"]).call()
         ec.message.clearErrors()
 
         // Turn 1: discover the capability
@@ -391,7 +391,7 @@ class AiComposerTests extends Specification {
 
         when: "the build conversation runs"
         ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "composer-assistant", userMessage: "build an order summary agent",
+            .parameters([agentId: "AICMP_AGENT", userMessage: "build an order summary agent",
                          conversationId: conv.conversationId]).call()
         then: "the draft exists with its grant"
         def draft = ec.entity.find("moqui.ai.AiAgent").condition("agentId", draftAgentId).one()
@@ -413,7 +413,7 @@ class AiComposerTests extends Specification {
             arguments: [agentId: draftAgentId]]], tokensIn: 1L, tokensOut: 1L])
         MockProvider.enqueue([assistantText: "Activated.", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         Map suspended = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "composer-assistant", userMessage: "activate it",
+            .parameters([agentId: "AICMP_AGENT", userMessage: "activate it",
                          conversationId: conv.conversationId]).call()
         then: "activation suspended the Composer run on the commit gate"
         suspended.statusId == "AI_RUN_SUSPENDED"

@@ -16,9 +16,9 @@
         <actions>
             <if condition="!conversationId">
                 <service-call name="ai.AgentServices.create#Conversation" out-map="context"
-                    in-map="[agentName: 'composer-assistant', title: 'Composer session']"/></if>
+                    in-map="[agentId: 'AICMP_AGENT', title: 'Composer session']"/></if>
             <service-call name="ai.AgentServices.run#Agent" out-map="context"
-                in-map="[agentName: 'composer-assistant', userMessage: userMessage, conversationId: conversationId]"/>
+                in-map="[agentId: 'AICMP_AGENT', userMessage: userMessage, conversationId: conversationId]"/>
         </actions>
         <default-response url="."><parameter name="conversationId"/><parameter name="agentRunId"/><parameter name="draftAgentId"/></default-response>
     </transition>
