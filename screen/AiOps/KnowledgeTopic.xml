@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Topic" require-authentication="true">
+    <!-- Knowledge topic detail / edit. Body is read-only in v1 (edit the .md in git). -->
+    <transition name="saveTopic">
+        <service-call name="ai.KnowledgeServices.store#KnowledgeTopic"
+            in-map="[topicId:topicId, topicName:topicName, description:description, contentLocation:contentLocation, fromDate:fromDate, thruDate:thruDate]"/>
+        <default-response url="Knowledge"/>
+    </transition>
+    <transition name="approve">
+        <service-call name="ai.KnowledgeServices.approve#KnowledgeTopic" in-map="[topicId:topicId]"/>
+        <default-response url="."/>
+    </transition>
+    <transition name="archive">
+        <service-call name="ai.KnowledgeServices.archive#KnowledgeTopic" in-map="[topicId:topicId]"/>
+        <default-response url="."/>
+    </transition>
+
+    <actions>
+        <if condition="topicId">
+            <entity-find-one entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic"/>
+            <if condition="topic"><script>context.putAll(topic)</script></if>
+        </if>
+    </actions>
+    <widgets>
+        <container-box>
+            <box-header title="Knowledge Topic"/>
+            <box-body>
+                <form-single name="TopicForm" transition="saveTopic">
+                    <field name="topicId"><default-field title=""><hidden/></default-field></field>
+                    <field name="topicName"><default-field title="Name"><text-line size="40"/></default-field></field>
+                    <field name="description"><default-field title="Description"><text-area rows="2" cols="70"/></default-field></field>
+                    <field name="contentLocation"><default-field title="Body file (component:// URI)"><text-line size="60"/></default-field></field>
+                    <field name="statusId"><default-field title="Status"><display/></default-field></field>
+                    <field name="fromDate"><default-field title="Effective from"><date-time/></default-field></field>
+                    <field name="thruDate"><default-field title="Effective thru"><date-time/></default-field></field>
+                    <field name="submitField"><default-field title=""><submit text="Save topic"/></default-field></field>
+                </form-single>
+                <container-box condition="topicId &amp;&amp; topic">
+                    <box-header title="Body preview (read-only — edit the .md in git)"/>
+                    <box-body>
+                        <label text="${ec.resource.getLocationText(topic?.contentLocation, true) ?: '(file not found at ' + topic?.contentLocation + ')'}" encode="false" type="pre"/>
+                    </box-body>
+                </container-box>
+                <container condition="topicId &amp;&amp; topic">
+                    <link url="approve" text="Approve" btn-type="success" link-type="hidden-form-link" condition="topic?.statusId == 'AI_KNOW_DRAFT'">
+                        <parameter name="topicId"/>
+                    </link>
+                    <link url="archive" text="Archive" btn-type="warning" link-type="hidden-form-link" condition="topic?.statusId == 'AI_KNOW_APPROVED'">
+                        <parameter name="topicId"/>
+                    </link>
+                </container>
+            </box-body>
+        </container-box>
+    </widgets>
+</screen>

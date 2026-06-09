@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
+
+    <entity entity-name="AiKnowledgeTopic" package="moqui.ai">
+        <field name="topicId"         type="id"          is-pk="true"/>
+        <field name="topicName"       type="text-short"/>
+        <field name="description"     type="text-long"/>
+        <field name="contentLocation" type="text-medium"/>
+        <field name="statusId"        type="id"/>
+        <field name="fromDate"        type="date-time"/>
+        <field name="thruDate"        type="date-time"/>
+        <field name="ownerScope"      type="id"/>
+        <field name="createdByUserId" type="id"/>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <index name="AI_KNOW_TOPIC_NAME" unique="true">
+            <index-field name="topicName"/>
+        </index>
+    </entity>
+
+    <entity entity-name="AiAgentKnowledge" package="moqui.ai">
+        <field name="agentId"  type="id" is-pk="true"/>
+        <field name="topicId"  type="id" is-pk="true"/>
+        <relationship type="one"      related="moqui.ai.AiAgent"          short-alias="agent"/>
+        <relationship type="one-nofk" related="moqui.ai.AiKnowledgeTopic" short-alias="topic"/>
+    </entity>
+
+</entities>

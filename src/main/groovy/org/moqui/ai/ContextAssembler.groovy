@@ -23,6 +23,25 @@ class ContextAssembler {
         return sb.toString()
     }
 
+    /**
+     * Appends approved, effective knowledge topics to the system prompt.
+     * No-op when topics is null or empty.
+     * Each topic is rendered as a level-3 heading so the LLM has clear boundaries.
+     * Called unconditionally (any contextStrategy, even off) from AgentRunner.
+     *
+     * topics: List<Map> with keys topicId, topicName, content
+     */
+    static String withKnowledge(String systemPrompt, List<Map> topics) {
+        if (!topics) return systemPrompt
+        StringBuilder sb = new StringBuilder(systemPrompt ?: "")
+        sb.append("\n\n## Knowledge base (authoritative — follow these definitions)\n")
+        for (Map topic in topics) {
+            sb.append("\n### ").append(topic.topicName).append("\n")
+            sb.append(topic.content).append("\n")
+        }
+        return sb.toString()
+    }
+
     /** Keep the last `maxMessages` of `replayed` (then char-guard trims more from the front),
      *  tool-pair-safe, and append the whole `current` turn. Returns [messages, dropped]. */
     static Map windowHistory(List<Map> replayed, List<Map> current, int maxMessages, int maxChars) {

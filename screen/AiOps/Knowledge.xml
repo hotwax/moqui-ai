@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Knowledge" require-authentication="true">
+    <!-- Knowledge base curation console: list topics, approve/archive, view detail. -->
+    <transition name="approve"><service-call name="ai.KnowledgeServices.approve#KnowledgeTopic" in-map="[topicId:topicId]"/><default-response url="."/></transition>
+    <transition name="archive"><service-call name="ai.KnowledgeServices.archive#KnowledgeTopic" in-map="[topicId:topicId]"/><default-response url="."/></transition>
+
+    <actions>
+        <service-call name="ai.KnowledgeServices.list#KnowledgeTopic" out-map="context" in-map="[:]"/>
+    </actions>
+    <widgets>
+        <container-box>
+            <box-header title="Knowledge topics"/>
+            <box-body>
+                <label text="No knowledge topics found. Add a .md file to the knowledge/ directory and register it as a topic." type="p" condition="!topics"/>
+                <form-list name="TopicList" list="topics" skip-form="true" condition="topics">
+                    <field name="topicName"><default-field title="Name"><display/></default-field></field>
+                    <field name="statusId"><default-field title="Status"><display/></default-field></field>
+                    <field name="contentLocation"><default-field title="Body file"><display/></default-field></field>
+                    <field name="fromDate"><default-field title="From"><display/></default-field></field>
+                    <field name="thruDate"><default-field title="Thru"><display/></default-field></field>
+                    <field name="approveAction"><default-field title="">
+                        <link url="approve" text="Approve" link-type="hidden-form-link" btn-type="success" condition="statusId == 'AI_KNOW_DRAFT'">
+                            <parameter name="topicId"/>
+                        </link>
+                    </default-field></field>
+                    <field name="archiveAction"><default-field title="">
+                        <link url="archive" text="Archive" link-type="hidden-form-link" btn-type="warning" condition="statusId == 'AI_KNOW_APPROVED'">
+                            <parameter name="topicId"/>
+                        </link>
+                    </default-field></field>
+                    <field name="detailAction"><default-field title="">
+                        <link url="KnowledgeTopic" text="Edit" condition="true">
+                            <parameter name="topicId"/>
+                        </link>
+                    </default-field></field>
+                </form-list>
+            </box-body>
+        </container-box>
+
+        <container-box>
+            <box-header title="Register a new topic"/>
+            <box-body>
+                <label text="Create the .md body file in knowledge/ first, then register it here." type="p"/>
+                <form-single name="NewTopic" transition="saveTopic" url="KnowledgeTopic"/>
+            </box-body>
+        </container-box>
+    </widgets>
+</screen>

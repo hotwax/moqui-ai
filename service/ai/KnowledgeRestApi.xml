@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- REST API wrappers for the knowledge base.
+         These are thin pass-through services exposing the KnowledgeServices methods via
+         the Moqui built-in /rest/ endpoint: POST /rest/s1/ai/KnowledgeRestApi/store/KnowledgeTopic etc.
+         No business logic here — all validation and state transitions are in KnowledgeServices. -->
+
+    <!-- GET /rest/s1/ai/KnowledgeRestApi/list/KnowledgeTopic?statusId=AI_KNOW_APPROVED -->
+    <service verb="list" noun="KnowledgeTopic" authenticate="true">
+        <description>List knowledge topics. Pass ?statusId= to filter by status.</description>
+        <in-parameters>
+            <parameter name="statusId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="topics" type="List"/>
+        </out-parameters>
+        <actions>
+            <service-call name="ai.KnowledgeServices.list#KnowledgeTopic" out-map="context"
+                in-map="[statusId: statusId]"/>
+        </actions>
+    </service>
+
+    <!-- POST /rest/s1/ai/KnowledgeRestApi/store/KnowledgeTopic -->
+    <service verb="store" noun="KnowledgeTopic" authenticate="true">
+        <description>Create or update a knowledge topic (body file must already exist in knowledge/).</description>
+        <in-parameters>
+            <parameter name="topicId"/>
+            <parameter name="topicName" required="true"/>
+            <parameter name="description"/>
+            <parameter name="contentLocation" required="true"/>
+            <parameter name="fromDate" type="Timestamp"/>
+            <parameter name="thruDate" type="Timestamp"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="topicId"/>
+        </out-parameters>
+        <actions>
+            <service-call name="ai.KnowledgeServices.store#KnowledgeTopic" out-map="context" in-map="context"/>
+        </actions>
+    </service>
+
+    <!-- PUT /rest/s1/ai/KnowledgeRestApi/approve/KnowledgeTopic -->
+    <service verb="approve" noun="KnowledgeTopic" authenticate="true">
+        <description>Approve a knowledge topic (DRAFT -> APPROVED).</description>
+        <in-parameters>
+            <parameter name="topicId" required="true"/>
+        </in-parameters>
+        <actions>
+            <service-call name="ai.KnowledgeServices.approve#KnowledgeTopic" in-map="[topicId: topicId]"/>
+        </actions>
+    </service>
+
+    <!-- PUT /rest/s1/ai/KnowledgeRestApi/archive/KnowledgeTopic -->
+    <service verb="archive" noun="KnowledgeTopic" authenticate="true">
+        <description>Archive a knowledge topic (APPROVED -> ARCHIVED).</description>
+        <in-parameters>
+            <parameter name="topicId" required="true"/>
+        </in-parameters>
+        <actions>
+            <service-call name="ai.KnowledgeServices.archive#KnowledgeTopic" in-map="[topicId: topicId]"/>
+        </actions>
+    </service>
+
+    <!-- GET /rest/s1/ai/KnowledgeRestApi/find/AgentKnowledge?agentId=composer-assistant -->
+    <service verb="find" noun="AgentKnowledge" authenticate="true">
+        <description>Get resolved knowledge topics for an agent (APPROVED + effective + assigned, with body text).</description>
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="topics" type="List"/>
+        </out-parameters>
+        <actions>
+            <service-call name="ai.KnowledgeServices.find#AgentKnowledge" out-map="context"
+                in-map="[agentId: agentId]"/>
+        </actions>
+    </service>
+
+    <!-- POST /rest/s1/ai/KnowledgeRestApi/store/AgentKnowledge -->
+    <service verb="store" noun="AgentKnowledge" authenticate="true">
+        <description>Grant a knowledge topic to an agent.</description>
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+            <parameter name="topicId" required="true"/>
+        </in-parameters>
+        <actions>
+            <service-call name="ai.KnowledgeServices.store#AgentKnowledge" in-map="[agentId: agentId, topicId: topicId]"/>
+        </actions>
+    </service>
+
+    <!-- DELETE /rest/s1/ai/KnowledgeRestApi/revoke/AgentKnowledge -->
+    <service verb="revoke" noun="AgentKnowledge" authenticate="true">
+        <description>Revoke a knowledge topic grant from an agent.</description>
+        <in-parameters>
+            <parameter name="agentId" required="true"/>
+            <parameter name="topicId" required="true"/>
+        </in-parameters>
+        <actions>
+            <service-call name="ai.KnowledgeServices.revoke#AgentKnowledge" in-map="[agentId: agentId, topicId: topicId]"/>
+        </actions>
+    </service>
+
+</services>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="ext-seed">
+
+    <!-- Knowledge topic: OMS Domain Primer -->
+    <moqui.ai.AiKnowledgeTopic
+        topicId="KNOW_OMS_PRIMER"
+        topicName="OMS Domain Primer"
+        description="Core HotWax Commerce OMS vocabulary — inventory, orders, and fulfillment terms for reasoning about OMS domain concepts."
+        contentLocation="component://moqui-ai/knowledge/oms-domain-primer.md"
+        statusId="AI_KNOW_APPROVED"/>
+
+    <!-- Grant to the Composer agent -->
+    <moqui.ai.AiAgentKnowledge
+        agentId="composer-assistant"
+        topicId="KNOW_OMS_PRIMER"/>
+
+</entity-facade-xml>

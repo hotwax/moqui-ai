@@ -133,6 +133,11 @@ class AgentRunner {
                 // Re-assembled every iteration on purpose: a tool may call `remember` mid-run, so a
                 // later iteration must see the new fact (and re-window the grown history). Do not hoist.
                 String sysCtx = agent.systemPrompt as String
+                // --- Knowledge injection (unconditional — any contextStrategy, even off) ---
+                int knowledgeCap = (agent.knowledgeMaxChars as Integer) ?: (ec.factory.getConf('ai_knowledge_max_chars') as Integer ?: 24000)
+                List<Map> knowledgeTopics = loadAgentKnowledge(agent.agentId as String, runId, knowledgeCap)
+                sysCtx = ContextAssembler.withKnowledge(sysCtx, knowledgeTopics)
+                // --- end knowledge injection ---
                 List<Map> sendMessages = messages
                 if (ctxOn) {
                     int rc = Math.min(replayCount, messages.size())
@@ -414,6 +419,52 @@ class AgentRunner {
                 facts.add([factKey: f.factKey, factValue: f.factValue])
             return facts
         } catch (Throwable t) { logger.warn("Fact load failed (continuing without facts): ${t.message}"); return [] }
+    }
+
+    /**
+     * Loads approved + effective knowledge topics for the agent, applies the char cap,
+     * and records a context_trim step if topics are dropped.
+     * Truncation: whole-topic drop only — never emit a partial body.
+     * Topics arrive sorted by topicName (find#AgentKnowledge guarantees this).
+     */
+    private List<Map> loadAgentKnowledge(String agentId, String agentRunId, int capChars) {
+        try {
+            Map result = ec.service.sync().name('ai.KnowledgeServices.find#AgentKnowledge')
+                .parameters([agentId: agentId]).call()
+            List<Map> all = result?.topics ?: []
+            if (!all) return []
+
+            List<Map> included = []
+            List<String> dropped = []
+            int used = 0
+
+            for (Map topic in all) {
+                int topicLen = (topic.content as String)?.length() ?: 0
+                if (used + topicLen <= capChars) {
+                    included.add(topic)
+                    used += topicLen
+                } else {
+                    dropped.add(topic.topicName as String)
+                }
+            }
+
+            if (dropped) {
+                ec.logger.warn("Knowledge cap (${capChars} chars) exceeded for agent ${agentId}. Dropped topics: ${dropped.join(', ')}")
+                try {
+                    ec.service.sync().name('create#moqui.ai.AiAgentRunStep').parameters([
+                        agentRunId : agentRunId,
+                        stepSeqId  : ec.entity.sequencedIdPrimary('moqui.ai.AiAgentRunStep', null, null),
+                        stepType   : 'context_trim',
+                        fromDate   : ec.user.nowTimestamp,
+                        finishReason: "knowledge_cap: dropped ${dropped.size()} topic(s): ${dropped.join(', ')}"
+                    ]).call()
+                } catch (Throwable t2) { ec.logger.warn("Could not record knowledge_cap trim step: ${t2.message}") }
+            }
+            return included
+        } catch (Throwable t) {
+            ec.logger.warn("Knowledge load failed for agent ${agentId} (continuing without knowledge): ${t.message}")
+            return []
+        }
     }
 
     /** Roll the overflow into the conversation summary using the agent's own PRIMARY model (note:

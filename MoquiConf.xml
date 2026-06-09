@@ -11,6 +11,7 @@
          The user describes WHAT an agent does; the system picks the model. Override per deployment. -->
     <default-property name="ai_default_provider" value="openai"/>
     <default-property name="ai_default_model" value="gpt-4o-mini"/>
+    <default-property name="ai_knowledge_max_chars" value="24000"/>
     <tools>
         <tool-factory class="org.moqui.ai.AiToolFactory" init-priority="30" disabled="false"/>
     </tools>
