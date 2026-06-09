@@ -39,7 +39,7 @@
                 <container-box condition="topicId &amp;&amp; topic">
                     <box-header title="Body preview (read-only — edit the .md in git)"/>
                     <box-body>
-                        <label text="${ec.resource.getLocationText(topic?.contentLocation, true) ?: '(file not found at ' + topic?.contentLocation + ')'}" encode="false" type="pre"/>
+                        <label text="${ec.resource.getLocationText(topic?.contentLocation, true) ?: '(file not found at ' + topic?.contentLocation + ')'}" type="pre"/>
                     </box-body>
                 </container-box>
                 <container condition="topicId &amp;&amp; topic">

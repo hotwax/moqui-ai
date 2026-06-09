@@ -42,7 +42,7 @@
             <box-header title="Register a new topic"/>
             <box-body>
                 <label text="Create the .md body file in knowledge/ first, then register it here." type="p"/>
-                <form-single name="NewTopic" transition="saveTopic" url="KnowledgeTopic"/>
+                <link url="KnowledgeTopic" text="Register new topic" btn-type="primary"/>
             </box-body>
         </container-box>
     </widgets>
