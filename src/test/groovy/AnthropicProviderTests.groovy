@@ -193,7 +193,7 @@ class AnthropicProviderTests extends Specification {
         ec.message.clearErrors()
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "AnthropicSentiment", userMessage: "This is wonderful, I love it!"]).call()
+            .parameters([agentId: "AnthropicSentiment", userMessage: "This is wonderful, I love it!"]).call()
         if (out.statusId == "AI_RUN_FAILED") {
             def err = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()?.errorText
             if (noCredits(err as String)) throw new org.opentest4j.TestAbortedException("Anthropic account has no credits — skipping")
@@ -222,7 +222,7 @@ class AnthropicProviderTests extends Specification {
         ec.message.clearErrors()
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "AnthropicReason", userMessage: "What is 17 + 25? Reply with just the number."]).call()
+            .parameters([agentId: "AnthropicReason", userMessage: "What is 17 + 25? Reply with just the number."]).call()
         if (out.statusId == "AI_RUN_FAILED") {
             def err = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()?.errorText
             if (noCredits(err as String)) throw new org.opentest4j.TestAbortedException("Anthropic account has no credits — skipping")
@@ -275,7 +275,7 @@ class AnthropicProviderTests extends Specification {
         ec.message.clearErrors()
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "AnthropicEcho", userMessage: "Echo the word: marigold"]).call()
+            .parameters([agentId: "AnthropicEcho", userMessage: "Echo the word: marigold"]).call()
         // skip (don't fail) if the run failed only because the account is out of credits
         if (out.statusId == "AI_RUN_FAILED") {
             def err = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()?.errorText

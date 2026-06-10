@@ -84,7 +84,7 @@ an optional `AiAgentModel` failover chain) — not in config.
 
 ```groovy
 def r = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([
-    agentName:      "order-helper",
+    agentId:        "100123",     // the agent's opaque id (agentName is just a label; look the id up in AiOps > Agents)
     userMessage:    "Cancel order 12345 and tell me the refund total.",
     conversationId: null          // pass an id to replay + persist multi-turn history
 ]).call()

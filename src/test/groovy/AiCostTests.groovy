@@ -67,7 +67,7 @@ class AiCostTests extends Specification {
         MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1000L, tokensOut: 500L])
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "CostAgent", userMessage: "hi"]).call()
+            .parameters([agentId: "CostAgent", userMessage: "hi"]).call()
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
         then:
         out.statusId == "AI_RUN_COMPLETED"
@@ -89,7 +89,7 @@ class AiCostTests extends Specification {
         ec.message.clearErrors()
         MockProvider.reset()
         MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 200L, tokensOut: 100L])
-        ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "CostAgent", userMessage: "again"]).call()
+        ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "CostAgent", userMessage: "again"]).call()
         when:
         Map spend = ec.service.sync().name("ai.CostServices.get#AiSpend").parameters([groupBy: "agent"]).call()
         then:

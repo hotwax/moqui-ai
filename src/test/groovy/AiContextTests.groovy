@@ -139,7 +139,7 @@ class AiContextTests extends Specification {
                 modelName: "mock-1", systemPrompt: "be terse", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "window", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"WinAgent",
-                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "ctx test"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
                 m.set("conversationId", convId); m.setSequencedIdSecondary()
@@ -171,7 +171,7 @@ class AiContextTests extends Specification {
                 modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"MemAgent",
-                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "ctx test"]).createOrUpdate()
         })
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "order_total", factValue: "\$4,812.50"]]],
@@ -205,7 +205,7 @@ class AiContextTests extends Specification {
                 modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SupAgent",
-                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "ctx test"]).createOrUpdate()
         })
         // run 1: remember order_total = first value
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
@@ -245,7 +245,7 @@ class AiContextTests extends Specification {
             ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "NoCtxAgent", agentName: "NoCtxAgent", providerName: "mock",
                 modelName: "mock-1", systemPrompt: "x", maxIterations: 3, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"NoCtxAgent",
-                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "ctx test"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
                 m.set("conversationId", convId); m.setSequencedIdSecondary()
@@ -277,7 +277,7 @@ class AiContextTests extends Specification {
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "window", contextWindowMessages: 1, contextWindowChars: 1000000]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"FidAgent",
-                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "ctx test"]).createOrUpdate()
         })
         // Turn 1: agent remembers the total, then stops.
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
@@ -315,7 +315,7 @@ class AiContextTests extends Specification {
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SumAgent",
-                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "ctx test"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
                 m.set("conversationId", convId); m.setSequencedIdSecondary()
@@ -354,7 +354,7 @@ class AiContextTests extends Specification {
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SumFailAgent",
-                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "ctx test"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
                 m.set("conversationId", convId); m.setSequencedIdSecondary()
@@ -389,7 +389,7 @@ class AiContextTests extends Specification {
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 5, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"SumMultiAgent",
-                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "ctx test"]).createOrUpdate()
             (1..5).each { i ->
                 EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")
                 m.set("conversationId", convId); m.setSequencedIdSecondary()
@@ -429,7 +429,7 @@ class AiContextTests extends Specification {
                 modelName: "mock-1", systemPrompt: "base", maxIterations: 3, statusId: "AI_AGENT_ACTIVE",
                 contextStrategy: "summarize", contextWindowMessages: 2, contextWindowChars: 1000000]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId:"CarryAgent",
-                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE",
+                userId: "AiTestUser", fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "ctx test",
                 summaryText: "earlier: customer confirmed 3 units", summaryThruMessageSeqId: "00003"]).createOrUpdate()
             // one live message past the watermark -> below window(2) -> NO overflow -> NO summarization call
             EntityValue m = ec.entity.makeValue("moqui.ai.AiConversationMessage")

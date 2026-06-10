@@ -64,8 +64,7 @@ Runs an agent against a user message, driving the full agentic loop via
 
 | Name | Type | Req | Notes |
 |---|---|---|---|
-| `agentId` | String | — | Preferred. Stable opaque id. |
-| `agentName` | String | — | Alternative lookup key; resolved to `agentId` when `agentId` is absent. |
+| `agentId` | String | yes | The stable opaque id — the only invocation key. `run#Agent` does not resolve human names; resolve an `agentName` to its id first (see Behavior). |
 | `userMessage` | String | yes | The turn's user message. |
 | `conversationId` | String | — | When set, prior turns are replayed and this turn is persisted. |
 
@@ -91,9 +90,11 @@ Runs an agent against a user message, driving the full agentic loop via
 
 **Behavior**
 
-1. Resolves the agent: if `agentId` is omitted, looks up `AiAgent` by `agentName` with
-   `useCache(false)`; an unknown name adds the error `Unknown agent: ${agentName}` and returns.
-2. Constructs `new AgentRunner(ec, ai).run(resolvedId, userMessage, conversationId)` and maps
+1. Requires `agentId` (the stable opaque id). `run#Agent` is the low-level executor and does **not**
+   resolve human names — resolve an `agentName` to its id beforehand (e.g. via `create#Conversation`,
+   which accepts a name, or the AiOps Agents console). This keeps invocation bound to the unambiguous
+   id, never the editable label.
+2. Constructs `new AgentRunner(ec, ai).run(agentId, userMessage, conversationId)` and maps
    the returned result onto the out-params (note: `providerName ← r.servedProviderName`).
 3. The `AgentRunner` assembles context, calls the provider, dispatches tool calls, repeats to
    `maxIterations`/`maxToolCallsPerTurn`, audits each step, and stamps `estimatedCost` off the
