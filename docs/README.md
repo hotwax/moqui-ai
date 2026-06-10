@@ -31,6 +31,7 @@ This `docs/` tree is the current source of truth. **The code is canonical** — 
 
 ## Documentation map
 
+- **[capabilities.md](capabilities.md)** — **start here**: what moqui-ai can do and how to use it, for operators *and* developers — every capability with a concrete scenario, workflow, and "how it helps"
 - **[reference/](reference/)** — as-built, code-derived: `entities.md`, `services.md`, `screens.md`, `configuration.md`
 - **[explanation/](explanation/)** — the *why*: `architecture.md`, `security-model.md`, `decisions.md`
 - **[specs/](specs/)** — design history, reconciled to point here: the framework design, registry keystone, Composer, Knowledgebase, the enterprise-decisions gap report, and the closed Responses-API audit
