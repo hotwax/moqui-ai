@@ -144,8 +144,17 @@ flowchart LR
   **activation itself requires human approval**.
 - Gaps become tracked signals (`AiCapabilityRequest`) rather than dead-ends.
 
-**Where it lives.** Operator: **Composer**. Developer: `ai.ComposerServices.*`
-(`find#Capability`, `propose#Naming`, `preview#Agent`, `activate#Agent`, `request#Capability`, …).
+**Curator console.** The capability requests the Composer files are not write-only: a Curator works
+the queue from the **Capability Requests** screen — list/triage open requests, **dismiss** noise, or
+**provision** a tool inline (create the tool via `store#AiTool` *and* mark the request fulfilled,
+linked to the new tool, in one transaction). A request can also be **fulfilled** by linking an
+existing tool. Resolution stamps the curator, date, note, and `fulfilledToolId` for provenance.
+
+**Where it lives.** Operator: **Composer**, **Capability Requests**. Developer:
+`ai.ComposerServices.*` (`find#Capability`, `propose#Naming`, `preview#Agent`, `activate#Agent`,
+`request#Capability`, …) and `ai.CapabilityServices.*`
+(`list#CapabilityRequest`, `dismiss#CapabilityRequest`, `fulfill#CapabilityRequest`,
+`provision#CapabilityRequest`).
 Narrative: [product/composer-assistant-overview.md](product/composer-assistant-overview.md).
 
 ### 2.4 Human-approval gate & preview
@@ -371,8 +380,6 @@ Configuration (keys, defaults): [reference/configuration.md](reference/configura
 - **`maxCost` is stored but not enforced** — cost is recorded, not a runtime ceiling.
 - **Console access is authentication-only** — any logged-in user can open AiOps and read the
   approval queue; a scoped `AI_OPERATOR` group is deferred.
-- **Capability requests have no Curator console yet** — `AiCapabilityRequest` is captured but the
-  review/resolve UI is a follow-up.
 - **No retrieval/RAG, no Google/Gemini provider, no streaming** in v1.
 
 **Where to go deeper:**

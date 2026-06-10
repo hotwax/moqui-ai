@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Capability Requests" require-authentication="true">
+    <!-- Curator queue: list the missing-tool gaps the Composer raised, dismiss noise, drill in to resolve. -->
+    <transition name="dismiss"><service-call name="ai.CapabilityServices.dismiss#CapabilityRequest" in-map="[capabilityRequestId:capabilityRequestId]"/><default-response url="."/></transition>
+
+    <actions>
+        <service-call name="ai.CapabilityServices.list#CapabilityRequest" out-map="context" in-map="[:]"/>
+    </actions>
+    <widgets>
+        <container-box>
+            <box-header title="Capability requests"/>
+            <box-body>
+                <label text="No capability requests yet. The Composer files these when it hits a missing tool." type="p" condition="!requests"/>
+                <form-list name="RequestList" list="requests" skip-form="true" condition="requests">
+                    <field name="intent"><default-field title="Intent"><display/></default-field></field>
+                    <field name="suggestedVerb"><default-field title="Verb"><display/></default-field></field>
+                    <field name="suggestedNoun"><default-field title="Noun"><display/></default-field></field>
+                    <field name="requestedByUserId"><default-field title="Requested by"><display/></default-field></field>
+                    <field name="requestedDate"><default-field title="Requested"><display/></default-field></field>
+                    <field name="statusId"><default-field title="Status"><display/></default-field></field>
+                    <field name="dismissAction"><default-field title="">
+                        <link url="dismiss" text="Dismiss" link-type="hidden-form-link" btn-type="warning" condition="statusId == 'AI_CAPREQ_OPEN'">
+                            <parameter name="capabilityRequestId"/>
+                        </link>
+                    </default-field></field>
+                    <field name="detailAction"><default-field title="">
+                        <link url="CapabilityRequest" text="Resolve" condition="true">
+                            <parameter name="capabilityRequestId"/>
+                        </link>
+                    </default-field></field>
+                </form-list>
+            </box-body>
+        </container-box>
+    </widgets>
+</screen>

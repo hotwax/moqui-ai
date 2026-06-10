@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- REST API wrappers for the capability-request curator queue.
+         These are thin pass-through services exposing the CapabilityServices methods via
+         the Moqui built-in /rest/ endpoint: GET /rest/s1/ai/CapabilityRestApi/list/CapabilityRequest etc.
+         No business logic here — all validation and state transitions are in CapabilityServices. -->
+
+    <!-- GET /rest/s1/ai/CapabilityRestApi/list/CapabilityRequest?statusId=AI_CAPREQ_OPEN -->
+    <service verb="list" noun="CapabilityRequest" authenticate="true">
+        <description>List capability requests. Pass ?statusId= to filter by status.</description>
+        <in-parameters>
+            <parameter name="statusId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="requests" type="List"/>
+        </out-parameters>
+        <actions>
+            <service-call name="ai.CapabilityServices.list#CapabilityRequest" out-map="context"
+                in-map="[statusId: statusId]"/>
+        </actions>
+    </service>
+
+    <!-- GET /rest/s1/ai/CapabilityRestApi/get/CapabilityRequest?capabilityRequestId=... -->
+    <service verb="get" noun="CapabilityRequest" authenticate="true">
+        <description>Get a single capability request by id.</description>
+        <in-parameters>
+            <parameter name="capabilityRequestId" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="request" type="Map"/>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiCapabilityRequest" value-field="request"/>
+        </actions>
+    </service>
+
+    <!-- PUT /rest/s1/ai/CapabilityRestApi/fulfill/CapabilityRequest -->
+    <service verb="fulfill" noun="CapabilityRequest" authenticate="true">
+        <description>Mark a capability request fulfilled, optionally linking the tool that fills the gap.</description>
+        <in-parameters>
+            <parameter name="capabilityRequestId" required="true"/>
+            <parameter name="resolutionNote"/>
+            <parameter name="fulfilledToolId"/>
+        </in-parameters>
+        <actions>
+            <service-call name="ai.CapabilityServices.fulfill#CapabilityRequest" in-map="context"/>
+        </actions>
+    </service>
+
+    <!-- PUT /rest/s1/ai/CapabilityRestApi/dismiss/CapabilityRequest -->
+    <service verb="dismiss" noun="CapabilityRequest" authenticate="true">
+        <description>Dismiss a capability request as noise/not-actionable.</description>
+        <in-parameters>
+            <parameter name="capabilityRequestId" required="true"/>
+            <parameter name="resolutionNote"/>
+        </in-parameters>
+        <actions>
+            <service-call name="ai.CapabilityServices.dismiss#CapabilityRequest" in-map="context"/>
+        </actions>
+    </service>
+
+    <!-- POST /rest/s1/ai/CapabilityRestApi/provision/CapabilityRequest -->
+    <service verb="provision" noun="CapabilityRequest" authenticate="true">
+        <description>Create the tool that fills the gap inline and mark the request fulfilled in one transaction.</description>
+        <in-parameters>
+            <parameter name="capabilityRequestId" required="true"/>
+            <parameter name="serviceName" required="true"/>
+            <parameter name="verb" required="true"/>
+            <parameter name="noun" required="true"/>
+            <parameter name="description"/>
+            <parameter name="requiresApproval"/>
+            <parameter name="effectEnumId"/>
+            <parameter name="resolutionNote"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="toolId"/>
+            <parameter name="toolName"/>
+        </out-parameters>
+        <actions>
+            <service-call name="ai.CapabilityServices.provision#CapabilityRequest" out-map="context" in-map="context"/>
+        </actions>
+    </service>
+
+</services>

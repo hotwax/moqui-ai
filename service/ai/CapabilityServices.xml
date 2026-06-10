@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- Curator-side resolution of capability-request gaps (the missing-tool requests the Composer
+         raises via request#Capability). The write half (create) lives in ComposerServices; this is
+         the read + triage + resolve half: list the queue, dismiss noise, fulfill (link an existing
+         tool), or provision (create a tool inline and mark the request done in one transaction). -->
+
+    <service verb="list" noun="CapabilityRequest" authenticate="true">
+        <description>List capability requests, optionally filtered by statusId, newest first. For the AiOps console.</description>
+        <in-parameters>
+            <parameter name="statusId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="requests" type="List"/>
+        </out-parameters>
+        <actions>
+            <entity-find entity-name="moqui.ai.AiCapabilityRequest" list="requests">
+                <econdition field-name="statusId" ignore-if-empty="true"/>
+                <order-by field-name="-requestedDate"/>
+            </entity-find>
+        </actions>
+    </service>
+
+    <service verb="dismiss" noun="CapabilityRequest" authenticate="true">
+        <description>Dismiss an open capability request as noise/not-actionable. Stamps the curator + date + note.</description>
+        <in-parameters>
+            <parameter name="capabilityRequestId" required="true"/>
+            <parameter name="resolutionNote"/>
+        </in-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiCapabilityRequest" value-field="request"/>
+            <if condition="request == null"><return error="true" message="Capability request ${capabilityRequestId} not found"/></if>
+            <if condition="request.statusId != 'AI_CAPREQ_OPEN'">
+                <return error="true" message="Only an open request can be dismissed (status ${request.statusId})"/>
+            </if>
+            <service-call name="update#moqui.ai.AiCapabilityRequest"
+                in-map="[capabilityRequestId: capabilityRequestId, statusId: 'AI_CAPREQ_DISMISSED',
+                         resolvedByUserId: ec.user.userId, resolvedDate: ec.user.nowTimestamp, resolutionNote: resolutionNote]"/>
+        </actions>
+    </service>
+
+    <service verb="fulfill" noun="CapabilityRequest" authenticate="true">
+        <description>Mark an open capability request fulfilled, optionally linking the tool that fills the gap.
+        Stamps the curator + date + note + fulfilledToolId.</description>
+        <in-parameters>
+            <parameter name="capabilityRequestId" required="true"/>
+            <parameter name="resolutionNote"/>
+            <parameter name="fulfilledToolId"/>
+        </in-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiCapabilityRequest" value-field="request"/>
+            <if condition="request == null"><return error="true" message="Capability request ${capabilityRequestId} not found"/></if>
+            <if condition="request.statusId != 'AI_CAPREQ_OPEN'">
+                <return error="true" message="Only an open request can be fulfilled (status ${request.statusId})"/>
+            </if>
+            <service-call name="update#moqui.ai.AiCapabilityRequest"
+                in-map="[capabilityRequestId: capabilityRequestId, statusId: 'AI_CAPREQ_DONE',
+                         resolvedByUserId: ec.user.userId, resolvedDate: ec.user.nowTimestamp,
+                         resolutionNote: resolutionNote, fulfilledToolId: fulfilledToolId]"/>
+        </actions>
+    </service>
+
+    <service verb="provision" noun="CapabilityRequest" authenticate="true">
+        <description>Inline tool-creation path: create the tool that fills the gap via store#AiTool and mark
+        the request fulfilled, linked to the new tool — all in one transaction. If store#AiTool can't
+        resolve the service it errors, the whole call rolls back, and the request stays OPEN.</description>
+        <in-parameters>
+            <parameter name="capabilityRequestId" required="true"/>
+            <parameter name="serviceName" required="true"/>
+            <parameter name="verb" required="true"/>
+            <parameter name="noun" required="true"/>
+            <parameter name="description"/>
+            <parameter name="requiresApproval"/>
+            <parameter name="effectEnumId"/>
+            <parameter name="resolutionNote"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="toolId"/>
+            <parameter name="toolName"/>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiCapabilityRequest" value-field="request"/>
+            <if condition="request == null"><return error="true" message="Capability request ${capabilityRequestId} not found"/></if>
+            <if condition="request.statusId != 'AI_CAPREQ_OPEN'">
+                <return error="true" message="Only an open request can be provisioned (status ${request.statusId})"/>
+            </if>
+
+            <!-- Create the tool. store#AiTool validates the service resolves; on failure it errors and
+                 (one transaction) the whole provision rolls back, leaving the request OPEN. Do NOT swallow. -->
+            <service-call name="ai.ToolServices.store#AiTool" out-map="context"
+                in-map="[verb: verb, noun: noun, serviceName: serviceName, description: description,
+                         requiresApproval: requiresApproval, effectEnumId: effectEnumId, intentText: request.intent]"/>
+
+            <!-- Tool created: mark the request done, linked to the new tool for provenance. -->
+            <service-call name="ai.CapabilityServices.fulfill#CapabilityRequest"
+                in-map="[capabilityRequestId: capabilityRequestId, fulfilledToolId: toolId, resolutionNote: resolutionNote]"/>
+        </actions>
+    </service>
+
+</services>

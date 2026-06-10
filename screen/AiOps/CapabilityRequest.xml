@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        default-menu-title="Capability Request" default-menu-include="false" require-authentication="true">
+    <!-- Capability request detail / triage. Auto-discovered sibling of CapabilityRequests, reached via Resolve.
+         Dismiss noise, or Provision a tool inline (creates the tool + marks the request done in one transaction). -->
+    <parameter name="capabilityRequestId" required="true"/>
+    <transition name="dismiss">
+        <service-call name="ai.CapabilityServices.dismiss#CapabilityRequest"
+            in-map="[capabilityRequestId:capabilityRequestId, resolutionNote:resolutionNote]"/>
+        <default-response url="CapabilityRequests"/>
+    </transition>
+    <transition name="provision">
+        <service-call name="ai.CapabilityServices.provision#CapabilityRequest"
+            in-map="[capabilityRequestId:capabilityRequestId, serviceName:serviceName, verb:verb, noun:noun,
+                     description:description, requiresApproval:requiresApproval, effectEnumId:effectEnumId, resolutionNote:resolutionNote]"/>
+        <default-response url="CapabilityRequests"/>
+    </transition>
+
+    <actions>
+        <entity-find-one entity-name="moqui.ai.AiCapabilityRequest" value-field="request"/>
+    </actions>
+    <widgets>
+        <container-box>
+            <box-header title="Capability request"/>
+            <box-body>
+                <label text="Capability request ${capabilityRequestId} not found." type="p" condition="!request"/>
+                <form-single name="RequestDetail" map="request" condition="request">
+                    <field name="capabilityRequestId"><default-field title="Id"><display/></default-field></field>
+                    <field name="intent"><default-field title="Intent"><display/></default-field></field>
+                    <field name="suggestedVerb"><default-field title="Suggested verb"><display/></default-field></field>
+                    <field name="suggestedNoun"><default-field title="Suggested noun"><display/></default-field></field>
+                    <field name="notes"><default-field title="Notes"><display/></default-field></field>
+                    <field name="requestedByUserId"><default-field title="Requested by"><display/></default-field></field>
+                    <field name="requestedDate"><default-field title="Requested"><display/></default-field></field>
+                    <field name="statusId"><default-field title="Status"><display/></default-field></field>
+                </form-single>
+                <container condition="request">
+                    <link url="../RunDetail" text="View originating run" link-type="anchor" url-type="screen"
+                        condition="request.agentRunId">
+                        <parameter name="agentRunId" from="request.agentRunId"/>
+                    </link>
+                    <link url="../Conversations" text="View conversation" link-type="anchor" url-type="screen"
+                        condition="request.conversationId">
+                        <parameter name="conversationId" from="request.conversationId"/>
+                    </link>
+                </container>
+            </box-body>
+        </container-box>
+
+        <container-box condition="request &amp;&amp; request.statusId != 'AI_CAPREQ_OPEN'">
+            <box-header title="Resolution"/>
+            <box-body>
+                <form-single name="ResolutionDetail" map="request">
+                    <field name="resolvedByUserId"><default-field title="Resolved by"><display/></default-field></field>
+                    <field name="resolvedDate"><default-field title="Resolved"><display/></default-field></field>
+                    <field name="resolutionNote"><default-field title="Note"><display/></default-field></field>
+                    <field name="fulfilledToolId"><default-field title="Tool"><display/></default-field></field>
+                </form-single>
+            </box-body>
+        </container-box>
+
+        <container-box condition="request &amp;&amp; request.statusId == 'AI_CAPREQ_OPEN'">
+            <box-header title="Provision a tool"/>
+            <box-body>
+                <label text="Create the tool that fills this gap. The serviceName must resolve to a real Moqui service." type="p"/>
+                <form-single name="ProvisionForm" transition="provision">
+                    <field name="capabilityRequestId"><default-field title=""><hidden/></default-field></field>
+                    <field name="serviceName"><default-field title="Service name"><text-line size="60"/></default-field></field>
+                    <field name="verb"><default-field title="Verb"><text-line size="20" default-value="${request.suggestedVerb ?: ''}"/></default-field></field>
+                    <field name="noun"><default-field title="Noun"><text-line size="20" default-value="${request.suggestedNoun ?: ''}"/></default-field></field>
+                    <field name="description"><default-field title="Description"><text-area rows="2" cols="70"/></default-field></field>
+                    <field name="requiresApproval"><default-field title="Requires approval">
+                        <drop-down allow-empty="true"><option key="Y" text="Yes"/><option key="N" text="No"/></drop-down>
+                    </default-field></field>
+                    <field name="effectEnumId"><default-field title="Effect">
+                        <drop-down allow-empty="true">
+                            <option key="AI_TOOL_READ_ONLY" text="Read-only"/><option key="AI_TOOL_MUTATING" text="Mutating"/>
+                        </drop-down>
+                    </default-field></field>
+                    <field name="resolutionNote"><default-field title="Resolution note"><text-area rows="2" cols="70"/></default-field></field>
+                    <field name="submitField"><default-field title=""><submit text="Provision tool"/></default-field></field>
+                </form-single>
+            </box-body>
+        </container-box>
+
+        <container-box condition="request &amp;&amp; request.statusId == 'AI_CAPREQ_OPEN'">
+            <box-header title="Dismiss"/>
+            <box-body>
+                <label text="Dismiss this request as noise / not-actionable." type="p"/>
+                <form-single name="DismissForm" transition="dismiss">
+                    <field name="capabilityRequestId"><default-field title=""><hidden/></default-field></field>
+                    <field name="resolutionNote"><default-field title="Resolution note"><text-area rows="2" cols="70"/></default-field></field>
+                    <field name="submitField"><default-field title=""><submit text="Dismiss request"/></default-field></field>
+                </form-single>
+            </box-body>
+        </container-box>
+    </widgets>
+</screen>
