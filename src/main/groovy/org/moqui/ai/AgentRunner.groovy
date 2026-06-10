@@ -39,7 +39,8 @@ class AgentRunner {
         finally { this.forceApprovalOnMutating = false }
     }
 
-    /** @param agentId the agent's stable id (resolve agentName -> agentId in the caller, e.g. run#Agent).
+    /** @param agentId the agent's stable opaque id. run#Agent takes the id only; a human agentName is
+     *  resolved to an id at the conversation-entry layer (create#Conversation / run#Conversation), not here.
      *  @param conversationId optional; when set, prior conversation messages are replayed and
      *  this turn's messages are persisted back.
      *  @return runResult Map: [assistantMessage, agentRunId, conversationId, tokensIn, tokensOut,

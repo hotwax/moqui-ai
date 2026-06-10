@@ -37,8 +37,9 @@ data can be loaded out-of-band.
 
 ## The agentic loop
 
-`AgentRunner` is the provider-agnostic loop. The entry service `run#Agent` accepts either an
-`agentId` or an `agentName` (it resolves the name to an id, then calls `AgentRunner.run(...)`).
+`AgentRunner` is the provider-agnostic loop. The entry service `run#Agent` takes the stable opaque
+`agentId` only and calls `AgentRunner.run(...)`; a human `agentName` is resolved to an id upstream
+(at the conversation-entry layer — `create#Conversation` / `run#Conversation`), never on the executor.
 The loop holds **no enclosing transaction**: LLM calls happen outside any tx, each tool call runs
 in its own tx (the `ec.service.sync()` default), and each observability write runs in its own
 short tx — guarded so a failed audit write only logs a warning and never aborts the run. That is
@@ -46,7 +47,7 @@ why `run#Agent`, `preview#Agent`, and the approval `decide#`/`approve#`/`reject#
 declared `transaction="ignore"`.
 
 ```
-run#Agent(agentId|agentName, userMessage, conversationId?)
+run#Agent(agentId, userMessage, conversationId?)
         │
         ▼
   load AiAgent (useCache(false))           ← fresh read; see "Why no cache" below
