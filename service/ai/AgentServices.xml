@@ -25,7 +25,7 @@
             <parameter name="providerRunId"/>
             <parameter name="structuredResult" type="Map"/>
             <parameter name="awaitingApproval" type="Boolean"/>
-            <parameter name="approvalIds" type="List"/>
+            <parameter name="toolCallRequestIds" type="List"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
@@ -45,7 +45,7 @@
                 providerRunId = r.providerRunId
                 structuredResult = r.structuredResult
                 awaitingApproval = r.awaitingApproval
-                approvalIds = r.approvalIds
+                toolCallRequestIds = r.toolCallRequestIds
             ]]></script>
         </actions>
     </service>
@@ -165,7 +165,7 @@
             <parameter name="providerRunId"/>
             <parameter name="structuredResult" type="Map"/>
             <parameter name="awaitingApproval" type="Boolean"/>
-            <parameter name="approvalIds" type="List"/>
+            <parameter name="toolCallRequestIds" type="List"/>
         </out-parameters>
         <actions>
             <entity-find-one entity-name="moqui.ai.AiConversation" value-field="conv"/>

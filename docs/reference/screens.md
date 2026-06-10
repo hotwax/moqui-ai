@@ -125,15 +125,15 @@ shaped), `userMessage`, `agentRunId` (last composer run, for the chat trace),
 - **Region 3 — Preview pane** (shown when a `draft` exists): a `PreviewForm` test
   input that calls `preview`. The UI states mutating actions are **HELD** (shown, not
   executed) while read-only tools run on real data. When a `previewRunId` is present it
-  loads the preview `AiAgentRun` and any held `AiToolApproval` rows
-  (`statusId = AI_APPR_PENDING` for that run), rendering the preview answer, the list of
+  loads the preview `AiAgentRun` and any held `AiToolCallRequest` rows
+  (`statusId = AI_TCREQ_PENDING` for that run), rendering the preview answer, the list of
   held would-be tool calls (tool name + arguments), and the shared **`AiRunTrace`**
   include for the preview run.
 
 **Backing services:** `ai.AgentServices.create#Conversation`,
 `ai.AgentServices.run#Agent`, `ai.ComposerServices.preview#Agent`,
 `ai.ComposerServices.discard#Draft`; reads `AiConversationMessage`, `AiAgent`,
-`AiAgentTool`, `AiAgentRun`, `AiToolApproval`.
+`AiAgentTool`, `AiAgentRun`, `AiToolCallRequest`.
 
 ---
 
@@ -216,28 +216,28 @@ a row decides the held call and **resumes the suspended run** automatically.
 
 | Transition | Backing service | Notes |
 |---|---|---|
-| `approve` | `ai.ApprovalServices.approve#ToolCall` (in `approvalId`, `decisionNote`) | Resume is automatic inside the service |
-| `reject` | `ai.ApprovalServices.reject#ToolCall` (in `approvalId`, `decisionNote`) | |
+| `approve` | `ai.ToolCallRequestServices.approve#ToolCallRequest` (in `toolCallRequestId`, `decisionNote`) | Resume is automatic inside the service |
+| `reject` | `ai.ToolCallRequestServices.reject#ToolCallRequest` (in `toolCallRequestId`, `decisionNote`) | |
 
 **Behavior / widgets:**
 - The pending list is **not** a raw entity find — it delegates to
-  `ai.ApprovalServices.get#PendingApproval`, then aliases its `approvalList` to
+  `ai.ToolCallRequestServices.get#PendingToolCallRequest`, then aliases its `approvalList` to
   `pendingList`. The screen comment documents *why*: a Composer **preview** suspends on
-  would-be mutating calls and writes `AI_APPR_PENDING` rows that must **not** surface in
+  would-be mutating calls and writes `AI_TCREQ_PENDING` rows that must **not** surface in
   the operator queue, so the service filters out approvals whose run is a preview
   (`AiAgentRun.isPreview = Y`). Keeping the rule in the service keeps the exclusion in
   one tested place.
 - Shows "No pending approvals." when the list is empty.
-- `Pending` list columns: **Approval** (`approvalId`), **Run** (`agentRunId`, a link to
+- `Pending` list columns: **Approval** (`toolCallRequestId`), **Run** (`agentRunId`, a link to
   `../RunDetail`), **Tool** (`toolName`), **Service** (`serviceName`), **Proposed args**
   (`arguments`), **Requested** (`requestedDate`), an editable **Note** (`decisionNote`),
   and per-row **Approve** (success) / **Reject** (danger) buttons.
-- Each button is a `hidden-form-link` that POSTs the row's `approvalId` (explicit
+- Each button is a `hidden-form-link` that POSTs the row's `toolCallRequestId` (explicit
   `<parameter>`) plus the sibling editable `decisionNote` (via
   `pass-through-parameters="true"`); both are confirmed actions.
 
-**Backing services:** `ai.ApprovalServices.get#PendingApproval`,
-`ai.ApprovalServices.approve#ToolCall`, `ai.ApprovalServices.reject#ToolCall`.
+**Backing services:** `ai.ToolCallRequestServices.get#PendingToolCallRequest`,
+`ai.ToolCallRequestServices.approve#ToolCallRequest`, `ai.ToolCallRequestServices.reject#ToolCallRequest`.
 
 ---
 
@@ -362,7 +362,7 @@ shown — used by **Playground**, the **Composer** preview pane, and **RunDetail
   Glossary (approve/reject/addTerm/seed/promote) invoke services; the rest are entity
   lists/detail views.
 - **All service calls route through the tested service layer** (`ai.AgentServices`,
-  `ai.ComposerServices`, `ai.ApprovalServices`, `ai.CostServices`,
+  `ai.ComposerServices`, `ai.ToolCallRequestServices`, `ai.CostServices`,
   `ai.GlossaryServices`, and NotNaked's `notnaked.OmsAiServices` for the Playground) —
   the screens never write the AI entities directly. The approval queue and preview-run
-  exclusion deliberately live in `get#PendingApproval` rather than in screen actions.
+  exclusion deliberately live in `get#PendingToolCallRequest` rather than in screen actions.

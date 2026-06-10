@@ -51,7 +51,7 @@
             <entity-find entity-name="moqui.ai.AiAgentTool" list="draftGrants"><econdition field-name="agentId" from="draftAgentId"/></entity-find></if>
         <if condition="previewRunId">
             <entity-find-one entity-name="moqui.ai.AiAgentRun" value-field="prevRun"><field-map field-name="agentRunId" from="previewRunId"/></entity-find-one>
-            <entity-find entity-name="moqui.ai.AiToolApproval" list="heldList"><econdition field-name="agentRunId" from="previewRunId"/><econdition field-name="statusId" value="AI_APPR_PENDING"/></entity-find></if>
+            <entity-find entity-name="moqui.ai.AiToolCallRequest" list="heldList"><econdition field-name="agentRunId" from="previewRunId"/><econdition field-name="statusId" value="AI_TCREQ_PENDING"/></entity-find></if>
     </actions>
 
     <widgets>

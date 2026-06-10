@@ -50,7 +50,7 @@
         <field name="serviceName" type="text-medium"><description>Backing Moqui service FQN — an attribute, NOT a key.</description></field>
         <field name="effectEnumId" type="id"><description>Enumeration enumTypeId=AiToolEffect: AI_TOOL_READ_ONLY | AI_TOOL_MUTATING (derived from the service verb).</description></field>
         <field name="exposable" type="text-indicator"><description>Y/N — may agents be granted this tool at all (denylist forces N).</description></field>
-        <field name="requiresApproval" type="text-indicator"><description>Y/N — run-time human gate (Phase 4: a proposed call suspends the run; see AiToolApproval).</description></field>
+        <field name="requiresApproval" type="text-indicator"><description>Y/N — run-time human gate (Phase 4: a proposed call suspends the run; see AiToolCallRequest).</description></field>
         <field name="sourceComponent" type="text-medium"><description>Provenance: which component seeded it; null if user-authored.</description></field>
         <field name="createdByUserId" type="id"><description>Provenance for user-authored tools.</description></field>
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiToolStatus: AI_TOOL_ACTIVE | AI_TOOL_DISABLED.</description></field>
@@ -110,7 +110,7 @@
         <field name="errorText" type="text-very-long"/>
         <field name="pendingState" type="text-very-long"><description>Phase 4: JSON loop state when AI_RUN_SUSPENDED (messages, replayCount, stepSeq, candIdx, summary, result, turnToolCalls)</description></field>
         <field name="conversationId" type="id"><description>Phase 2: the conversation this run belongs to (optional)</description></field>
-        <field name="isPreview" type="text-indicator"><description>Composer: Y when this run is a sandbox preview (ComposerServices.preview#Agent / AgentRunner.runPreview), where mutating tools are force-gated so the run SUSPENDS to show would-be calls without executing them. The run is throwaway, so its AI_RUN_SUSPENDED row + AI_APPR_PENDING approvals are excluded from the operator queue (ApprovalServices.get#PendingApproval, screen/AiOps/Approvals.xml) and deleted by discard#Draft. Null/absent = a normal run.</description></field>
+        <field name="isPreview" type="text-indicator"><description>Composer: Y when this run is a sandbox preview (ComposerServices.preview#Agent / AgentRunner.runPreview), where mutating tools are force-gated so the run SUSPENDS to show would-be calls without executing them. The run is throwaway, so its AI_RUN_SUSPENDED row + AI_TCREQ_PENDING tool call requests are excluded from the operator queue (ToolCallRequestServices.get#PendingToolCallRequest, screen/AiOps/Approvals.xml) and deleted by discard#Draft. Null/absent = a normal run.</description></field>
         <!-- one-nofk: AiAgentRun is append-only audit; it must not block the agent / conversation lifecycle -->
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
         <relationship type="one-nofk" related="moqui.ai.AiConversation" short-alias="conversation"/>
@@ -144,15 +144,15 @@
 
     <!-- ============================ 3. Human-approval gate ================================
          One pending decision per approval-required tool call in a suspended turn. -->
-    <entity entity-name="AiToolApproval" package="moqui.ai">
-        <field name="approvalId" type="id" is-pk="true"/>
+    <entity entity-name="AiToolCallRequest" package="moqui.ai">
+        <field name="toolCallRequestId" type="id" is-pk="true"/>
         <field name="agentRunId" type="id"/>
         <field name="stepSeqId" type="id"/>
         <field name="toolCallId" type="id"/>
         <field name="toolName" type="text-medium"/>
         <field name="serviceName" type="text-medium"/>
         <field name="arguments" type="text-very-long"><description>JSON of the proposed call args</description></field>
-        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiApprovalStatus: AI_APPR_PENDING|AI_APPR_APPROVED|AI_APPR_REJECTED</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiToolCallRequestStatus: AI_TCREQ_PENDING|AI_TCREQ_APPROVED|AI_TCREQ_REJECTED</description></field>
         <field name="requestedByUserId" type="id"/>
         <field name="requestedDate" type="date-time"/>
         <field name="decidedByUserId" type="id"/>

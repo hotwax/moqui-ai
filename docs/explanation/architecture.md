@@ -363,15 +363,15 @@ the tool default, never looser).
 When a turn proposes **any** gated tool call, the loop suspends the **entire turn** rather than
 running the non-gated calls first:
 
-1. For each gated call, write an `AiToolApproval` row (`AI_APPR_PENDING`) capturing the tool, the
+1. For each gated call, write an `AiToolCallRequest` row (`AI_TCREQ_PENDING`) capturing the tool, the
    service, and the JSON arguments.
 2. Serialize the loop's mutable state (`messages`, `replayCount`, `stepSeq`, `candIdx`, summary,
    `result`, and the turn's tool calls) into `AiAgentRun.pendingState`, set status
-   `AI_RUN_SUSPENDED`, and return `awaitingApproval=true` with the `approvalIds`. The assistant
+   `AI_RUN_SUSPENDED`, and return `awaitingApproval=true` with the `toolCallRequestIds`. The assistant
    tool-call turn is **withheld** from the persisted conversation at this point, so the conversation
    never holds an orphan `tool_call` without its results.
-3. An operator approves or rejects each via `approve#`/`reject#ToolCall`. The shared `decide#ToolCall`
-   records the decision and, **only when no `AI_APPR_PENDING` rows remain for the run**, calls
+3. An operator approves or rejects each via `approve#`/`reject#ToolCallRequest`. The shared `decide#ToolCallRequest`
+   records the decision and, **only when no `AI_TCREQ_PENDING` rows remain for the run**, calls
    `AgentRunner.resume()`.
 4. `resume()` persists the withheld assistant turn, executes each call per its decision (approved /
    non-gated → dispatch; rejected → a "Denied by user" result the model can react to), then
@@ -392,7 +392,7 @@ double-fired `decide` a **safe no-op**, not a consume-and-deny. (Verified in `Ag
 turn proposes [ get_order (read), refund_order (gated) ]
    ▼ SUSPEND whole turn; pendingState saved; AI_RUN_SUSPENDED
 operator rejects refund_order
-   ▼ decide#ToolCall → no pending left → resume()
+   ▼ decide#ToolCallRequest → no pending left → resume()
 resume: anyUndecided? no
    get_order → dispatched;  refund_order → "Denied by user" result
    loop continues → model sees the denial → COMPLETED
@@ -408,7 +408,7 @@ of executing. The run is stamped `AiAgentRun.isPreview="Y"`.
 
 Preview runs are deliberately throwaway, which has two consequences enforced in code:
 
-- **They never pollute the operator queue.** `get#PendingApproval` excludes approvals belonging to
+- **They never pollute the operator queue.** `get#PendingToolCallRequest` excludes approvals belonging to
   `isPreview="Y"` runs (a null-safe `not-in` on preview run ids) — a preview suspends mutating calls
   only to *show* them, so those PENDING rows are not real decisions.
 - **They are deleted on discard.** `discard#Draft` deletes a draft's preview runs along with their

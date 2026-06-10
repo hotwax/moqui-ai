@@ -2,47 +2,47 @@
 <services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
 
-    <service verb="approve" noun="ToolCall" transaction="ignore" authenticate="true">
-        <in-parameters><parameter name="approvalId" required="true"/><parameter name="decisionNote"/></in-parameters>
+    <service verb="approve" noun="ToolCallRequest" transaction="ignore" authenticate="true">
+        <in-parameters><parameter name="toolCallRequestId" required="true"/><parameter name="decisionNote"/></in-parameters>
         <out-parameters><parameter name="agentRunId"/><parameter name="runStatusId"/></out-parameters>
         <actions><script>
-            def r = ec.service.sync().name("ai.ApprovalServices.decide#ToolCall")
-                .parameters([approvalId: approvalId, statusId: "AI_APPR_APPROVED", decisionNote: decisionNote]).call()
+            def r = ec.service.sync().name("ai.ToolCallRequestServices.decide#ToolCallRequest")
+                .parameters([toolCallRequestId: toolCallRequestId, statusId: "AI_TCREQ_APPROVED", decisionNote: decisionNote]).call()
             agentRunId = r.agentRunId; runStatusId = r.runStatusId
         </script></actions>
     </service>
 
-    <service verb="reject" noun="ToolCall" transaction="ignore" authenticate="true">
-        <in-parameters><parameter name="approvalId" required="true"/><parameter name="decisionNote"/></in-parameters>
+    <service verb="reject" noun="ToolCallRequest" transaction="ignore" authenticate="true">
+        <in-parameters><parameter name="toolCallRequestId" required="true"/><parameter name="decisionNote"/></in-parameters>
         <out-parameters><parameter name="agentRunId"/><parameter name="runStatusId"/></out-parameters>
         <actions><script>
-            def r = ec.service.sync().name("ai.ApprovalServices.decide#ToolCall")
-                .parameters([approvalId: approvalId, statusId: "AI_APPR_REJECTED", decisionNote: decisionNote]).call()
+            def r = ec.service.sync().name("ai.ToolCallRequestServices.decide#ToolCallRequest")
+                .parameters([toolCallRequestId: toolCallRequestId, statusId: "AI_TCREQ_REJECTED", decisionNote: decisionNote]).call()
             agentRunId = r.agentRunId; runStatusId = r.runStatusId
         </script></actions>
     </service>
 
-    <!-- shared: record one decision; resume the run when no pending approvals remain for it -->
+    <!-- shared: record one decision; resume the run when no pending tool call requests remain for it -->
     <!-- transaction="ignore": decide# calls AgentRunner.resume(), whose LLM calls must hold NO enclosing
-         tx (mirrors run#Agent). The AiToolApproval write here runs in its own tx via the entity-auto
+         tx (mirrors run#Agent). The AiToolCallRequest write here runs in its own tx via the entity-auto
          update# service-call; resume()'s writes/dispatch each manage their own tx (see AgentRunner). -->
-    <service verb="decide" noun="ToolCall" transaction="ignore" authenticate="true">
+    <service verb="decide" noun="ToolCallRequest" transaction="ignore" authenticate="true">
         <in-parameters>
-            <parameter name="approvalId" required="true"/>
+            <parameter name="toolCallRequestId" required="true"/>
             <parameter name="statusId" required="true"/>
             <parameter name="decisionNote"/>
         </in-parameters>
         <out-parameters><parameter name="agentRunId"/><parameter name="runStatusId"/></out-parameters>
         <actions>
-            <entity-find-one entity-name="moqui.ai.AiToolApproval" value-field="appr"/>
-            <if condition="appr == null"><return error="true" message="Unknown approvalId ${approvalId}"/></if>
-            <if condition="appr.statusId != 'AI_APPR_PENDING'"><return error="true" message="Approval already decided"/></if>
-            <service-call name="update#moqui.ai.AiToolApproval" in-map="[approvalId: approvalId, statusId: statusId,
+            <entity-find-one entity-name="moqui.ai.AiToolCallRequest" value-field="appr"/>
+            <if condition="appr == null"><return error="true" message="Unknown toolCallRequestId ${toolCallRequestId}"/></if>
+            <if condition="appr.statusId != 'AI_TCREQ_PENDING'"><return error="true" message="Tool call request already decided"/></if>
+            <service-call name="update#moqui.ai.AiToolCallRequest" in-map="[toolCallRequestId: toolCallRequestId, statusId: statusId,
                 decisionNote: decisionNote, decidedByUserId: ec.user.userId, decidedDate: ec.user.nowTimestamp]"/>
             <set field="agentRunId" from="appr.agentRunId"/>
-            <entity-find entity-name="moqui.ai.AiToolApproval" list="stillPending">
+            <entity-find entity-name="moqui.ai.AiToolCallRequest" list="stillPending">
                 <econdition field-name="agentRunId" from="agentRunId"/>
-                <econdition field-name="statusId" value="AI_APPR_PENDING"/>
+                <econdition field-name="statusId" value="AI_TCREQ_PENDING"/>
             </entity-find>
             <if condition="stillPending">
                 <set field="runStatusId" value="AI_RUN_SUSPENDED"/>
@@ -58,14 +58,14 @@
     </service>
 
     <!-- Operator queue (rendered by screen/AiOps/Approvals.xml): with no agentRunId this returns the real
-         pending approvals across all runs; with an agentRunId it scopes to that run. Composer preview runs
+         pending tool call requests across all runs; with an agentRunId it scopes to that run. Composer preview runs
          (AiAgentRun.isPreview=Y) are always excluded — a preview SUSPENDS on would-be mutating calls only
-         to SHOW them, then the run is abandoned, so those AI_APPR_PENDING rows are not real decisions and
+         to SHOW them, then the run is abandoned, so those AI_TCREQ_PENDING rows are not real decisions and
          must not pollute the queue (discard#Draft deletes them outright). authenticate="true" only —
          per-approver permissions are deferred to Phase 5; until then any authenticated user can read the
          pending queue (incl. tool arguments). Do not "lock this down" piecemeal; it's gated by the Phase 5
          permissions work — the preview exclusion here is data hygiene, not a permission gate. -->
-    <service verb="get" noun="PendingApproval" authenticate="true">
+    <service verb="get" noun="PendingToolCallRequest" authenticate="true">
         <in-parameters><parameter name="agentRunId"/></in-parameters>
         <out-parameters><parameter name="approvalList" type="List"/></out-parameters>
         <actions>
@@ -74,8 +74,8 @@
             <script><![CDATA[
                 def previewRunIds = ec.entity.find("moqui.ai.AiAgentRun").condition("isPreview", "Y")
                     .selectField("agentRunId").list().collect { it.agentRunId }
-                def ef = ec.entity.find("moqui.ai.AiToolApproval")
-                    .condition("statusId", "AI_APPR_PENDING").orderBy("requestedDate")
+                def ef = ec.entity.find("moqui.ai.AiToolCallRequest")
+                    .condition("statusId", "AI_TCREQ_PENDING").orderBy("requestedDate")
                 if (agentRunId) ef.condition("agentRunId", agentRunId)
                 if (previewRunIds) ef.condition("agentRunId", "not-in", previewRunIds)
                 approvalList = ef.list()

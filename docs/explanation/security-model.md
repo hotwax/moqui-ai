@@ -7,7 +7,7 @@ This is an *explanation* doc — it describes the as-built v1 posture and the re
 behind it. The canonical source of truth is the code: `data/AiSecurityData.xml`, the
 `require-authentication` attributes on the screens under `screen/AiOps/`, and the gate
 logic in `src/main/groovy/org/moqui/ai/AgentRunner.groovy`,
-`service/ai/ComposerServices.xml`, and `service/ai/ApprovalServices.xml`.
+`service/ai/ComposerServices.xml`, and `service/ai/ToolCallRequestServices.xml`.
 
 There are three layers, and they are independent:
 
@@ -52,7 +52,7 @@ recording the deliberate v1 choice — `Agents.xml` and `Playground.xml` are the
 
 **What is deferred:** a dedicated `AI_OPERATOR` user group with per-screen / per-service
 `ArtifactAuthz` gating, and per-approver permissions on the approval queue (the
-`Approvals` and `get#PendingApproval` comments flag this as Phase 5 work). Until then, any
+`Approvals` and `get#PendingToolCallRequest` comments flag this as Phase 5 work). Until then, any
 authenticated user can read the pending approval queue including tool arguments. This is
 intentional for the demo; do not lock it down piecemeal.
 
@@ -93,7 +93,7 @@ reach**:
 |---|---|---|
 | `component://moqui-ai/screen/.*` | `AT_XML_SCREEN` | the AI Ops screens themselves |
 | `component://moqui-ai/screen/.*` | `AT_XML_SCREEN_TRANS` | the screen transitions (form POSTs / actions) |
-| `moqui\.ai\..*` | `AT_ENTITY` | all moqui-ai entity reads/writes by the screens **and the agent loop** (`AiAgent`, `AiAgentRun`, `AiToolApproval`, …) |
+| `moqui\.ai\..*` | `AT_ENTITY` | all moqui-ai entity reads/writes by the screens **and the agent loop** (`AiAgent`, `AiAgentRun`, `AiToolCallRequest`, …) |
 | `moqui\.basic\.Status.*` | `AT_ENTITY` | status-lifecycle reads: an entity-auto `update#` with a `statusId` change validates the transition against `StatusFlowTransition` / `StatusItem` (`EntityAutoServiceRunner.checkStatus`); without read access the transition check is denied |
 | `moqui\.screen\.form\..*` | `AT_ENTITY` | form-list rendering reads per-user column config (`FormConfigUser`, `FormConfig`, …); **without this, every form-list on the AI Ops screens — including the Composer conversation — fails to render** for a non-admin operator |
 | `ai\..*` | `AT_SERVICE` | the AI services invoked from the screens (`run#Agent`, the Composer/Approval/Cost/Glossary services) |
@@ -168,7 +168,7 @@ gates live in the agent loop and the Composer services.
 
 A tool can be marked `requiresApproval` on its catalog row (`AiTool`). When an agent's
 turn proposes any such tool call, the **whole turn suspends**: the loop writes a
-`PENDING` `AiToolApproval` row per gated call and sets the run to `AI_RUN_SUSPENDED`
+`PENDING` `AiToolCallRequest` row per gated call and sets the run to `AI_RUN_SUSPENDED`
 (`AgentRunner` approval-gate block). Nothing executes until a human decides.
 
 Per-agent strictness is set via the Composer's `set#Guardrail`, which writes
@@ -177,8 +177,8 @@ comment) is **stricter, never looser**: an agent grant can escalate a tool to re
 approval, but cannot un-gate a tool the catalog requires approval for. A read-only tool
 stays runnable; only mutating tools get gated.
 
-Decisions flow through `ApprovalServices`: `approve#ToolCall` / `reject#ToolCall` both
-delegate to `decide#ToolCall`, which records the decision and, once **no** `PENDING`
+Decisions flow through `ToolCallRequestServices`: `approve#ToolCallRequest` / `reject#ToolCallRequest` both
+delegate to `decide#ToolCallRequest`, which records the decision and, once **no** `PENDING`
 approvals remain for the run, calls `AgentRunner.resume(...)`. All three services are
 `transaction="ignore"` — resume drives LLM calls that must hold no enclosing transaction.
 
@@ -206,7 +206,7 @@ return forceApprovalOnMutating && (td.effectEnumId == "AI_TOOL_MUTATING")
 So in preview, read-only tools run for real and return live results, while every mutating
 call is suspended and surfaced to the screen as a "would call X(...)" held call. The run
 is marked `isPreview=Y`. These preview approvals are **not** real decisions: they are
-excluded from the operator queue (`get#PendingApproval` filters out `isPreview=Y` runs)
+excluded from the operator queue (`get#PendingToolCallRequest` filters out `isPreview=Y` runs)
 and are deleted outright when the draft is dropped (`discard#Draft`).
 
 ### 4.3 Activation requires human approval

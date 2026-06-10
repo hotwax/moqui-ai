@@ -17,7 +17,7 @@ The moqui-ai data model is split across eight entity files, all in package
 | `entity/AiToolEntities.xml` | `AiToolDenylist` |
 | `entity/AiComposerEntities.xml` | `AiCapabilityRequest` |
 | `entity/AiConversationEntities.xml` | `AiConversation`, `AiConversationMessage`, `AiConversationFact` |
-| `entity/AiApprovalEntities.xml` | `AiToolApproval` |
+| `entity/AiApprovalEntities.xml` | `AiToolCallRequest` |
 | `entity/AiPriceEntities.xml` | `AiModelPrice` |
 | `entity/AiGlossaryEntities.xml` | `AiDomainTerm`, `AiTermSynonym`, `AiNamingSignal` |
 | `entity/AiGlossaryEcas.eecas.xml` | EECAs `AiToolNamingSignal`, `AiAgentNamingSignal` (no entities) |
@@ -45,7 +45,7 @@ change over time; a fixed, code-referenced classification with no lifecycle is a
 | `AiToolStatus` | StatusItem | `AI_TOOL_ACTIVE`, `AI_TOOL_DISABLED` | `AiTool.statusId` |
 | `AiToolEffect` | Enumeration | `AI_TOOL_READ_ONLY`, `AI_TOOL_MUTATING` | `AiTool.effectEnumId` |
 | `AiAgentRunStatus` | StatusItem | `AI_RUN_RUNNING`, `AI_RUN_COMPLETED`, `AI_RUN_FAILED`, `AI_RUN_TRUNCATED`, `AI_RUN_ABORTED`, `AI_RUN_SUSPENDED` | `AiAgentRun.statusId` |
-| `AiApprovalStatus` | StatusItem | `AI_APPR_PENDING`, `AI_APPR_APPROVED`, `AI_APPR_REJECTED` | `AiToolApproval.statusId` |
+| `AiToolCallRequestStatus` | StatusItem | `AI_TCREQ_PENDING`, `AI_TCREQ_APPROVED`, `AI_TCREQ_REJECTED` | `AiToolCallRequest.statusId` |
 | `AiConversationStatus` | StatusItem | `AI_CONV_ACTIVE`, `AI_CONV_CLOSED` | `AiConversation.statusId` |
 | `AiCapReqStatus` | StatusItem | `AI_CAPREQ_OPEN`, `AI_CAPREQ_DONE`, `AI_CAPREQ_DISMISSED` | `AiCapabilityRequest.statusId` |
 | `AiDomainTermStatus` | StatusItem | `AI_TERM_SUGGESTED`, `AI_TERM_APPROVED`, `AI_TERM_REJECTED` | `AiDomainTerm.statusId`, `AiTermSynonym.statusId` |
@@ -117,7 +117,7 @@ history.
 | `serviceName` | `text-medium` | Backing Moqui service FQN — **an attribute, NOT a key** (no FK to a service entity). |
 | `effectEnumId` | `id` | → `AiToolEffect`: `AI_TOOL_READ_ONLY | AI_TOOL_MUTATING`. Derived from the service verb. |
 | `exposable` | `text-indicator` | `Y/N` — may agents be granted this tool at all? A denylist match forces `N`. |
-| `requiresApproval` | `text-indicator` | `Y/N` — run-time human gate. A proposed call to an approval-required tool suspends the run (see `AiToolApproval`). |
+| `requiresApproval` | `text-indicator` | `Y/N` — run-time human gate. A proposed call to an approval-required tool suspends the run (see `AiToolCallRequest`). |
 | `sourceComponent` | `text-medium` | Provenance: which component seeded it; null if user-authored. |
 | `createdByUserId` | `id` | Provenance for user-authored tools. |
 | `statusId` | `id` | → `AiToolStatus`: `AI_TOOL_ACTIVE | AI_TOOL_DISABLED`. |
@@ -195,7 +195,7 @@ invocation. Append-only audit.
 | `errorText` | `text-very-long` | Error detail when failed. |
 | `pendingState` | `text-very-long` | JSON loop state when `AI_RUN_SUSPENDED` (messages, replayCount, stepSeq, candIdx, summary, result, turnToolCalls) — the snapshot `resume()` reloads. |
 | `conversationId` | `id` | The conversation this run belongs to (optional). |
-| `isPreview` | `text-indicator` | `Y` when this run is a **sandbox preview** (`ComposerServices.preview#Agent` / `AgentRunner.runPreview`): mutating tools are force-gated so the run SUSPENDS to show would-be calls without executing them. Throwaway — its suspended row + pending approvals are **excluded** from the operator queue (`get#PendingApproval`, `Approvals.xml`) and deleted by `discard#Draft`. Null/absent = a normal run. |
+| `isPreview` | `text-indicator` | `Y` when this run is a **sandbox preview** (`ComposerServices.preview#Agent` / `AgentRunner.runPreview`): mutating tools are force-gated so the run SUSPENDS to show would-be calls without executing them. Throwaway — its suspended row + pending approvals are **excluded** from the operator queue (`get#PendingToolCallRequest`, `Approvals.xml`) and deleted by `discard#Draft`. Null/absent = a normal run. |
 
 - **Relationships:** `agent` → `moqui.ai.AiAgent` (**`one-nofk`** — append-only audit,
   must not block the agent lifecycle); `conversation` → `moqui.ai.AiConversation`
@@ -379,23 +379,23 @@ the old). Injected into every call's system context; never compressed or dropped
 
 ---
 
-### AiToolApproval
+### AiToolCallRequest
 
 `entity/AiApprovalEntities.xml`. One pending decision per approval-required tool call
 in a suspended turn. The human-approval gate's queue.
 
-- **PK:** `approvalId` (`id`).
+- **PK:** `toolCallRequestId` (`id`).
 
 | Field | Type | Purpose |
 |---|---|---|
-| `approvalId` | `id` (PK) | Approval identity. |
+| `toolCallRequestId` | `id` (PK) | Approval identity. |
 | `agentRunId` | `id` | The suspended run. |
 | `stepSeqId` | `id` | The step the call belongs to. |
 | `toolCallId` | `id` | The proposed call's id. |
 | `toolName` | `text-medium` | The tool's wire name. |
 | `serviceName` | `text-medium` | The backing service. |
 | `arguments` | `text-very-long` | JSON of the proposed call args. |
-| `statusId` | `id` | → `AiApprovalStatus`: `AI_APPR_PENDING | AI_APPR_APPROVED | AI_APPR_REJECTED`. |
+| `statusId` | `id` | → `AiToolCallRequestStatus`: `AI_TCREQ_PENDING | AI_TCREQ_APPROVED | AI_TCREQ_REJECTED`. |
 | `requestedByUserId` | `id` | Who triggered the run. |
 | `requestedDate` | `date-time` | When the approval was raised. |
 | `decidedByUserId` | `id` | Who decided. |
@@ -530,7 +530,7 @@ double-record.
 - **Run-time snapshots.** Audit entities denormalize the label/name/service at the
   moment of execution (`AiAgentRun.agentName`, `AiToolCall.toolName`/`serviceName`) so
   history reads correctly after later renames.
-- **`one-nofk` for audit/config children.** Audit (`AiAgentRun`, `AiToolApproval`) and
+- **`one-nofk` for audit/config children.** Audit (`AiAgentRun`, `AiToolCallRequest`) and
   config-child (`AiAgentModel`) relationships, and the grant→tool link, use `one-nofk`
   so they never block the agent/conversation/run lifecycle or resist catalog edits.
 - **Status vs. enumeration.** Lifecycle fields are `StatusItem` with

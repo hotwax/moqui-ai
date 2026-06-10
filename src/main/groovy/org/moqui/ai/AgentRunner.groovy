@@ -218,21 +218,21 @@ class AgentRunner {
                     return forceApprovalOnMutating && (td.effectEnumId == "AI_TOOL_MUTATING")
                 }
                 if (needApproval) {
-                    List<String> approvalIds = []
+                    List<String> toolCallRequestIds = []
                     for (Map tc in needApproval) {
-                        String approvalId = ec.entity.sequencedIdPrimary("moqui.ai.AiToolApproval", null, null)
-                        approvalIds.add(approvalId)
+                        String toolCallRequestId = ec.entity.sequencedIdPrimary("moqui.ai.AiToolCallRequest", null, null)
+                        toolCallRequestIds.add(toolCallRequestId)
                         Map td = ai.getToolByName(tc.name as String)
-                        persistRequired("create#moqui.ai.AiToolApproval", [approvalId: approvalId, agentRunId: runId,
+                        persistRequired("create#moqui.ai.AiToolCallRequest", [toolCallRequestId: toolCallRequestId, agentRunId: runId,
                             stepSeqId: stepSeq as String, toolCallId: tc.id, toolName: tc.name, serviceName: td?.serviceName,
-                            arguments: JsonOutput.toJson(tc.arguments ?: [:]), statusId: "AI_APPR_PENDING",
+                            arguments: JsonOutput.toJson(tc.arguments ?: [:]), statusId: "AI_TCREQ_PENDING",
                             requestedByUserId: ec.user.userId, requestedDate: ec.user.nowTimestamp])
                     }
                     persistRequired("update#moqui.ai.AiAgentRun", [agentRunId: runId, statusId: "AI_RUN_SUSPENDED",
                         pendingState: JsonOutput.toJson([messages: messages, replayCount: replayCount, stepSeq: stepSeq,
                             candIdx: candIdx, summaryText: summaryText, summaryWatermark: summaryWatermark,
                             result: result, turnToolCalls: toolCalls])])
-                    result.statusId = "AI_RUN_SUSPENDED"; result.awaitingApproval = true; result.approvalIds = approvalIds
+                    result.statusId = "AI_RUN_SUSPENDED"; result.awaitingApproval = true; result.toolCallRequestIds = toolCallRequestIds
                     return result
                 }
 
@@ -279,18 +279,18 @@ class AgentRunner {
         List<Map> turnToolCalls = st.turnToolCalls as List<Map>
 
         Map<String, EntityValue> approvals = [:]
-        for (EntityValue a in ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", agentRunId).list())
+        for (EntityValue a in ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", agentRunId).list())
             approvals.put(a.toolCallId as String, a)
 
         // Fail-closed precondition (whole-turn): a requiresApproval tool must NEVER execute without an
         // explicit decision. If ANY gated call in the turn is still undecided (PENDING, or its approval
         // row is missing), the turn is not ready — leave the run SUSPENDED untouched and return. The
-        // production caller (decide#ToolCall) only resumes once the last approval is decided; this guards
+        // production caller (decide#ToolCallRequest) only resumes once the last approval is decided; this guards
         // misuse / a double-fired decide, making a premature resume a safe no-op (not consume-and-deny).
         boolean anyUndecided = turnToolCalls.any { tc ->
             if (!ai.getToolByName(tc.name as String)?.requiresApproval) return false   // non-gated: no approval needed
             String s = approvals.get(tc.id as String)?.statusId
-            return s != "AI_APPR_APPROVED" && s != "AI_APPR_REJECTED"
+            return s != "AI_TCREQ_APPROVED" && s != "AI_TCREQ_REJECTED"
         }
         if (anyUndecided) return [agentRunId: agentRunId, statusId: "AI_RUN_SUSPENDED", awaitingApproval: true]
 
@@ -303,7 +303,7 @@ class AgentRunner {
         for (Map tc in turnToolCalls) {
             EntityValue appr = approvals.get(tc.id as String)
             String resultJson
-            if (appr != null && appr.statusId == "AI_APPR_REJECTED") {
+            if (appr != null && appr.statusId == "AI_TCREQ_REJECTED") {
                 Map rejTd = ai.getToolByName(tc.name as String)
                 resultJson = JsonOutput.toJson([error: "Denied by user${appr.decisionNote ? ': ' + appr.decisionNote : ''}"])
                 persist("create#moqui.ai.AiToolCall", [agentRunId: agentRunId, stepSeqId: stepSeq as String,

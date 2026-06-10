@@ -38,7 +38,7 @@ lives in `org.moqui.ai.*` Groovy classes (notably `AgentRunner`, `AiToolFactory`
 | `AgentServices.xml` | Agent execution + authoring | `run#Agent`, `store#AiAgent`, `store#AiAgentTool`, `create#Conversation` |
 | `ToolServices.xml` | Tool authoring (catalog) | `store#AiTool` |
 | `ComposerServices.xml` | Composer assistant meta-tools | `find#Capability`, `describe#Capability`, `list#DomainTerm`, `propose#Naming`, `set#Guardrail`, `request#Capability`, `preview#Agent`, `activate#Agent`, `discard#Draft` |
-| `ApprovalServices.xml` | Human approval gate | `approve#ToolCall`, `reject#ToolCall`, `decide#ToolCall`, `get#PendingApproval` |
+| `ToolCallRequestServices.xml` | Human approval gate | `approve#ToolCallRequest`, `reject#ToolCallRequest`, `decide#ToolCallRequest`, `get#PendingToolCallRequest` |
 | `CostServices.xml` | Pricing + spend | `store#AiModelPrice`, `get#AiSpend` |
 | `FactServices.xml` | Conversation pinned facts | `remember#Fact` |
 | `GlossaryServices.xml` | Builder Knowledgebase glossary | `seed#DomainGlossary`, `find#DomainTerm`, `capture#NamingSignal`, `promote#TermsFromSignals`, `list#DomainTerm`, `propose#Naming`, `store#DomainTerm`, `approve#DomainTerm`, `reject#DomainTerm` |
@@ -86,7 +86,7 @@ Runs an agent against a user message, driving the full agentic loop via
 | `providerRunId` | String | Upstream provider's run id, when supplied. |
 | `structuredResult` | Map | Parsed structured output when the agent has a `responseSchema`. |
 | `awaitingApproval` | Boolean | True when the run suspended on a would-be mutating tool call. |
-| `approvalIds` | List | Ids of the `AiToolApproval` rows created when suspending. |
+| `toolCallRequestIds` | List | Ids of the `AiToolCallRequest` rows created when suspending. |
 
 **Behavior**
 
@@ -99,7 +99,7 @@ Runs an agent against a user message, driving the full agentic loop via
 3. The `AgentRunner` assembles context, calls the provider, dispatches tool calls, repeats to
    `maxIterations`/`maxToolCallsPerTurn`, audits each step, and stamps `estimatedCost` off the
    served model. If a mutating tool requires approval, the run **suspends**
-   (`statusId = AI_RUN_SUSPENDED`, `awaitingApproval = true`, `approvalIds` populated) rather
+   (`statusId = AI_RUN_SUSPENDED`, `awaitingApproval = true`, `toolCallRequestIds` populated) rather
    than executing the call.
 
 ### `store#AiAgent`
@@ -423,9 +423,9 @@ real data. Returns the run result plus the held (would-be) calls so the screen c
 `toolName`, `serviceName`, `arguments` (JSON)).
 
 **Behavior:** calls `new AgentRunner(ec, ai).runPreview(agentId, testMessage)`, then collects the
-`AiToolApproval` rows for that run with `statusId = AI_APPR_PENDING` (ordered by `requestedDate`)
+`AiToolCallRequest` rows for that run with `statusId = AI_TCREQ_PENDING` (ordered by `requestedDate`)
 into `heldCalls`. The run is marked `isPreview = 'Y'`, which keeps its pending approvals out of
-the operator queue (`get#PendingApproval`) and lets `discard#Draft` delete them.
+the operator queue (`get#PendingToolCallRequest`) and lets `discard#Draft` delete them.
 
 ### `activate#Agent`
 
@@ -467,7 +467,7 @@ approvals). This is what keeps abandoned preview approvals out of the operator q
 
 1. Loads the agent; if absent, returns silently (idempotent). If `statusId != 'AI_AGENT_DRAFT'` →
    error `Refusing to discard a non-draft agent ${agentId}`.
-2. For each `AiAgentRun` of the agent, deletes its `AiToolApproval`, `AiToolCall`, and
+2. For each `AiAgentRun` of the agent, deletes its `AiToolCallRequest`, `AiToolCall`, and
    `AiAgentRunStep` rows, then deletes the `AiAgentRun` rows (steps before the run, because
    `AiAgentRunStep` has a real FK to `AiAgentRun`).
 3. Deletes every `AiAgentTool` grant via `delete#moqui.ai.AiAgentTool`.
@@ -475,54 +475,54 @@ approvals). This is what keeps abandoned preview approvals out of the operator q
 
 ---
 
-## `ApprovalServices.xml` — `ai.ApprovalServices`
+## `ToolCallRequestServices.xml` — `ai.ToolCallRequestServices`
 
 The human approval gate. The three decision services are all `transaction="ignore"`: deciding an
 approval resumes the suspended run (`AgentRunner.resume()`), whose LLM calls must hold **no
 enclosing transaction**. Each entity write inside still runs in its own tx via the entity-auto
 service-call.
 
-### `approve#ToolCall`
+### `approve#ToolCallRequest`
 
 Convenience wrapper that approves one pending call.
 
 - **Auth:** `authenticate="true"` · **Transaction:** `ignore`.
-- **In:** `approvalId` (required), `decisionNote`. **Out:** `agentRunId`, `runStatusId`.
-- **Behavior:** delegates to `decide#ToolCall` with `statusId = AI_APPR_APPROVED`.
+- **In:** `toolCallRequestId` (required), `decisionNote`. **Out:** `agentRunId`, `runStatusId`.
+- **Behavior:** delegates to `decide#ToolCallRequest` with `statusId = AI_TCREQ_APPROVED`.
 
-### `reject#ToolCall`
+### `reject#ToolCallRequest`
 
 Convenience wrapper that rejects one pending call.
 
 - **Auth:** `authenticate="true"` · **Transaction:** `ignore`.
-- **In:** `approvalId` (required), `decisionNote`. **Out:** `agentRunId`, `runStatusId`.
-- **Behavior:** delegates to `decide#ToolCall` with `statusId = AI_APPR_REJECTED`.
+- **In:** `toolCallRequestId` (required), `decisionNote`. **Out:** `agentRunId`, `runStatusId`.
+- **Behavior:** delegates to `decide#ToolCallRequest` with `statusId = AI_TCREQ_REJECTED`.
 
-### `decide#ToolCall`
+### `decide#ToolCallRequest`
 
 Records one decision and resumes the run when no pending approvals remain for it.
 
 - **Auth:** `authenticate="true"` · **Transaction:** `ignore`.
 
-**In parameters:** `approvalId` (required), `statusId` (required — the decision, e.g.
-`AI_APPR_APPROVED`/`AI_APPR_REJECTED`), `decisionNote`.
+**In parameters:** `toolCallRequestId` (required), `statusId` (required — the decision, e.g.
+`AI_TCREQ_APPROVED`/`AI_TCREQ_REJECTED`), `decisionNote`.
 
 **Out parameters:** `agentRunId`, `runStatusId`.
 
 **Behavior**
 
-1. Loads the `AiToolApproval`; unknown → error `Unknown approvalId ${approvalId}`; already-decided
-   (`statusId != 'AI_APPR_PENDING'`) → error `Approval already decided`.
+1. Loads the `AiToolCallRequest`; unknown → error `Unknown toolCallRequestId ${toolCallRequestId}`; already-decided
+   (`statusId != 'AI_TCREQ_PENDING'`) → error `Approval already decided`.
 2. Updates the approval with the decision, `decidedByUserId = ec.user.userId`,
    `decidedDate = ec.user.nowTimestamp`.
-3. Counts approvals still `AI_APPR_PENDING` for the same `agentRunId`. If any remain, leaves the
+3. Counts approvals still `AI_TCREQ_PENDING` for the same `agentRunId`. If any remain, leaves the
    run `runStatusId = AI_RUN_SUSPENDED`. Otherwise calls
    `new AgentRunner(ec, aiTool).resume(agentRunId)` and returns its resulting `statusId`.
 
 > `resume()` itself applies a fail-closed `anyUndecided` guard: if any tool call in the resumed
 > turn is still undecided it re-suspends rather than proceeding.
 
-### `get#PendingApproval`
+### `get#PendingToolCallRequest`
 
 The operator queue (rendered by `screen/AiOps/Approvals.xml`).
 
@@ -530,9 +530,9 @@ The operator queue (rendered by `screen/AiOps/Approvals.xml`).
 
 **In parameters:** `agentRunId` (optional — scopes to one run; omit for all runs).
 
-**Out parameters:** `approvalList` (List of `AiToolApproval`).
+**Out parameters:** `approvalList` (List of `AiToolCallRequest`).
 
-**Behavior:** finds `AiToolApproval` rows with `statusId = AI_APPR_PENDING` ordered by
+**Behavior:** finds `AiToolCallRequest` rows with `statusId = AI_TCREQ_PENDING` ordered by
 `requestedDate`; optionally scopes to `agentRunId`. **Excludes preview-run approvals:** collects
 the ids of all `AiAgentRun` rows with `isPreview = 'Y'` and, when that list is non-empty, adds a
 null-safe `agentRunId not-in (previewRunIds)` condition (runs with a null `isPreview` are kept).
@@ -798,7 +798,7 @@ service layer — the only adjustments were precision/clarification, not factual
 - **`maxCost`.** Confirmed against `store#AiAgent`: the parameter exists and is stored, but no
   service in this catalog reads or enforces it (enforcement is deferred). Stated in the param
   table.
-- **`get#PendingApproval` preview exclusion.** The plan says preview-run approvals are excluded;
+- **`get#PendingToolCallRequest` preview exclusion.** The plan says preview-run approvals are excluded;
   the code does this with a **null-safe `not-in`** that is only applied when the preview-id list is
   non-empty (so runs with a null `isPreview` are kept). Documented precisely.
 - **`store#DomainTerm` update.** The plan flags the "don't clobber unset fields" guard; the code

@@ -161,10 +161,10 @@ this way, so a draft can be exercised on real data with nothing irreversible exe
 ```mermaid
 sequenceDiagram
     participant R as AgentRunner
-    participant DB as AiToolApproval
+    participant DB as AiToolCallRequest
     participant Op as Operator
-    R->>DB: gated call → AI_APPR_PENDING (run SUSPENDED)
-    Op->>DB: approve# / reject#ToolCall
+    R->>DB: gated call → AI_TCREQ_PENDING (run SUSPENDED)
+    Op->>DB: approve# / reject#ToolCallRequest
     DB->>R: all decided → resume()
     R->>R: approved→dispatch · rejected→"Denied by user"
 ```
@@ -176,9 +176,9 @@ sequenceDiagram
 - **Preview** force-gates all mutating tools and is throwaway — its pending rows stay out of the real
   operator queue and are deleted on discard.
 
-**Where it lives.** Operator: **Approvals**. Developer: `ai.ApprovalServices.*`
-(`approve#ToolCall` / `reject#ToolCall` / `decide#ToolCall` / `get#PendingApproval`); entity
-`AiToolApproval`.
+**Where it lives.** Operator: **Approvals**. Developer: `ai.ToolCallRequestServices.*`
+(`approve#ToolCallRequest` / `reject#ToolCallRequest` / `decide#ToolCallRequest` / `get#PendingToolCallRequest`); entity
+`AiToolCallRequest`.
 
 ### 2.5 Conversations & memory (context management)
 

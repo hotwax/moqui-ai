@@ -65,14 +65,14 @@ class AiApprovalTests extends Specification {
         then:
         out.statusId == "AI_RUN_SUSPENDED"
         out.awaitingApproval == true
-        (out.approvalIds as List).size() == 1
+        (out.toolCallRequestIds as List).size() == 1
         // nothing executed yet: no AiToolCall for this run
         ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).list().isEmpty()
         // pending approval recorded + pendingState persisted
-        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).condition("statusId", "AI_APPR_PENDING").list().size() == 1
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).condition("statusId", "AI_TCREQ_PENDING").list().size() == 1
         ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one().pendingState != null
         cleanup:
-        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgent").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ApprAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
@@ -97,7 +97,7 @@ class AiApprovalTests extends Specification {
         MockProvider.enqueue([assistantText: "done after approval", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent2", userMessage: "go"]).call()
         // mark the approval APPROVED (the service layer is Task 4; here we set it directly)
-        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).updateAll([statusId: "AI_APPR_APPROVED", decidedByUserId: "AiTestUser"])
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).updateAll([statusId: "AI_TCREQ_APPROVED", decidedByUserId: "AiTestUser"])
         when:
         Map r = new org.moqui.ai.AgentRunner(ec, ai).resume(out.agentRunId as String)
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
@@ -108,7 +108,7 @@ class AiApprovalTests extends Specification {
         // the gated tool actually executed (a successful AiToolCall for it)
         ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
         cleanup:
-        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgent2").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ApprAgent2").deleteAll()
         ec.artifactExecution.enableAuthz()
@@ -131,7 +131,7 @@ class AiApprovalTests extends Specification {
         MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent3", userMessage: "go"]).call()
-        when: // resume WITHOUT deciding the approval (still AI_APPR_PENDING)
+        when: // resume WITHOUT deciding the approval (still AI_TCREQ_PENDING)
         Map r = new org.moqui.ai.AgentRunner(ec, ai).resume(out.agentRunId as String)
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
         then:
@@ -140,13 +140,13 @@ class AiApprovalTests extends Specification {
         run.pendingState != null                          // state not cleared
         ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").list().isEmpty()  // gated tool did NOT execute
         cleanup:
-        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgent3").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ApprAgent3").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
-    def "approve#ToolCall decides the approval, resumes the run, and the gated tool executes"() {
+    def "approve#ToolCallRequest decides the approval, resumes the run, and the gated tool executes"() {
         given:
         ec.artifactExecution.disableAuthz()
         org.moqui.ai.provider.MockProvider.reset()
@@ -164,9 +164,9 @@ class AiApprovalTests extends Specification {
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
         MockProvider.enqueue([assistantText: "done after approval", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent4", userMessage: "go"]).call()
-        String approvalId = ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).list()[0].approvalId
+        String toolCallRequestId = ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).list()[0].toolCallRequestId
         when:
-        Map dec = ec.service.sync().name("ai.ApprovalServices.approve#ToolCall").parameters([approvalId: approvalId]).call()
+        Map dec = ec.service.sync().name("ai.ToolCallRequestServices.approve#ToolCallRequest").parameters([toolCallRequestId: toolCallRequestId]).call()
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
         then:
         dec.runStatusId == "AI_RUN_COMPLETED"
@@ -175,13 +175,13 @@ class AiApprovalTests extends Specification {
         // the gated tool actually executed (a successful AiToolCall for it)
         ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
         cleanup:
-        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgent4").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ApprAgent4").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
 
-    def "reject#ToolCall decides the approval, resumes the run, and the gated call is denied"() {
+    def "reject#ToolCallRequest decides the approval, resumes the run, and the gated call is denied"() {
         given:
         ec.artifactExecution.disableAuthz()
         org.moqui.ai.provider.MockProvider.reset()
@@ -199,10 +199,10 @@ class AiApprovalTests extends Specification {
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
         MockProvider.enqueue([assistantText: "ok, skipped that", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent5", userMessage: "go"]).call()
-        String approvalId = ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).list()[0].approvalId
+        String toolCallRequestId = ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).list()[0].toolCallRequestId
         when:
-        Map dec = ec.service.sync().name("ai.ApprovalServices.reject#ToolCall")
-            .parameters([approvalId: approvalId, decisionNote: "not allowed"]).call()
+        Map dec = ec.service.sync().name("ai.ToolCallRequestServices.reject#ToolCallRequest")
+            .parameters([toolCallRequestId: toolCallRequestId, decisionNote: "not allowed"]).call()
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
         EntityValue tc = ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one()
         then:
@@ -213,7 +213,7 @@ class AiApprovalTests extends Specification {
         tc.success == "N"
         (tc.result as String).contains("Denied")
         cleanup:
-        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgent5").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ApprAgent5").deleteAll()
         ec.artifactExecution.enableAuthz()
@@ -246,15 +246,15 @@ class AiApprovalTests extends Specification {
         then: // whole turn suspended: exactly ONE pending approval, for the gated call c2; nothing executed yet
         out.statusId == "AI_RUN_SUSPENDED"
         out.awaitingApproval == true
-        List pending = ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).condition("statusId", "AI_APPR_PENDING").list()
+        List pending = ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).condition("statusId", "AI_TCREQ_PENDING").list()
         pending.size() == 1
         pending[0].toolCallId == "c2"
         // NEITHER tool ran while suspended (the ungated call did NOT slip through)
         ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).list().isEmpty()
 
         when: // approve the one gated call via the service
-        String approvalId = pending[0].approvalId
-        Map dec = ec.service.sync().name("ai.ApprovalServices.approve#ToolCall").parameters([approvalId: approvalId]).call()
+        String toolCallRequestId = pending[0].toolCallRequestId
+        Map dec = ec.service.sync().name("ai.ToolCallRequestServices.approve#ToolCallRequest").parameters([toolCallRequestId: toolCallRequestId]).call()
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
         then: // run completed and BOTH tools ran successfully
         dec.runStatusId == "AI_RUN_COMPLETED"
@@ -262,7 +262,7 @@ class AiApprovalTests extends Specification {
         ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
         ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c2").one().success == "Y"
         cleanup:
-        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgentMix").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ApprAgentMix").deleteAll()
         ec.artifactExecution.enableAuthz()
@@ -303,7 +303,7 @@ class AiApprovalTests extends Specification {
         then: // the replayed history has no malformed (dangling tool_call) turn → completes cleanly
         out2.statusId == "AI_RUN_COMPLETED"
         cleanup:
-        ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
         ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgentA1").deleteAll()
