@@ -41,8 +41,8 @@
             <entity-find entity-name="moqui.ai.AiAgentRun" list="runs">
                 <econdition field-name="agentName" ignore-if-empty="true"/>
                 <econdition field-name="userId" ignore-if-empty="true"/>
-                <econdition field-name="fromDate" operator="greater-equals" from="fromDate" ignore-if-empty="true"/>
-                <econdition field-name="fromDate" operator="less" from="thruDate" ignore-if-empty="true"/>
+                <econdition field-name="startedDate" operator="greater-equals" from="fromDate" ignore-if-empty="true"/>
+                <econdition field-name="startedDate" operator="less" from="thruDate" ignore-if-empty="true"/>
             </entity-find>
             <script><![CDATA[
                 totalCost = (runs.sum { (it.estimatedCost ?: 0G) as BigDecimal } ?: 0G) as BigDecimal

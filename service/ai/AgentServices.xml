@@ -141,7 +141,7 @@
             <set field="conversationId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiConversation', null, null)"/>
             <service-call name="create#moqui.ai.AiConversation" in-map="[conversationId: conversationId,
                 agentId: agentId, title: title, userId: ec.user.userId,
-                fromDate: ec.user.nowTimestamp, statusId: 'AI_CONV_ACTIVE']"/>
+                createdDate: ec.user.nowTimestamp, statusId: 'AI_CONV_ACTIVE']"/>
         </actions>
     </service>
 

@@ -6,7 +6,7 @@
 
     <actions>
         <entity-find entity-name="moqui.ai.AiAgentRun" list="runList">
-            <search-form-inputs default-order-by="-fromDate"/>
+            <search-form-inputs default-order-by="-startedDate"/>
         </entity-find>
     </actions>
     <widgets>
@@ -36,7 +36,7 @@
             </field>
             <field name="servedByModelId"><default-field title="Model"><display/></default-field></field>
             <field name="providerName"><default-field title="Provider"><display/></default-field></field>
-            <field name="fromDate">
+            <field name="startedDate">
                 <header-field show-order-by="true"><date-period/></header-field>
                 <default-field title="Started"><display/></default-field>
             </field>

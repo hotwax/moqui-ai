@@ -70,7 +70,7 @@ class AiGlossaryTests extends Specification {
             sourceType: "AI_TSRC_CURATED", statusId: "AI_TERM_APPROVED"]).create()
         ec.entity.makeValue("moqui.ai.AiNamingSignal").setAll([signalId: "SIG1", signalType: "AI_SIG_TOOL_NAME",
             intentText: "list returns", suggestedName: "list_returns", chosenName: "list_rmas",
-            wasOverridden: "Y", userId: "U1", fromDate: ec.user.nowTimestamp]).create()
+            wasOverridden: "Y", userId: "U1", createdDate: ec.user.nowTimestamp]).create()
         then:
         ec.entity.find("moqui.ai.AiDomainTerm").condition("termId", "TERMNOUN1").one().term == "return"
         ec.entity.find("moqui.ai.AiTermSynonym").condition("termId", "TERMNOUN1").condition("synonym", "rma").one() != null
@@ -225,11 +225,11 @@ class AiGlossaryTests extends Specification {
         3.times { i ->
             ec.entity.makeValue("moqui.ai.AiNamingSignal").setAll([signalId: "PS${i}", signalType: "AI_SIG_TOOL_NAME",
                 intentText: "list rmas", suggestedName: "list_returns", chosenName: "list_rmas",
-                wasOverridden: "Y", userId: "PromUser", fromDate: ec.user.nowTimestamp]).create()
+                wasOverridden: "Y", userId: "PromUser", createdDate: ec.user.nowTimestamp]).create()
         }
         ec.entity.makeValue("moqui.ai.AiNamingSignal").setAll([signalId: "PSW", signalType: "AI_SIG_TOOL_NAME",
             intentText: "make widget", suggestedName: "create_widget", chosenName: "create_widget",
-            wasOverridden: "N", userId: "PromUser", fromDate: ec.user.nowTimestamp]).create()
+            wasOverridden: "N", userId: "PromUser", createdDate: ec.user.nowTimestamp]).create()
         and: "'list' is a known approved verb so it is stripped, leaving the noun token to learn"
         ec.entity.find("moqui.ai.AiDomainTerm").condition("termId", "PV1").deleteAll()
         ec.entity.makeValue("moqui.ai.AiDomainTerm").setAll([termId: "PV1", term: "list", termKind: "AI_TERM_VERB",

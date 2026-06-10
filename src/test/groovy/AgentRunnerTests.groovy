@@ -174,7 +174,7 @@ class AgentRunnerTests extends Specification {
         run.servedByModelId == "backup"        // primary failed, backup answered
         run.providerName == "mock"
         ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", out.agentRunId)
-            .condition("stepType", "llm_call_failed").list().size() == 1
+            .condition("stepType", "llm_call").condition("success", "N").list().size() == 1
         cleanup:
         ec.entity.find("moqui.ai.AiAgentModel").condition("agentId", "FailoverAgent").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "FailoverAgent").deleteAll()
@@ -226,7 +226,7 @@ class AgentRunnerTests extends Specification {
         out.statusId == "AI_RUN_COMPLETED"
         run.servedByModelId == "backup"
         ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", out.agentRunId)
-            .condition("stepType", "llm_call_failed").list().size() == 1
+            .condition("stepType", "llm_call").condition("success", "N").list().size() == 1
         cleanup:
         ec.entity.find("moqui.ai.AiAgentModel").condition("agentId", "StickyAgent").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "StickyAgent").deleteAll()
