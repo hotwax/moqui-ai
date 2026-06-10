@@ -2,7 +2,21 @@
 <entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
 
-    <!-- ===== Definitions ===== -->
+    <!-- =====================================================================================
+         moqui-ai data model — all entities (package moqui.ai), grouped by subsystem in the
+         same order the system is explained (see docs/explanation/architecture.md and
+         docs/reference/entities.md).
+
+         Entity-ECA rules live separately in AiGlossaryEcas.eecas.xml: Moqui auto-scans
+         entity/*.eecas.xml, and ECAs cannot live inside an <entities> document.
+
+         We own every entity here and are pre-release, so definitions are edited IN PLACE
+         (not via extend-entity, which is for extending base/platform entities we don't own).
+         ===================================================================================== -->
+
+    <!-- ============================ 1. Registry (the keystone) ============================
+         What an agent and a tool ARE: opaque ids; the verb_noun tool catalog; the
+         exposable + denylist safety floor; agent->tool grants; the provider failover chain. -->
     <entity entity-name="AiAgent" package="moqui.ai">
         <field name="agentId" type="id" is-pk="true"><description>Opaque, stable identity (sequenced for user-created; explicit stable id in seed data).</description></field>
         <field name="agentName" type="text-short"><description>Editable, human-friendly label. Unique across agents.</description></field>
@@ -47,6 +61,13 @@
         <index name="AI_TOOL_NAME" unique="true"><index-field name="toolName"/></index>
     </entity>
 
+    <!-- Non-overridable floor (spec D4/§6.3): service-name regex patterns that may NEVER become tools.
+         Checked by store#AiTool; a match forces exposable=N and refuses any override. -->
+    <entity entity-name="AiToolDenylist" package="moqui.ai">
+        <field name="servicePattern" type="text-medium" is-pk="true"><description>Regex of service names that may never be exposed as a tool.</description></field>
+        <field name="reason" type="text-medium"><description>Why — shown to the Curator.</description></field>
+    </entity>
+
     <entity entity-name="AiAgentTool" package="moqui.ai">
         <field name="agentId" type="id" is-pk="true"/>
         <field name="toolId" type="id" is-pk="true"/>
@@ -65,7 +86,9 @@
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
     </entity>
 
-    <!-- ===== Observability ===== -->
+    <!-- ============================ 2. Execution & observability ==========================
+         One AiAgentRun per invocation -> ordered AiAgentRunStep rows -> AiToolCall per
+         dispatched tool. Append-only audit. -->
     <entity entity-name="AiAgentRun" package="moqui.ai">
         <field name="agentRunId" type="id" is-pk="true"/>
         <field name="agentId" type="id"><description>The agent that produced this run (FK by id).</description></field>
@@ -119,4 +142,165 @@
         <field name="errorText" type="text-very-long"/>
         <field name="durationMs" type="number-integer"/>
     </entity>
+
+    <!-- ============================ 3. Human-approval gate ================================
+         One pending decision per approval-required tool call in a suspended turn. -->
+    <entity entity-name="AiToolApproval" package="moqui.ai">
+        <field name="approvalId" type="id" is-pk="true"/>
+        <field name="agentRunId" type="id"/>
+        <field name="stepSeqId" type="id"/>
+        <field name="toolCallId" type="id"/>
+        <field name="toolName" type="text-medium"/>
+        <field name="serviceName" type="text-medium"/>
+        <field name="arguments" type="text-very-long"><description>JSON of the proposed call args</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiApprovalStatus: AI_APPR_PENDING|AI_APPR_APPROVED|AI_APPR_REJECTED</description></field>
+        <field name="requestedByUserId" type="id"/>
+        <field name="requestedDate" type="date-time"/>
+        <field name="decidedByUserId" type="id"/>
+        <field name="decidedDate" type="date-time"/>
+        <field name="decisionNote" type="text-long"/>
+        <!-- one-nofk: append-only audit; must not block the run/agent lifecycle (mirrors AiAgentRun) -->
+        <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+    </entity>
+
+    <!-- ============================ 4. Conversation & context ============================= -->
+    <entity entity-name="AiConversation" package="moqui.ai">
+        <field name="conversationId" type="id" is-pk="true"/>
+        <field name="agentId" type="id" required="true"><description>The agent this conversation belongs to (by id).</description></field>
+        <field name="userId" type="id"/>
+        <field name="title" type="text-medium"/>
+        <field name="fromDate" type="date-time"/>
+        <field name="lastActivityDate" type="date-time"/>
+        <field name="summaryText" type="text-very-long"><description>ADR 0001 Phase 2: rolling summary of turns older than summaryThruMessageSeqId (compaction)</description></field>
+        <field name="summaryThruMessageSeqId" type="id"><description>Watermark: messageSeqId of the newest message already folded into summaryText</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiConversationStatus: AI_CONV_ACTIVE | AI_CONV_CLOSED</description></field>
+        <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+    </entity>
+
+    <!-- One persisted message per turn-part, in order, replayed on the next call. -->
+    <entity entity-name="AiConversationMessage" package="moqui.ai">
+        <field name="conversationId" type="id" is-pk="true"/>
+        <field name="messageSeqId" type="id" is-pk="true"/>
+        <field name="role" type="text-short"><description>system | user | assistant | tool</description></field>
+        <field name="content" type="text-very-long"/>
+        <field name="toolCalls" type="text-very-long"><description>JSON of List&lt;Map&gt; when an assistant turn requested tools</description></field>
+        <field name="toolCallId" type="text-medium"><description>set when role = tool</description></field>
+        <field name="agentRunId" type="id"><description>which run produced this message</description></field>
+        <field name="fromDate" type="date-time"/>
+        <relationship type="one" related="moqui.ai.AiConversation" short-alias="conversation"/>
+    </entity>
+
+    <!-- Pinned facts (ADR 0001 fidelity guarantee): durable confirmed business values an agent
+         records via the `remember` tool. Conversation-scoped, keyed, store-or-update (a new value
+         supersedes the old). Injected into every call's systemContext; never compressed/dropped. -->
+    <entity entity-name="AiConversationFact" package="moqui.ai">
+        <field name="conversationId" type="id" is-pk="true"/>
+        <field name="factKey" type="text-medium" is-pk="true"/>
+        <field name="factValue" type="text-very-long"/>
+        <field name="agentRunId" type="id"><description>The run that last recorded this fact</description></field>
+        <field name="createdDate" type="date-time"/>
+        <!-- Moqui auto-adds lastUpdatedStamp = when the fact was last set (supersession time) -->
+    </entity>
+
+    <!-- ============================ 5. Cost ===============================================
+         Effective-dated price per (provider, model). inputPrice/outputPrice are per 1,000,000
+         tokens. A model's price changes over time; old runs keep the price current at run time. -->
+    <entity entity-name="AiModelPrice" package="moqui.ai">
+        <field name="providerName" type="text-short" is-pk="true"/>
+        <field name="modelName" type="text-medium" is-pk="true"/>
+        <field name="fromDate" type="date-time" is-pk="true"/>
+        <field name="thruDate" type="date-time"/>
+        <field name="inputPricePerMillion" type="currency-precise"/>
+        <field name="outputPricePerMillion" type="currency-precise"/>
+        <field name="currencyUomId" type="id"/>
+    </entity>
+
+    <!-- ====================== 6. Builder Knowledgebase / domain glossary ==================
+         Curated domain nouns + capability verbs that ground agent/tool naming, their dialect
+         synonyms, and the learning log of proposed-vs-kept names. -->
+    <!-- The glossary: curated domain nouns + capability verbs, typed + provenanced + status-gated. -->
+    <entity entity-name="AiDomainTerm" package="moqui.ai">
+        <field name="termId" type="id" is-pk="true"/>
+        <field name="term" type="text-short"><description>canonical term (order, cancel); unique per termKind + ownerScope</description></field>
+        <field name="termKind" type="id"><description>Enumeration enumTypeId=AiTermKind: AI_TERM_NOUN | AI_TERM_VERB</description></field>
+        <field name="description" type="text-long"/>
+        <field name="sourceType" type="id"><description>Enumeration enumTypeId=AiTermSource: AI_TSRC_SEEDED | AI_TSRC_LEARNED | AI_TSRC_CURATED</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiDomainTermStatus: AI_TERM_SUGGESTED | AI_TERM_APPROVED | AI_TERM_REJECTED</description></field>
+        <field name="usageCount" type="number-integer"><description>chosen-in-authoring reinforcement count</description></field>
+        <field name="ownerScope" type="id"><description>reserved for tenant/deployment scope; null = global in v1</description></field>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <relationship type="one-nofk" title="AiTermKind" related="moqui.basic.Enumeration" short-alias="kindEnum">
+            <key-map field-name="termKind" related="enumId"/></relationship>
+        <index name="AI_TERM_UNIQUE" unique="true">
+            <index-field name="term"/><index-field name="termKind"/><index-field name="ownerScope"/></index>
+    </entity>
+
+    <!-- The dialect: aliases that map to a canonical term ("rma" -> return). -->
+    <entity entity-name="AiTermSynonym" package="moqui.ai">
+        <field name="termId" type="id" is-pk="true"/>
+        <field name="synonym" type="text-short" is-pk="true"/>
+        <field name="sourceType" type="id"/>
+        <field name="statusId" type="id"/>
+        <relationship type="one" related="moqui.ai.AiDomainTerm" short-alias="domainTerm"/>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+    </entity>
+
+    <!-- The learning log: what the Composer proposed vs. what the human kept, per authoring event. -->
+    <entity entity-name="AiNamingSignal" package="moqui.ai">
+        <field name="signalId" type="id" is-pk="true"/>
+        <field name="signalType" type="id"><description>Enumeration enumTypeId=AiSignalType: AI_SIG_TOOL_NAME | AI_SIG_AGENT_NAME</description></field>
+        <field name="intentText" type="text-long"><description>the user's described intent / the backing service</description></field>
+        <field name="suggestedName" type="text-medium"><description>what the Composer proposed (null if human-authored directly)</description></field>
+        <field name="chosenName" type="text-medium"><description>what the human kept</description></field>
+        <field name="wasOverridden" type="text-indicator"><description>Y if chosen != suggested</description></field>
+        <field name="userId" type="id"/>
+        <field name="fromDate" type="date-time"/>
+    </entity>
+
+    <!-- ============================ 7. Knowledge base =====================================
+         Managed prose topics (bodies live as .md files in knowledge/; the entity is the
+         queryable spine) assigned to agents and injected into the system context on each run. -->
+    <entity entity-name="AiKnowledgeTopic" package="moqui.ai">
+        <field name="topicId"         type="id"          is-pk="true"/>
+        <field name="topicName"       type="text-short"/>
+        <field name="description"     type="text-long"/>
+        <field name="contentLocation" type="text-medium"/>
+        <field name="statusId"        type="id"/>
+        <field name="fromDate"        type="date-time"/>
+        <field name="thruDate"        type="date-time"/>
+        <field name="ownerScope"      type="id"/>
+        <field name="createdByUserId" type="id"/>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <index name="AI_KNOW_TOPIC_NAME" unique="true">
+            <index-field name="topicName"/>
+        </index>
+    </entity>
+
+    <entity entity-name="AiAgentKnowledge" package="moqui.ai">
+        <field name="agentId"  type="id" is-pk="true"/>
+        <field name="topicId"  type="id" is-pk="true"/>
+        <relationship type="one"      related="moqui.ai.AiAgent"          short-alias="agent"/>
+        <relationship type="one-nofk" related="moqui.ai.AiKnowledgeTopic" short-alias="topic"/>
+    </entity>
+
+    <!-- ============================ 8. Composer ===========================================
+         A gap the Composer Assistant found but cannot fill (only the Curator may create tools).
+         Append-only queue for the future Curator. -->
+    <entity entity-name="AiCapabilityRequest" package="moqui.ai">
+        <field name="capabilityRequestId" type="id" is-pk="true"/>
+        <field name="intent" type="text-long"><description>what the user wanted, in their words</description></field>
+        <field name="suggestedVerb" type="text-short"/>
+        <field name="suggestedNoun" type="text-short"/>
+        <field name="notes" type="text-long"/>
+        <field name="requestedByUserId" type="id"/>
+        <field name="agentRunId" type="id"><description>the compose run that surfaced the gap (provenance)</description></field>
+        <field name="conversationId" type="id"/>
+        <field name="requestedDate" type="date-time"/>
+        <field name="statusId" type="id"><description>AiCapReqStatus: AI_CAPREQ_OPEN | AI_CAPREQ_DONE | AI_CAPREQ_DISMISSED</description></field>
+        <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
+    </entity>
+
 </entities>
