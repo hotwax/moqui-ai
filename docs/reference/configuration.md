@@ -162,7 +162,7 @@ shipped component are:
 
 | File | `type` | Contents |
 |---|---|---|
-| `AiStatusData.xml` | `ext-seed` | Core status types/items + flows: `AiAgentRunStatus`, `AiAgentStatus`, `AiApprovalStatus`, `AiToolStatus`, `AiCapReqStatus`; the `AiToolEffect` enumeration; and the non-overridable **`AiToolDenylist`** safety-floor rows. |
+| `AiStatusData.xml` | `ext-seed` | Core status types/items + flows: `AiAgentRunStatus`, `AiAgentStatus`, `AiToolCallRequestStatus`, `AiToolStatus`, `AiCapReqStatus`; the `AiToolEffect` enumeration; and the non-overridable **`AiToolDenylist`** safety-floor rows. |
 | `AiConversationStatusData.xml` | `ext-seed` | `AiConversationStatus` status type/items + flow (`AI_CONV_ACTIVE` ⇄ `AI_CONV_CLOSED`). |
 | `AiGlossaryData.xml` | `ext-seed` | Glossary reference data: `AiDomainTermStatus` flow + the fixed `AiTermKind` / `AiTermSource` / `AiSignalType` enumerations. (Status/enum reference only — no runnable job, so the glossary test suite can load it in isolation.) |
 | `AiComposerData.xml` | `ext-seed` | The out-of-the-box **Composer Assistant** agent (`AICMP_AGENT`) and its meta-tool catalog rows (`find_capability`, `draft_agent`, `grant_capability`, `activate_agent`, …) + grants. |

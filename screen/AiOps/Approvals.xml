@@ -4,24 +4,24 @@
     <!-- v1 security: require-authentication only (any logged-in user). AI_OPERATOR group + ArtifactAuthz deferred.
          The approve/reject services run as the logged-in operator; Moqui authz applies to the called services. -->
 
-    <!-- Per-row actions: each Approve/Reject button is a hidden-form-link that POSTs the row's approvalId
+    <!-- Per-row actions: each Approve/Reject button is a hidden-form-link that POSTs the row's toolCallRequestId
          (explicit parameter) plus the sibling editable decisionNote (pass-through-parameters) to the
-         shipped service. Resuming the suspended run is automatic (ApprovalServices.decide#ToolCall). -->
+         shipped service. Resuming the suspended run is automatic (ToolCallRequestServices.decide#ToolCallRequest). -->
     <transition name="approve">
-        <service-call name="ai.ApprovalServices.approve#ToolCall" in-map="[approvalId:approvalId, decisionNote:decisionNote]"/>
+        <service-call name="ai.ToolCallRequestServices.approve#ToolCallRequest" in-map="[toolCallRequestId:toolCallRequestId, decisionNote:decisionNote]"/>
         <default-response url="."/>
     </transition>
     <transition name="reject">
-        <service-call name="ai.ApprovalServices.reject#ToolCall" in-map="[approvalId:approvalId, decisionNote:decisionNote]"/>
+        <service-call name="ai.ToolCallRequestServices.reject#ToolCallRequest" in-map="[toolCallRequestId:toolCallRequestId, decisionNote:decisionNote]"/>
         <default-response url="."/>
     </transition>
 
     <actions>
-        <!-- Delegate to ai.ApprovalServices.get#PendingApproval so the preview-run exclusion (and any
+        <!-- Delegate to ai.ToolCallRequestServices.get#PendingToolCallRequest so the preview-run exclusion (and any
              future queue rules) live in ONE tested place. A Composer preview SUSPENDS on would-be mutating
-             calls and writes AI_APPR_PENDING rows that must NOT surface in this operator queue; the service
-             filters out approvals whose run is a preview (AiAgentRun.isPreview=Y). -->
-        <service-call name="ai.ApprovalServices.get#PendingApproval" out-map="context"/>
+             calls and writes AI_TCREQ_PENDING rows that must NOT surface in this operator queue; the service
+             filters out tool call requests whose run is a preview (AiAgentRun.isPreview=Y). -->
+        <service-call name="ai.ToolCallRequestServices.get#PendingToolCallRequest" out-map="context"/>
         <set field="pendingList" from="approvalList"/>
     </actions>
     <widgets>
@@ -29,7 +29,7 @@
         <label text="No pending approvals." type="p" condition="!pendingList"/>
 
         <form-list name="Pending" list="pendingList" skip-form="true" condition="pendingList">
-            <field name="approvalId"><default-field title="Approval"><display/></default-field></field>
+            <field name="toolCallRequestId"><default-field title="Approval"><display/></default-field></field>
             <field name="agentRunId"><default-field title="Run">
                 <link url="../RunDetail" text="${agentRunId}" link-type="anchor" url-type="screen" parameter-map="[agentRunId:agentRunId]"/>
             </default-field></field>
@@ -41,13 +41,13 @@
             <field name="approveAction"><default-field title="">
                 <link url="approve" text="Approve" link-type="hidden-form-link" btn-type="success" pass-through-parameters="true"
                         confirmation="Approve this tool call and resume the run?">
-                    <parameter name="approvalId"/>
+                    <parameter name="toolCallRequestId"/>
                 </link>
             </default-field></field>
             <field name="rejectAction"><default-field title="">
                 <link url="reject" text="Reject" link-type="hidden-form-link" btn-type="danger" pass-through-parameters="true"
                         confirmation="Reject this tool call?">
-                    <parameter name="approvalId"/>
+                    <parameter name="toolCallRequestId"/>
                 </link>
             </default-field></field>
         </form-list>

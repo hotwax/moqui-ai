@@ -232,8 +232,8 @@
                 def r = new org.moqui.ai.AgentRunner(ec, ai).runPreview(agentId as String, testMessage as String)
                 agentRunId = r.agentRunId; statusId = r.statusId; assistantMessage = r.assistantMessage
                 heldCalls = []
-                for (def a in ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", agentRunId)
-                        .condition("statusId", "AI_APPR_PENDING").orderBy("requestedDate").list())
+                for (def a in ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", agentRunId)
+                        .condition("statusId", "AI_TCREQ_PENDING").orderBy("requestedDate").list())
                     heldCalls.add([toolName: a.toolName, serviceName: a.serviceName, arguments: a.arguments])
             ]]></script>
         </actions>
@@ -268,8 +268,8 @@
 
     <!-- Cleanup: drop a draft, its grants, AND the preview runs it spawned (with the steps / tool-calls /
          held approvals hanging off them). A draft is exercised only via preview#Agent, whose would-be
-         mutating calls SUSPEND and write AI_APPR_PENDING rows; deleting those runs here is what keeps the
-         abandoned approvals out of the operator queue (ApprovalServices.get#PendingApproval). AiAgentRunStep
+         mutating calls SUSPEND and write AI_TCREQ_PENDING rows; deleting those runs here is what keeps the
+         abandoned approvals out of the operator queue (ToolCallRequestServices.get#PendingToolCallRequest). AiAgentRunStep
          has a real FK to AiAgentRun, so steps are deleted before the run. The screen "Discard draft" action. -->
     <service verb="discard" noun="Draft" authenticate="true">
         <in-parameters><parameter name="agentId" required="true"/></in-parameters>
@@ -280,7 +280,7 @@
                 <return error="true" message="Refusing to discard a non-draft agent ${agentId}"/></if>
             <script><![CDATA[
                 for (run in ec.entity.find("moqui.ai.AiAgentRun").condition("agentId", agentId).list()) {
-                    ec.entity.find("moqui.ai.AiToolApproval").condition("agentRunId", run.agentRunId).deleteAll()
+                    ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", run.agentRunId).deleteAll()
                     ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", run.agentRunId).deleteAll()
                     ec.entity.find("moqui.ai.AiAgentRunStep").condition("agentRunId", run.agentRunId).deleteAll()
                 }
