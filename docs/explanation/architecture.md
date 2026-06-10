@@ -238,6 +238,55 @@ finalizes as `AI_RUN_FAILED`.
 
 ---
 
+## Runs vs. conversations
+
+*Two records of one turn — and why that isn't duplicate data.*
+
+A **run** (`AiAgentRun`) is one execution: one `run#Agent` call, from the user's message to the
+final answer, including every internal step and tool call. A **conversation** (`AiConversation`)
+is a thread of *many* runs over time. The bridge is two foreign keys: `AiAgentRun.conversationId`
+points a run at its conversation, and every `AiConversationMessage` / `AiConversationFact` carries
+the `agentRunId` of the run that wrote it.
+
+The subtle part: a conversational run keeps **two parallel records of the same turn**, for two
+different consumers.
+
+- **Run side** — `AiAgentRun → AiAgentRunStep → AiToolCall`. The **audit of one execution**: the
+  steps, the dispatched tool calls, tokens, cost. Written for *every* run, including a stateless
+  one (`conversationId = null`). Immutable.
+- **Conversation side** — `AiConversationMessage` (+ `AiConversationFact`). The **durable
+  transcript and memory** that lives *across* runs and is *replayed* into the next run's context.
+  Written *only* when there is a conversation. Lossy by design (windowed / compacted).
+
+A single run that calls one tool and answers writes, in conversation `CONV_77`, four messages —
+all stamped `agentRunId = AGRUN_1001`:
+
+| conversationId | messageSeqId | role | content / toolCalls |
+|---|---|---|---|
+| CONV_77 | 0001 | user | "What's the refund total for order 12345?" |
+| CONV_77 | 0002 | assistant | *toolCalls:* `[get_order]` |
+| CONV_77 | 0003 | tool | `{"total":48.12}` |
+| CONV_77 | 0004 | assistant | "Order 12345's refund total is $48.12." |
+
+…and the user/assistant text **also** lives on the run header (`AiAgentRun.userMessage` /
+`assistantMessage`). That overlap is **deliberate denormalization**, not an accident:
+
+1. **Stateless runs have no conversation** — for `conversationId = null`, the run header is the
+   *only* record of the message.
+2. **The audit must be self-contained and immutable** — `RunDetail` renders a run without joining
+   to conversation state, and stays correct even after the transcript is windowed / compacted /
+   deleted.
+3. **Different lifecycles** — run-side is per-execution and frozen; conversation-side is cumulative
+   and replayed.
+
+The one rule this imposes: **the run writes both, and nothing edits one without the other.**
+
+> **Why not merge them?** Folding the run audit into the conversation transcript was considered and
+> rejected — it would break stateless runs and couple the immutable audit to the lossy, replayed
+> transcript. Recorded as **D13** in [decisions.md](decisions.md).
+
+---
+
 ## Context management
 
 Context management is configured per agent via `contextStrategy`:

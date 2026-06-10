@@ -201,6 +201,12 @@ invocation. Append-only audit.
   must not block the agent lifecycle); `conversation` → `moqui.ai.AiConversation`
   (`one-nofk`); `status` → `moqui.basic.StatusItem`.
 
+> **`userMessage`/`assistantMessage` overlap `AiConversationMessage` rows by design — not duplicate
+> data.** The run header is the immutable, self-contained audit (and the *only* record for a
+> stateless run with no conversation); the conversation messages are the lossy, replayed transcript,
+> joined back by `agentRunId`. See
+> [explanation/architecture.md → Runs vs. conversations](../explanation/architecture.md#runs-vs-conversations).
+
 ---
 
 ### AiAgentRunStep
@@ -342,6 +348,11 @@ replayed on the next call.
 | `fromDate` | `date-time` | Message timestamp. |
 
 - **Relationships:** `conversation` → `moqui.ai.AiConversation`.
+
+> **Overlaps `AiAgentRun.userMessage`/`assistantMessage` by design — not duplicate data.** These
+> rows are the durable, replayed transcript (joined to their run by `agentRunId`); the run header is
+> the immutable per-execution audit. See
+> [explanation/architecture.md → Runs vs. conversations](../explanation/architecture.md#runs-vs-conversations).
 
 ---
 

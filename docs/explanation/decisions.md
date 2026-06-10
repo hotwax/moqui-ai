@@ -36,6 +36,7 @@ For the as-built field-level and service-level detail these decisions produced, 
 | D10 | Migrate to the OpenAI Responses API | **Declined** |
 | D11 | Shipped providers = OpenAI + Anthropic + Mock; Google/Gemini provider | **Shipped (OpenAI/Anthropic/Mock); Google Deferred** |
 | D12 | `AiAgentKnowledge` entity (attached per-agent knowledge) | **Declined / never built** |
+| D13 | Run audit (`AiAgentRun`/Step/`AiToolCall`) kept separate from the conversation transcript (`AiConversationMessage`/`Fact`) | **Shipped** |
 
 ---
 
@@ -319,3 +320,31 @@ dropped and that domain context "ships as pinned facts + the glossary, not the d
 
 **Reference.** `docs/specs/2026-06-02-ai-agent-framework-design.md` §8 and the §16/§411 scope
 note; ADR 0001 (pinned facts as the chosen fidelity mechanism).
+
+---
+
+## D13 — Run audit separate from the conversation transcript
+
+**Decision.** Keep two record sets for a turn: the **run audit** (`AiAgentRun` → `AiAgentRunStep`
+→ `AiToolCall`) and the **conversation transcript + memory** (`AiConversationMessage`,
+`AiConversationFact`), joined by `agentRunId`. Do **not** merge them into one — even though the run
+header's `userMessage`/`assistantMessage` overlap the conversation's user/assistant messages.
+
+**Rationale.** The overlap is deliberate denormalization, not redundancy to normalize away:
+(1) a **stateless** run (`conversationId = null`) has no conversation, so the run header is the
+*only* record of its messages; (2) the audit must be **self-contained and immutable** — `RunDetail`
+renders a run without joining to conversation state, and stays correct even after the transcript is
+windowed / compacted / deleted; (3) the two have **different lifecycles** — per-execution and frozen
+vs. cumulative and replayed. Merging would couple the immutable audit to the lossy, replayed
+transcript and break stateless runs. The cost of keeping them separate is a consistency obligation:
+the run writes both, and nothing edits one without the other. (This decision is logged because the
+overlap reads, at first glance, like duplicate data inviting a refactor — it isn't.)
+
+**Status — Shipped.** Verified in `AgentRunner.groovy`: the run loop writes the audit
+(`create#moqui.ai.AiAgentRunStep`, `AiToolCall`) for every run, and — only when `conversationId` is
+set — also persists `AiConversationMessage` rows (user, assistant-with-toolCalls, tool result, final
+assistant), each carrying `agentRunId`; `AiAgentRun.userMessage`/`assistantMessage` are written
+regardless. A stateless run produces audit rows but no conversation rows.
+
+**Reference.** `docs/explanation/architecture.md` → "Runs vs. conversations"; ADR 0001 (the
+conversation / memory model).
