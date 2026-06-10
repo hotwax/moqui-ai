@@ -206,7 +206,7 @@ Create a conversation for an agent.
 1. If `agentId` is absent but `agentName` is given, resolves `agentId` from `AiAgent` (cached);
    unknown → error `Unknown agent: ${agentName}`.
 2. Sequences a `conversationId` and calls `create#moqui.ai.AiConversation` with `agentId`,
-   `title`, `userId = ec.user.userId`, `fromDate = ec.user.nowTimestamp`, and
+   `title`, `userId = ec.user.userId`, `createdDate = ec.user.nowTimestamp`, and
    `statusId = AI_CONV_ACTIVE`.
 
 ---
@@ -672,7 +672,7 @@ Record one naming signal. Shared by the in-service hook (rich context) and the d
 **Behavior:** **no-ops and returns** when `ec.context.signalGuard == true` (set during seeding).
 Otherwise sequences a `signalId`, computes `wasOverridden = 'Y'` when `suggestedName` is non-null
 and differs from `chosenName` (else `'N'`), and calls `create#moqui.ai.AiNamingSignal` with
-`userId = ec.user.userId` and `fromDate = ec.user.nowTimestamp`.
+`userId = ec.user.userId` and `createdDate = ec.user.nowTimestamp`.
 
 > The `store#AiTool` / `store#AiAgent` services set `ec.context.signalCaptured = true` before
 > their entity write so the defensive `AiGlossaryEcas` EECA (which also calls this service) skips —

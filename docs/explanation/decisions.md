@@ -214,7 +214,7 @@ intentionally unused") + Decision 10.
 priority. On a provider-call failure the runner falls through to the next candidate; once a
 candidate succeeds it is **sticky** — subsequent iterations in the same run stay on the
 working candidate rather than restarting from the top. The run records the served
-provider/model; each failed attempt is logged as an `llm_call_failed` step.
+provider/model; each failed attempt is logged as a failed `llm_call` step (`success=N`).
 
 **Rationale.** Provider outages and per-model errors should degrade gracefully without
 operator intervention, and switching provider should remain "a one-field change."
@@ -222,7 +222,7 @@ operator intervention, and switching provider should remain "a one-field change.
 **Status — Shipped.** Verified in `AgentRunner.groovy`: `callWithFailover(...)` iterates
 candidates from a start index, returns the first whose `provider.chat()` succeeds, and collects
 failed attempts; the caller sets `candIdx = call.idx` with the comment "sticky: stay on the
-working candidate," writes `llm_call_failed` steps for each failed attempt, and persists
+working candidate," writes failed `llm_call` steps (`success=N`) for each failed attempt, and persists
 `servedByModelId` / `servedProviderName` / `providerRunId` on the run.
 
 **Reference.** Gap report Decision 7.
