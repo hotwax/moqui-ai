@@ -115,10 +115,12 @@ class AiConversationTests extends Specification {
 
     def "running agent on a conversation of a different agent throws exception"() {
         given: "an agent named OtherAgent"
-        ec.artifactExecution.disableAuthz()
+        // NOTE: setup() already disabled authz for the test. disableAuthz/enableAuthz is a boolean
+        // toggle (not a counter), so calling enableAuthz() here would flip authz back ON for the rest
+        // of the test — causing create#Conversation below to be denied (AiSecurityData isn't loaded in
+        // this spec). This test exercises the cross-agent VALIDATION guard, not authz, so stay disabled.
         ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "OtherAgent", agentName: "OtherAgent", providerName: "mock",
             modelName: "mock-1", systemPrompt: "other", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
-        ec.artifactExecution.enableAuthz()
 
         and: "a conversation created for ConvAgent"
         Map t = ec.service.sync().name("ai.AgentServices.create#Conversation")
