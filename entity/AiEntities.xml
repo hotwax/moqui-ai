@@ -310,8 +310,13 @@
         <field name="conversationId" type="id"/>
         <field name="requestedDate" type="date-time"/>
         <field name="statusId" type="id"><description>AiCapReqStatus: AI_CAPREQ_OPEN | AI_CAPREQ_DONE | AI_CAPREQ_DISMISSED</description></field>
+        <field name="resolvedByUserId" type="id"><description>Curator who fulfilled/dismissed it.</description></field>
+        <field name="resolvedDate" type="date-time"/>
+        <field name="resolutionNote" type="text-long"/>
+        <field name="fulfilledToolId" type="id"><description>The tool created/linked when fulfilled (provenance).</description></field>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
         <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
+        <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="fulfilledTool"><key-map field-name="fulfilledToolId" related="toolId"/></relationship>
     </entity>
 
 </entities>

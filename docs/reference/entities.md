@@ -282,7 +282,8 @@ Seeded patterns (`data/AiStatusData.xml`):
 ### AiCapabilityRequest
 
 `entity/AiComposerEntities.xml`. A gap the Composer Assistant found but cannot fill
-(only the Curator may create tools). An append-only queue for the future Curator.
+(only the Curator may create tools). The Curator works this queue from the **Capability
+Requests** console — dismiss, fulfill (link a tool), or provision (create a tool inline).
 
 - **PK:** `capabilityRequestId` (`id`).
 
@@ -298,9 +299,14 @@ Seeded patterns (`data/AiStatusData.xml`):
 | `conversationId` | `id` | Originating conversation. |
 | `requestedDate` | `date-time` | When raised. |
 | `statusId` | `id` | → `AiCapReqStatus`: `AI_CAPREQ_OPEN | AI_CAPREQ_DONE | AI_CAPREQ_DISMISSED`. |
+| `resolvedByUserId` | `id` | Curator who fulfilled/dismissed it. |
+| `resolvedDate` | `date-time` | When resolved. |
+| `resolutionNote` | `text-long` | Curator's resolution note. |
+| `fulfilledToolId` | `id` | The tool created/linked when fulfilled (provenance). |
 
 - **Relationships:** `status` → `moqui.basic.StatusItem`; `run` →
-  `moqui.ai.AiAgentRun` (`one-nofk`).
+  `moqui.ai.AiAgentRun` (`one-nofk`); `fulfilledTool` → `moqui.ai.AiTool`
+  (`one-nofk`, `fulfilledToolId` → `toolId`).
 
 ---
 

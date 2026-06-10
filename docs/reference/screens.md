@@ -39,7 +39,7 @@ inheritance mechanism. (Full authz model: see `explanation/security-model.md`.)
 
 ### Subscreen menu order
 
-The `<subscreens>` block declares **8 menu items** in this order:
+The `<subscreens>` block declares **10 menu items** in this order:
 
 | `menu-index` | Name | Menu title | Location |
 |---|---|---|---|
@@ -51,11 +51,15 @@ The `<subscreens>` block declares **8 menu items** in this order:
 | 6 | `Cost` | Cost | `screen/AiOps/Cost.xml` |
 | 7 | `Conversations` | Conversations | `screen/AiOps/Conversations.xml` |
 | 8 | `Glossary` | Glossary | `screen/AiOps/Glossary.xml` |
+| 9 | `Knowledge` | Knowledge | `screen/AiOps/Knowledge.xml` |
+| 10 | `CapabilityRequests` | Capability Requests | `screen/AiOps/CapabilityRequests.xml` |
 
-A **ninth screen file**, `screen/AiOps/RunDetail.xml`, lives in the same directory but
-is **not** a menu item — it sets `default-menu-include="false"` and is reached only as
-an auto-discovered sibling drill-in (linked from **Runs** and **Approvals**). It is
-documented below alongside **Runs**.
+Two **detail screen files**, `screen/AiOps/RunDetail.xml` and
+`screen/AiOps/CapabilityRequest.xml`, live in the same directory but are **not** menu
+items — each sets `default-menu-include="false"` and is reached only as an auto-discovered
+sibling drill-in (`RunDetail` from **Runs**/**Approvals**; `CapabilityRequest` from
+**Capability Requests**). `RunDetail` is documented below alongside **Runs**;
+`CapabilityRequest` alongside **Capability Requests**.
 
 The shared include `screen/includes/AiRunTrace.xml` is not a subscreen at all — it is a
 reusable widget fragment pulled into Playground, Composer (preview), and RunDetail.
@@ -332,6 +336,60 @@ the seed / promote maintenance actions. All actions route through `ai.GlossarySe
 
 ---
 
+## 10. Capability Requests (and CapabilityRequest detail)
+
+### Capability Requests
+
+**Purpose:** The Curator queue for the missing-tool gaps the Composer raises via
+`request#Capability`. Lists requests, lets the Curator dismiss noise inline, and drills
+into the detail screen to resolve. All actions route through `ai.CapabilityServices`.
+
+**Transitions:**
+
+| Transition | Backing service | Notes |
+|---|---|---|
+| `dismiss` | `ai.CapabilityServices.dismiss#CapabilityRequest` (in `capabilityRequestId`) | Per-OPEN-row inline dismiss |
+
+**Behavior / widgets:**
+- **Capability requests** list (`ai.CapabilityServices.list#CapabilityRequest`, newest
+  first): columns **Intent**, **Verb** (`suggestedVerb`), **Noun** (`suggestedNoun`),
+  **Requested by** (`requestedByUserId`), **Requested** (`requestedDate`), **Status**
+  (`statusId`); a per-row **Dismiss** `hidden-form-link` (warning) shown only when
+  `statusId == 'AI_CAPREQ_OPEN'`, and a **Resolve** link to the `CapabilityRequest`
+  detail. Shows an empty-state label when there are none.
+
+**Backing services:** `ai.CapabilityServices.list#CapabilityRequest`,
+`dismiss#CapabilityRequest`; reads `AiCapabilityRequest`.
+
+### CapabilityRequest (detail)
+
+**Purpose:** Triage one request: review its provenance, dismiss it, or **provision** a
+tool inline. Auto-discovered sibling (`default-menu-include="false"`), reached via
+**Resolve** from the list.
+
+**Transitions:**
+
+| Transition | Backing service | Notes |
+|---|---|---|
+| `dismiss` | `ai.CapabilityServices.dismiss#CapabilityRequest` (in `capabilityRequestId`, `resolutionNote`) | → back to `CapabilityRequests` |
+| `provision` | `ai.CapabilityServices.provision#CapabilityRequest` (in `capabilityRequestId`, `serviceName`, `verb`, `noun`, `description`, `requiresApproval`, `effectEnumId`, `resolutionNote`) | Creates the tool + marks done in one transaction → back to `CapabilityRequests` |
+
+**Behavior / widgets:**
+- **Request detail** (read-only): `intent`, `suggestedVerb`/`suggestedNoun`, `notes`,
+  `requestedByUserId`, `requestedDate`, `statusId`; links to the originating
+  **run** (`../RunDetail`, when `agentRunId` set) and **conversation**.
+- **Resolution** box (shown when not OPEN): `resolvedByUserId`, `resolvedDate`,
+  `resolutionNote`, `fulfilledToolId`.
+- **Provision a tool** form (shown only when OPEN): `serviceName` (required), `verb`/`noun`
+  pre-filled from `suggestedVerb`/`suggestedNoun`, `description`, `requiresApproval` and
+  `effectEnumId` drop-downs, `resolutionNote`; submits `provision`.
+- **Dismiss** form (shown only when OPEN): `resolutionNote` + submit `dismiss`.
+
+**Backing services:** `ai.CapabilityServices.dismiss#CapabilityRequest`,
+`provision#CapabilityRequest`; reads `AiCapabilityRequest`.
+
+---
+
 ## Shared include: `AiRunTrace`
 
 **Location:** `screen/includes/AiRunTrace.xml`. **Not a subscreen** — a reusable widget
@@ -355,11 +413,13 @@ shown — used by **Playground**, the **Composer** preview pane, and **RunDetail
 
 ## Console-wide notes
 
-- **Single mount, eight tabs, one hidden drill-in.** `AiOps.xml` mounts under `apps`
-  with 8 menu subscreens; `RunDetail` is a ninth file reachable only by drill-in link.
+- **Single mount, ten tabs, two hidden drill-ins.** `AiOps.xml` mounts under `apps`
+  with 10 menu subscreens; `RunDetail` and `CapabilityRequest` are detail files reachable
+  only by drill-in link.
 - **Most screens are read-only over the AI entities.** Only Playground (run),
-  Composer (send/preview/discard), Agents (saveAgent), Approvals (approve/reject), and
-  Glossary (approve/reject/addTerm/seed/promote) invoke services; the rest are entity
+  Composer (send/preview/discard), Agents (saveAgent), Approvals (approve/reject),
+  Glossary (approve/reject/addTerm/seed/promote), Knowledge (approve/archive), and
+  Capability Requests (dismiss/provision) invoke services; the rest are entity
   lists/detail views.
 - **All service calls route through the tested service layer** (`ai.AgentServices`,
   `ai.ComposerServices`, `ai.ToolCallRequestServices`, `ai.CostServices`,

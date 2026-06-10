@@ -768,6 +768,53 @@ Curator: reject a suggested term.
 
 ---
 
+## `CapabilityServices.xml` — `ai.CapabilityServices`
+
+The Curator-side read + triage + resolve half of the capability-request queue (the write half,
+`request#Capability`, lives in `ComposerServices`). All `authenticate="true"`, framework-default
+transaction. Exposed over REST via `CapabilityRestApi.xml` (thin pass-throughs, adding a
+`get#CapabilityRequest`).
+
+### `list#CapabilityRequest`
+
+List capability requests, newest first, for the AiOps console.
+
+- **In:** `statusId` (optional). **Out:** `requests` (List).
+- **Behavior:** `entity-find` `AiCapabilityRequest` with `statusId` `ignore-if-empty`, ordered
+  by `-requestedDate`.
+
+### `dismiss#CapabilityRequest`
+
+Dismiss an open request as noise/not-actionable.
+
+- **In:** `capabilityRequestId` (required), `resolutionNote`. **Out:** none.
+- **Behavior:** loads the request (not-found → error); guards `statusId == AI_CAPREQ_OPEN`
+  (else error); `update` → `AI_CAPREQ_DISMISSED`, stamping `resolvedByUserId`, `resolvedDate`,
+  `resolutionNote`.
+
+### `fulfill#CapabilityRequest`
+
+Mark an open request fulfilled, optionally linking the tool that fills the gap.
+
+- **In:** `capabilityRequestId` (required), `resolutionNote`, `fulfilledToolId` (optional). **Out:** none.
+- **Behavior:** same load + OPEN guard; `update` → `AI_CAPREQ_DONE`, stamping `resolvedByUserId`,
+  `resolvedDate`, `resolutionNote`, `fulfilledToolId`.
+
+### `provision#CapabilityRequest`
+
+Inline tool-creation path: create the tool that fills the gap and mark the request done, linked,
+in one transaction.
+
+- **In:** `capabilityRequestId` (required), `serviceName` (required), `verb` (required),
+  `noun` (required), `description`, `requiresApproval`, `effectEnumId`, `resolutionNote`.
+  **Out:** `toolId`, `toolName`.
+- **Behavior:** load + OPEN guard; `ai.ToolServices.store#AiTool` (passing the request's `intent`
+  as `intentText`) — `store#AiTool` validates the service resolves, so a bogus `serviceName` errors
+  and the whole call rolls back, leaving the request OPEN; then
+  `ai.CapabilityServices.fulfill#CapabilityRequest` with `fulfilledToolId = toolId`.
+
+---
+
 ## `service/moqui/ai/test/TestServices.xml` — `moqui.ai.test.TestServices`
 
 Deterministic fixtures used by the automated test suite (not part of the production runtime API).
