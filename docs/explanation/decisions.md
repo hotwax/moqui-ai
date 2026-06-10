@@ -35,7 +35,7 @@ For the as-built field-level and service-level detail these decisions produced, 
 | D9 | Reasoning / thinking via a normalized effort flag | **Shipped (with an Anthropic v1 limit)** |
 | D10 | Migrate to the OpenAI Responses API | **Declined** |
 | D11 | Shipped providers = OpenAI + Anthropic + Mock; Google/Gemini provider | **Shipped (OpenAI/Anthropic/Mock); Google Deferred** |
-| D12 | `AiAgentKnowledge` entity (attached per-agent knowledge) | **Declined / never built** |
+| D12 | `AiAgentKnowledge` (per-agent knowledge): original RAG-attached design dropped, later shipped as a simpler knowledge-base grant | **Shipped (reworked)** |
 | D13 | Run audit (`AiAgentRun`/Step/`AiToolCall`) kept separate from the conversation transcript (`AiConversationMessage`/`Fact`) | **Shipped** |
 
 ---
@@ -158,7 +158,7 @@ nothing is destroyed and retrieval can be added later without a dependency.
 `windowHistory` + `withSummary` (compaction) — there is no tool-result-clearing path. A grep of
 `AgentRunner.groovy` and `ContextAssembler.groovy` for `embed` / `vector` / `elastic` / `retriev`
 returns nothing. (The Phase-6 RAG design survives only as a historical plan under
-`docs/archive/plans/`, which still references the dropped `AiAgentKnowledge` entity — see D12.)
+`docs/archive/plans/`, which references the *original* RAG-indexed `AiAgentKnowledge` design — distinct from the simpler grant entity later shipped; see D12.)
 
 **Reference.** `docs/decisions/0001-context-window-management.md` (Considered Options D & E,
 "Phased rollout," "Interactions" → Decision 9); gap report Decision 2 ("Tool-result clearing
@@ -298,28 +298,35 @@ code; the code ships two real providers plus Mock.
 
 ---
 
-## D12 — `AiAgentKnowledge` (attached per-agent knowledge)
+## D12 — `AiAgentKnowledge` (per-agent knowledge)
 
-**Decision.** The `AiAgentKnowledge` entity and the `<knowledge>` XML block from the original
-Phase-1 plan were dropped. Domain context ships instead as pinned facts (the `remember` tool →
-`AiConversationFact`, D4) plus the Builder Knowledgebase glossary (`AiDomainTerm`), not as
-per-agent attached knowledge.
+**Decision.** The *original* Phase-1 `AiAgentKnowledge` design — static knowledge attached to an
+agent with embedding/retrieval (the Phase-1 → Phase-6 RAG path) and its `<knowledge>` XML block —
+was dropped at v1 design time. **Later, a reworked knowledge base shipped** that reuses the
+`AiAgentKnowledge` name for a much simpler thing: a grant join (`agentId` + `topicId`) alongside
+`AiKnowledgeTopic` (managed prose whose body is a git-versioned `.md` file). Granted, approved,
+effective topics are injected into the agent's system context on every run, bounded by a char cap —
+**no embeddings, no retrieval tier.** Pinned facts (`AiConversationFact`, D4) and the glossary
+(`AiDomainTerm`) remain the run-time-context and naming mechanisms; the knowledge base adds curated
+*background* prose on top.
 
-**Rationale.** Attached static knowledge plus its embedding/retrieval (the old Phase-1 → Phase-6
-path) was superseded by the fact-pinning fidelity mechanism for run-time context and by the
-glossary for naming/grounding. The RAG layer that would have indexed `AiAgentKnowledge` is itself
-deferred (D5).
+**Rationale.** The original attached-knowledge-plus-RAG concept was superseded for *run-time
+context* by fact-pinning and for *naming* by the glossary, so it was rightly dropped. But a need
+remained for durable, curated **background** an agent should always carry (e.g. an OMS domain primer
+for the Composer) — met by the lightweight, file-backed knowledge base rather than the heavy
+embedded-retrieval original. The RAG layer the *original* design implied is still deferred (D5).
 
-**Status — Declined / never built.** Verified absent in code: a grep for `AiAgentKnowledge`
-across `entity/` and `src/` returns **zero hits** — no such entity is defined and no code
-references it. It appears only in historical material under `docs/archive/plans/` (the dropped
-Phase-1 / Phase-6 plans) and in the framework-design spec, which explicitly records that
-"the `AiAgentKnowledge` entity and the `<knowledge>` XML block in the original plan were"
-dropped and that domain context "ships as pinned facts + the glossary, not the dropped
-`AiAgentKnowledge`."
+**Status — Shipped (reworked from the declined design).** Verified in code: `AiKnowledgeTopic` and
+`AiAgentKnowledge` are defined in `entity/AiEntities.xml`; `service/ai/KnowledgeServices.xml`
+provides `store#KnowledgeTopic` / `approve#` / `store#AgentKnowledge` / `find#AgentKnowledge`; and
+`AgentRunner.loadAgentKnowledge(...)` injects approved, effective topics into the system context on
+every run (bounded by `AiAgent.knowledgeMaxChars` / the `ai_knowledge_max_chars` default). What
+stays **declined** is the *original* embedding/RAG-indexed form — the shipped `AiAgentKnowledge` is
+a plain grant, not a retrieval index.
 
-**Reference.** `docs/specs/2026-06-02-ai-agent-framework-design.md` §8 and the §16/§411 scope
-note; ADR 0001 (pinned facts as the chosen fidelity mechanism).
+**Reference.** The shipped knowledge base — `docs/capabilities.md` → "Agent knowledge base" and
+`docs/plans/2026-06-08-agent-knowledge-base.md`; the original drop —
+`docs/specs/2026-06-02-ai-agent-framework-design.md` §8; RAG still deferred — D5.
 
 ---
 
