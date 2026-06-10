@@ -35,7 +35,7 @@ class AiReasoningTests extends Specification {
         ec.message.clearErrors()
         MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "ReasonAgent", userMessage: "hi"]).call()
+        ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ReasonAgent", userMessage: "hi"]).call()
         then:
         (MockProvider.LAST_REQUEST?.reasoning as Map)?.effort == "medium"
         cleanup:
@@ -57,7 +57,7 @@ class AiReasoningTests extends Specification {
         ec.message.clearErrors()
         MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentName: "PlainAgent", userMessage: "hi"]).call()
+        ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "PlainAgent", userMessage: "hi"]).call()
         then:
         MockProvider.LAST_REQUEST?.reasoning == null
         cleanup:

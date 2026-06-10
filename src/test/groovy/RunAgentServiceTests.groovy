@@ -44,7 +44,7 @@ class RunAgentServiceTests extends Specification {
         given: MockProvider.enqueue([assistantText: "service ok", finishReason: "stop", tokensOut: 3L])
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "SvcAgent", userMessage: "ping"]).call()
+            .parameters([agentId: "AG_SVC", userMessage: "ping"]).call()
         then:
         out.assistantMessage == "service ok"
         out.agentRunId != null
@@ -66,7 +66,7 @@ class RunAgentServiceTests extends Specification {
         ec.message.clearErrors()
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "SvcSchemaAgent", userMessage: "q"]).call()
+            .parameters([agentId: "SvcSchemaAgent", userMessage: "q"]).call()
         then:
         out.statusId == "AI_RUN_COMPLETED"
         out.structuredResult.answer == "42"
@@ -88,7 +88,7 @@ class RunAgentServiceTests extends Specification {
         ec.message.clearErrors()
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "SvcProvAgent", userMessage: "q"]).call()
+            .parameters([agentId: "SvcProvAgent", userMessage: "q"]).call()
         then:
         out.statusId == "AI_RUN_COMPLETED"
         out.providerName == "mock"

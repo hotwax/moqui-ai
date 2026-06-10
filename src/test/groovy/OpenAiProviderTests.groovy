@@ -172,7 +172,7 @@ class OpenAiProviderTests extends Specification {
         ec.message.clearErrors()
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "OpenAiEcho", userMessage: "Echo the word: marigold"]).call()
+            .parameters([agentId: "OpenAiEcho", userMessage: "Echo the word: marigold"]).call()
         then:
         out.statusId == "AI_RUN_COMPLETED"
         (out.assistantMessage as String)?.toLowerCase()?.contains("marigold")
@@ -204,7 +204,7 @@ class OpenAiProviderTests extends Specification {
         ec.message.clearErrors()
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "OpenAiSentiment", userMessage: "This is wonderful, I love it!"]).call()
+            .parameters([agentId: "OpenAiSentiment", userMessage: "This is wonderful, I love it!"]).call()
         then:
         out.statusId == "AI_RUN_COMPLETED"
         (out.structuredResult.sentiment as String)?.toLowerCase()?.contains("pos")
@@ -229,7 +229,7 @@ class OpenAiProviderTests extends Specification {
         ec.message.clearErrors()
         when:
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent")
-            .parameters([agentName: "OpenAiReason", userMessage: "What is 17 + 25? Reply with just the number."]).call()
+            .parameters([agentId: "OpenAiReason", userMessage: "What is 17 + 25? Reply with just the number."]).call()
         then:
         out.statusId == "AI_RUN_COMPLETED"
         (out.assistantMessage as String)?.contains("42")
