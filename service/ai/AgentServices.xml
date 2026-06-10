@@ -6,7 +6,8 @@
          writes each manage their own tx (see AgentRunner). -->
     <service verb="run" noun="Agent" transaction="ignore" authenticate="true">
         <in-parameters>
-            <parameter name="agentId" required="true"/>
+            <parameter name="agentId"><description>Preferred. Stable opaque id. Provide this or agentName.</description></parameter>
+            <parameter name="agentName"><description>Alternative lookup key; resolved to agentId when agentId is absent.</description></parameter>
             <parameter name="userMessage" required="true"/>
             <parameter name="conversationId"><description>Optional. When set, prior turns are replayed and this turn is persisted.</description></parameter>
         </in-parameters>
@@ -28,6 +29,20 @@
             <parameter name="approvalIds" type="List"/>
         </out-parameters>
         <actions>
+            <!-- Resolve the agent: agentId preferred; fall back to agentName lookup. useCache=false because
+                 the registry mutates at runtime (the Composer drafts/activates agents). agentName is unique. -->
+            <if condition="!agentId">
+                <if condition="!agentName">
+                    <return error="true" message="run#Agent requires agentId or agentName"/>
+                </if>
+                <entity-find entity-name="moqui.ai.AiAgent" list="agentMatches" use-cache="false">
+                    <econdition field-name="agentName"/>
+                </entity-find>
+                <if condition="!agentMatches">
+                    <return error="true" message="Unknown agent: ${agentName}"/>
+                </if>
+                <set field="agentId" from="agentMatches[0].agentId"/>
+            </if>
             <script><![CDATA[
                 def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
                 def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentId, userMessage, conversationId)
