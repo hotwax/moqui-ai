@@ -107,9 +107,9 @@ The loop is bounded several ways, each mapping to a terminal `AiAgentRun.statusI
 Every run is a recoverable, auditable story. `AiAgentRun` is the header; under it,
 `AiAgentRunStep` rows record what happened, in order, with `stepType` one of:
 
-- `llm_call` — a provider call (with its token counts and finish reason)
-- `tool_call` *(reserved; tool detail is captured on `AiToolCall`)*
-- `llm_call_failed` — a candidate that errored and was skipped during failover
+- `llm_call` — a provider call (with its token counts and finish reason). Its `success` field is the
+  outcome: `Y` for the call that answered, `N` for a candidate that errored and was skipped during
+  failover. (Tool detail is captured on `AiToolCall`, not as a step.)
 - `context_trim` — the windower dropped messages (strategy `window`)
 - `compaction` — the windower dropped messages and they were folded into a summary (strategy `summarize`)
 
@@ -223,11 +223,11 @@ turn.
 
 ```
 candidates: [0] openai:gpt-4o   [1] anthropic:claude-3-5-sonnet   [2] openai:gpt-4o-mini
-iteration 1: try 0 → fails → try 1 → ok      candIdx ⇒ 1   (step: llm_call_failed for 0)
+iteration 1: try 0 → fails → try 1 → ok      candIdx ⇒ 1   (step: llm_call success=N for 0)
 iteration 2: start at 1 → ok                 candIdx ⇒ 1   (no re-probe of 0)
 ```
 
-Each skipped candidate writes an `llm_call_failed` `AiAgentRunStep` (with the failing
+Each skipped candidate writes a failed `llm_call` `AiAgentRunStep` (`success=N`, with the failing
 provider:model) for observability. The served provider/model is persisted on the run
 (`servedByModelId`, and `providerName` is updated to the served provider), so history and cost
 reflect what actually answered. If *every* remaining candidate fails, the loop throws and the run

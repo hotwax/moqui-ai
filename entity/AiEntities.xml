@@ -94,8 +94,8 @@
         <field name="agentId" type="id"><description>The agent that produced this run (FK by id).</description></field>
         <field name="agentName" type="text-short"><description>Denormalized snapshot of the agent's label AT RUN TIME, so history reads correctly after a rename.</description></field>
         <field name="userId" type="id"/>
-        <field name="fromDate" type="date-time"/>
-        <field name="thruDate" type="date-time"/>
+        <field name="startedDate" type="date-time"><description>When the run started.</description></field>
+        <field name="endedDate" type="date-time"><description>When the run reached a terminal status; null while RUNNING/SUSPENDED. Duration = endedDate - startedDate (derived, not stored).</description></field>
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentRunStatus: AI_RUN_RUNNING|AI_RUN_COMPLETED|AI_RUN_FAILED|AI_RUN_TRUNCATED|AI_RUN_ABORTED</description></field>
         <field name="providerName" type="text-short"/>
         <field name="modelName" type="text-medium"/>
@@ -120,12 +120,11 @@
     <entity entity-name="AiAgentRunStep" package="moqui.ai">
         <field name="agentRunId" type="id" is-pk="true"/>
         <field name="stepSeqId" type="id" is-pk="true"/>
-        <field name="stepType" type="text-short"><description>llm_call | tool_call | llm_call_failed | context_trim | compaction</description></field>
-        <field name="fromDate" type="date-time"/>
-        <field name="thruDate" type="date-time"/>
+        <field name="stepType" type="text-short"><description>The kind of step: llm_call | context_trim | compaction. (Outcome lives in success; a failed llm call is stepType=llm_call, success=N.)</description></field>
         <field name="tokensIn" type="number-integer"/>
         <field name="tokensOut" type="number-integer"/>
         <field name="finishReason" type="text-short"/>
+        <field name="success" type="text-indicator"><description>Y/N outcome of an llm_call step (a failed failover attempt = N). Null/Y for non-call steps.</description></field>
         <relationship type="one" related="moqui.ai.AiAgentRun" short-alias="run"/>
     </entity>
 
@@ -170,8 +169,7 @@
         <field name="agentId" type="id" required="true"><description>The agent this conversation belongs to (by id).</description></field>
         <field name="userId" type="id"/>
         <field name="title" type="text-medium"/>
-        <field name="fromDate" type="date-time"/>
-        <field name="lastActivityDate" type="date-time"/>
+        <field name="createdDate" type="date-time"><description>When the conversation was created.</description></field>
         <field name="summaryText" type="text-very-long"><description>ADR 0001 Phase 2: rolling summary of turns older than summaryThruMessageSeqId (compaction)</description></field>
         <field name="summaryThruMessageSeqId" type="id"><description>Watermark: messageSeqId of the newest message already folded into summaryText</description></field>
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiConversationStatus: AI_CONV_ACTIVE | AI_CONV_CLOSED</description></field>
@@ -188,7 +186,7 @@
         <field name="toolCalls" type="text-very-long"><description>JSON of List&lt;Map&gt; when an assistant turn requested tools</description></field>
         <field name="toolCallId" type="text-medium"><description>set when role = tool</description></field>
         <field name="agentRunId" type="id"><description>which run produced this message</description></field>
-        <field name="fromDate" type="date-time"/>
+        <field name="createdDate" type="date-time"><description>When this message-part was recorded.</description></field>
         <relationship type="one" related="moqui.ai.AiConversation" short-alias="conversation"/>
     </entity>
 
@@ -203,6 +201,19 @@
         <field name="createdDate" type="date-time"/>
         <!-- Moqui auto-adds lastUpdatedStamp = when the fact was last set (supersession time) -->
     </entity>
+
+    <!-- Derived conversation list: lastActivityDate = MAX(message createdDate). Replaces the former
+         denormalized AiConversation.lastActivityDate column (derive-don't-denormalize). join-optional
+         so a conversation with no messages still appears (lastActivityDate = null). -->
+    <view-entity entity-name="AiConversationActivity" package="moqui.ai">
+        <member-entity entity-alias="CONV" entity-name="moqui.ai.AiConversation"/>
+        <member-entity entity-alias="MSG" entity-name="moqui.ai.AiConversationMessage"
+                join-from-alias="CONV" join-optional="true">
+            <key-map field-name="conversationId"/>
+        </member-entity>
+        <alias-all entity-alias="CONV"/>
+        <alias name="lastActivityDate" entity-alias="MSG" field="createdDate" function="max"/>
+    </view-entity>
 
     <!-- ============================ 5. Cost ===============================================
          Effective-dated price per (provider, model). inputPrice/outputPrice are per 1,000,000
@@ -256,7 +267,7 @@
         <field name="chosenName" type="text-medium"><description>what the human kept</description></field>
         <field name="wasOverridden" type="text-indicator"><description>Y if chosen != suggested</description></field>
         <field name="userId" type="id"/>
-        <field name="fromDate" type="date-time"/>
+        <field name="createdDate" type="date-time"><description>When the signal was captured.</description></field>
     </entity>
 
     <!-- ============================ 7. Knowledge base =====================================

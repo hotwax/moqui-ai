@@ -5,11 +5,11 @@
     <parameter name="conversationId"/>
 
     <actions>
-        <entity-find entity-name="moqui.ai.AiConversation" list="convList">
+        <entity-find entity-name="moqui.ai.AiConversationActivity" list="convList">
             <order-by field-name="-lastActivityDate"/>
         </entity-find>
         <if condition="conversationId">
-            <entity-find-one entity-name="moqui.ai.AiConversation" value-field="conv"/>
+            <entity-find-one entity-name="moqui.ai.AiConversationActivity" value-field="conv"/>
             <entity-find entity-name="moqui.ai.AiConversationMessage" list="msgList">
                 <econdition field-name="conversationId"/>
                 <order-by field-name="messageSeqId"/>
@@ -73,7 +73,7 @@
                             <field name="messageSeqId"><default-field title="Seq"><display/></default-field></field>
                             <field name="role"><default-field title="Role"><display/></default-field></field>
                             <field name="content"><default-field title="Content"><display/></default-field></field>
-                            <field name="fromDate"><default-field title="At"><display/></default-field></field>
+                            <field name="createdDate"><default-field title="At"><display/></default-field></field>
                         </form-list>
                     </box-body>
                 </container-box>

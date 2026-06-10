@@ -73,7 +73,7 @@ class AgentRunner {
                       servedProviderName: primary.providerName as String, providerRunId: null, estimatedCost: 0G]
         persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentId: agentId,
             agentName: agent.agentName, conversationId: conversationId,
-            userId: ec.user.userId, fromDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
+            userId: ec.user.userId, startedDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
             isPreview: (forceApprovalOnMutating ? "Y" : null),
             providerName: primary.providerName, modelName: primary.modelName, userMessage: userMessage])
 
@@ -178,7 +178,7 @@ class AgentRunner {
                 for (Map fa in (call.failedAttempts as List<Map>)) {   // observability for each skipped candidate
                     stepSeq++
                     persist("create#moqui.ai.AiAgentRunStep", [agentRunId: runId, stepSeqId: stepSeq as String,
-                        stepType: "llm_call_failed", finishReason: "provider_error:${fa.providerName}:${fa.modelName}" as String])
+                        stepType: "llm_call", success: "N", finishReason: "provider_error:${fa.providerName}:${fa.modelName}" as String])
                 }
                 Map resp = call.resp as Map
                 long inTok = (resp.tokensIn ?: 0L) as long
@@ -188,7 +188,7 @@ class AgentRunner {
                 if (resp.structuredResult != null) result.structuredResult = resp.structuredResult
                 stepSeq++
                 persist("create#moqui.ai.AiAgentRunStep", [agentRunId: runId, stepSeqId: stepSeq as String,
-                    stepType: "llm_call", tokensIn: inTok, tokensOut: outTok, finishReason: resp.finishReason])
+                    stepType: "llm_call", success: "Y", tokensIn: inTok, tokensOut: outTok, finishReason: resp.finishReason])
 
                 if (maxTokens > 0 && ((result.tokensIn as long) + (result.tokensOut as long)) > maxTokens)
                     return finish(result, runId, conversationId, "AI_RUN_ABORTED", "Per-run token ceiling exceeded")
@@ -456,7 +456,6 @@ class AgentRunner {
                         agentRunId : agentRunId,
                         stepSeqId  : ec.entity.sequencedIdPrimary('moqui.ai.AiAgentRunStep', null, null),
                         stepType   : 'context_trim',
-                        fromDate   : ec.user.nowTimestamp,
                         finishReason: "knowledge_cap: dropped ${dropped.size()} topic(s): ${dropped.join(', ')}"
                     ]).call()
                 } catch (Throwable t2) { ec.logger.warn("Could not record knowledge_cap trim step: ${t2.message}") }
@@ -539,20 +538,18 @@ class AgentRunner {
         return schemas
     }
 
-    /** Finalize: set status + truncated on the result Map, persist the run update, bump the
-     *  conversation's lastActivityDate when present, return it. */
+    /** Finalize: set status + truncated on the result Map, persist the run update, return it.
+     *  (lastActivityDate is derived via the AiConversationActivity view-entity, not stored.) */
     private Map finish(Map result, String runId, String conversationId, String statusId, String errorText) {
         result.statusId = statusId
         result.truncated = (statusId == "AI_RUN_TRUNCATED")
         result.estimatedCost = estimateCost(result.servedProviderName as String, result.servedByModelId as String,
             result.tokensIn as long, result.tokensOut as long)
-        persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, thruDate: ec.user.nowTimestamp,
+        persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, endedDate: ec.user.nowTimestamp,
             statusId: statusId, assistantMessage: result.assistantMessage, iterations: result.iterations,
             tokensIn: result.tokensIn, tokensOut: result.tokensOut, errorText: errorText,
             providerName: result.servedProviderName, servedByModelId: result.servedByModelId,
             providerRunId: result.providerRunId, estimatedCost: result.estimatedCost])
-        if (conversationId) persist("update#moqui.ai.AiConversation",
-            [conversationId: conversationId, lastActivityDate: ec.user.nowTimestamp])
         return result
     }
 
@@ -581,7 +578,7 @@ class AgentRunner {
             v.setSequencedIdSecondary()
             v.setAll([role: msg.role, content: msg.content, toolCallId: msg.toolCallId,
                 toolCalls: msg.toolCalls != null ? JsonOutput.toJson(msg.toolCalls) : null,
-                agentRunId: runId, fromDate: ec.user.nowTimestamp])
+                agentRunId: runId, createdDate: ec.user.nowTimestamp])
             v.create()
         } catch (Throwable t) { logger.warn("Conversation message persist failed (continuing): ${t.message}") }
     }

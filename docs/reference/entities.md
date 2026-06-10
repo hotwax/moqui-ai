@@ -179,8 +179,8 @@ invocation. Append-only audit.
 | `agentId` | `id` | The agent that produced this run (FK by id). |
 | `agentName` | `text-short` | **Denormalized snapshot** of the agent's label *at run time*, so history reads correctly after a rename. |
 | `userId` | `id` | The signed-in user the run executed as. |
-| `fromDate` | `date-time` | Run start. |
-| `thruDate` | `date-time` | Run end. |
+| `startedDate` | `date-time` | Run start. |
+| `endedDate` | `date-time` | Run end; null while RUNNING/SUSPENDED. Duration = `endedDate − startedDate` (derived, not stored). |
 | `statusId` | `id` | → `AiAgentRunStatus`: `AI_RUN_RUNNING | AI_RUN_COMPLETED | AI_RUN_FAILED | AI_RUN_TRUNCATED | AI_RUN_ABORTED | AI_RUN_SUSPENDED`. |
 | `providerName` | `text-short` | Configured provider for the run. |
 | `modelName` | `text-medium` | Configured primary model. |
@@ -220,11 +220,10 @@ context operation, or failed provider call.
 |---|---|---|
 | `agentRunId` | `id` (PK) | Owning run. |
 | `stepSeqId` | `id` (PK) | Step sequence within the run. |
-| `stepType` | `text-short` | `llm_call | tool_call | llm_call_failed | context_trim | compaction`. |
-| `fromDate` | `date-time` | Step start. |
-| `thruDate` | `date-time` | Step end. |
+| `stepType` | `text-short` | The kind of step: `llm_call | context_trim | compaction`. (Outcome lives in `success`; a failed llm call is `stepType=llm_call`, `success=N`.) |
 | `tokensIn` | `number-integer` | Step input tokens. |
 | `tokensOut` | `number-integer` | Step output tokens. |
+| `success` | `text-indicator` | `Y/N` outcome of an `llm_call` step (a failed failover attempt = `N`). Null/Y for non-call steps. |
 | `finishReason` | `text-short` | Provider finish reason for the step. |
 
 - **Relationships:** `run` → `moqui.ai.AiAgentRun`.
@@ -318,14 +317,17 @@ Carries the **rolling-summary** (compaction) state.
 | `agentId` | `id` | The agent this conversation belongs to (by id). |
 | `userId` | `id` | The owning user. |
 | `title` | `text-medium` | Display title. |
-| `fromDate` | `date-time` | Conversation start. |
-| `lastActivityDate` | `date-time` | Last activity. |
+| `createdDate` | `date-time` | When the conversation was created. |
 | `summaryText` | `text-very-long` | ADR 0001 Phase 2: rolling summary of turns older than `summaryThruMessageSeqId` (compaction). |
 | `summaryThruMessageSeqId` | `id` | Watermark: `messageSeqId` of the newest message already folded into `summaryText`. |
 | `statusId` | `id` | → `AiConversationStatus`: `AI_CONV_ACTIVE | AI_CONV_CLOSED`. |
 
 - **Relationships:** `agent` → `moqui.ai.AiAgent` (`one-nofk`); `status` →
   `moqui.basic.StatusItem`.
+
+> **Last activity is derived, not stored.** The former `lastActivityDate` column was dropped
+> (*derive, don't denormalize*): the `AiConversationActivity` view-entity exposes
+> `lastActivityDate = MAX(AiConversationMessage.createdDate)`, which the Conversations screen sorts on.
 
 ---
 
@@ -345,7 +347,7 @@ replayed on the next call.
 | `toolCalls` | `text-very-long` | JSON of `List<Map>` when an assistant turn requested tools. |
 | `toolCallId` | `text-medium` | Set when `role = tool`. |
 | `agentRunId` | `id` | Which run produced this message. |
-| `fromDate` | `date-time` | Message timestamp. |
+| `createdDate` | `date-time` | When this message-part was recorded. |
 
 - **Relationships:** `conversation` → `moqui.ai.AiConversation`.
 
@@ -489,7 +491,7 @@ what the human kept, per authoring event. Feeds the promote-terms-from-signals l
 | `chosenName` | `text-medium` | What the human kept. |
 | `wasOverridden` | `text-indicator` | `Y` if `chosen != suggested`. |
 | `userId` | `id` | Who authored. |
-| `fromDate` | `date-time` | When captured. |
+| `createdDate` | `date-time` | When the signal was captured. |
 
 - **Relationships:** none declared.
 

@@ -174,13 +174,13 @@ screen; clicking a run drills into **RunDetail**.
 the sibling `RunDetail` screen (`url="../RunDetail"`, passing `agentRunId`).
 
 **Behavior / widgets:**
-- Loads `AiAgentRun` via `<search-form-inputs default-order-by="-fromDate">` so the
+- Loads `AiAgentRun` via `<search-form-inputs default-order-by="-startedDate">` so the
   header fields drive filtering and ordering.
 - `RunList` (header-dialog, paged) columns: **Run** (`agentRunId`, a drill-in link),
   **Agent** (`agentName`), **Status** (`statusId`, filterable via a drop-down of
   `StatusItem` where `statusTypeId = AiAgentRunStatus`, displayed by description),
   **Model** (`servedByModelId`), **Provider** (`providerName`), **Started**
-  (`fromDate`, with a date-period filter), **Iters** (`iterations`), **In**/**Out**
+  (`startedDate`, with a date-period filter), **Iters** (`iterations`), **In**/**Out**
   (`tokensIn`/`tokensOut`), and **Cost** (`estimatedCost`).
 
 **Backing services:** none (entity reads only — `AiAgentRun`, `moqui.basic.StatusItem`).
@@ -198,7 +198,7 @@ via the drill-in from **Runs** and from **Approvals**.
 **Behavior / widgets:**
 - Loads the `AiAgentRun`. Header box shows status/iterations/tokens/cost, then a line
   with provider / `servedByModelId` / `providerRunId`, then started/ended
-  (`fromDate`/`thruDate`).
+  (`startedDate`/`endedDate`).
 - **Conversation** box: the user message and assistant message, plus an **Error**
   sub-section rendered only when `run.errorText` is set.
 - The shared **`AiRunTrace`** include for the step + tool-call trace.
@@ -278,7 +278,8 @@ full message history.
 open the detail section.
 
 **Behavior / widgets:**
-- Always lists `AiConversation` (ordered `-lastActivityDate`): **Conversation**
+- Always lists the `AiConversationActivity` view-entity (ordered `-lastActivityDate`, a
+  derived `MAX(AiConversationMessage.createdDate)`): **Conversation**
   (`conversationId`, a self-link), **Agent** (`agentName`), **Title**, **Status**
   (`statusId`, displayed via `StatusItem` description), **Last Activity**
   (`lastActivityDate`).
@@ -289,7 +290,7 @@ open the detail section.
   - **Rolling summary** box (only when `conv.summaryText` is set): the summary text plus
     "(summarized through message `${conv.summaryThruMessageSeqId}`)".
   - **Pinned facts** box (only when facts exist): a `factKey` / `factValue` list.
-  - **Messages** box: a list of `messageSeqId` / `role` / `content` / `fromDate`.
+  - **Messages** box: a list of `messageSeqId` / `role` / `content` / `createdDate`.
 
 **Backing services:** none (entity reads only — `AiConversation`,
 `AiConversationMessage`, `AiConversationFact`, `moqui.basic.StatusItem`).

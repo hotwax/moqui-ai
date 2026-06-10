@@ -13,7 +13,7 @@
             <box-body>
                 <label text="Status: ${run.statusId} · iterations: ${run.iterations} · tokens: ${run.tokensIn}/${run.tokensOut} · cost: $${run.estimatedCost}"/>
                 <label text="Provider: ${run.providerName} · served by: ${run.servedByModelId} · provider run id: ${run.providerRunId}"/>
-                <label text="Started: ${run.fromDate} · ended: ${run.thruDate}"/>
+                <label text="Started: ${run.startedDate} · ended: ${run.endedDate}"/>
             </box-body>
         </container-box>
 

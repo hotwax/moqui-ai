@@ -267,7 +267,7 @@ rather than re-probing the broken primary each turn.
 **How it helps.**
 - An ordered candidate chain (`AiAgentModel`, by `priority`); a single-model agent just works with
   no chain.
-- **Sticky** failover, with each skipped candidate recorded as an `llm_call_failed` step.
+- **Sticky** failover, with each skipped candidate recorded as a failed `llm_call` step (`success=N`).
 - Cost and history are stamped against the model that *actually* served the run.
 
 **Where it lives.** Developer: `AiAgentModel` rows; see
@@ -311,7 +311,7 @@ in order.
 **Workflow.**
 ```mermaid
 flowchart LR
-    RUN[AiAgentRun] --> STEP[AiAgentRunStep<br/>llm_call · tool_call · failover · trim]
+    RUN[AiAgentRun] --> STEP[AiAgentRunStep<br/>llm_call success Y/N · context_trim · compaction]
     STEP --> TC[AiToolCall<br/>args · result · timing]
     RUN --> COST[estimatedCost off the served model's price]
     COST --> SPEND[get#AiSpend — grouped by agent/user]

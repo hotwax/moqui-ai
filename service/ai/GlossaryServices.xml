@@ -142,7 +142,7 @@
             <set field="overridden" from="(suggestedName != null &amp;&amp; suggestedName != chosenName) ? 'Y' : 'N'"/>
             <service-call name="create#moqui.ai.AiNamingSignal" in-map="[signalId: signalId, signalType: signalType,
                 intentText: intentText, suggestedName: suggestedName, chosenName: chosenName,
-                wasOverridden: overridden, userId: ec.user.userId, fromDate: ec.user.nowTimestamp]"/>
+                wasOverridden: overridden, userId: ec.user.userId, createdDate: ec.user.nowTimestamp]"/>
         </actions>
     </service>
 

@@ -15,6 +15,7 @@
             <field name="tokensIn"><default-field title="In"><display/></default-field></field>
             <field name="tokensOut"><default-field title="Out"><display/></default-field></field>
             <field name="finishReason"><default-field title="Finish"><display/></default-field></field>
+            <field name="success"><default-field title="OK"><display/></default-field></field>
         </form-list>
         <form-list name="ToolCalls" list="callList" skip-form="true">
             <field name="toolName"><default-field title="Tool"><display/></default-field></field>

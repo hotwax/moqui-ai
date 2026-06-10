@@ -161,7 +161,7 @@ class AiEntitiesTests extends Specification {
         ec.artifactExecution.disableAuthz()
         String cid = "CONVSUM1"
         ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: cid, agentId: "A",
-            fromDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE",
+            createdDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE",
             summaryText: "earlier: customer wants 3 units", summaryThruMessageSeqId: "00007"]).create()
         when:
         def c = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", cid).one()
@@ -178,7 +178,7 @@ class AiEntitiesTests extends Specification {
         ec.artifactExecution.disableAuthz()
         ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
         ec.entity.makeValue("moqui.ai.AiAgentRun").setAll([agentRunId: "RUNAPPR1", agentId: "RUNAPPR_AG", agentName: "A",
-            statusId: "AI_RUN_SUSPENDED", pendingState: '{"messages":[]}', fromDate: ec.user.nowTimestamp]).create()
+            statusId: "AI_RUN_SUSPENDED", pendingState: '{"messages":[]}', startedDate: ec.user.nowTimestamp]).create()
         ec.entity.makeValue("moqui.ai.AiToolApproval").setAll([approvalId: "APPR1", agentRunId: "RUNAPPR1",
             toolCallId: "c1", toolName: "x", arguments: "{}", statusId: "AI_APPR_PENDING",
             requestedDate: ec.user.nowTimestamp]).create()
