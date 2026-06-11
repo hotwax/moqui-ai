@@ -27,6 +27,10 @@
         artifactName="ai\..*" artifactTypeEnumId="AT_SERVICE" nameIsPattern="Y"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
         artifactName="notnaked\.OmsAiServices\..*" artifactTypeEnumId="AT_SERVICE" nameIsPattern="Y"/>
+    <!-- Service REST facade (service/ai.rest.xml): the /ai root resource itself must be authorized
+         for the path check in RestApi.run; the services/entities it calls are members above. -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
+        artifactName="/ai" artifactTypeEnumId="AT_REST_PATH" inheritAuthz="Y"/>
     <!-- ALLOW all actions to every authenticated user. NOTE: in this framework version ArtifactAuthz has no
          inheritAuthz column, so authz does NOT auto-cascade to nested artifacts — each entity/service the
          screens touch must be listed as a group member above (moqui.ai.*, ai.*, moqui.basic.Status.*,
