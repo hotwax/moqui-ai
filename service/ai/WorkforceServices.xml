@@ -28,7 +28,11 @@
                 for (def a in ec.entity.find("moqui.ai.AiAgent").list()) agentNames[a.agentId] = a.agentName
                 def userNames = [:]
                 def userIds = convs.collect { it.userId }.findAll { it }.unique()
-                if (userIds) for (def u in ec.entity.find("moqui.security.UserAccount").condition("userId", "in", userIds).list())
+                // disableAuthz + explicit safe fields: a plain authenticated operator isn't granted View on
+                // moqui.security.UserAccount (which also holds password hashes). The service is the controlled
+                // boundary — it reads only the display name, never credential fields.
+                if (userIds) for (def u in ec.entity.find("moqui.security.UserAccount").condition("userId", "in", userIds)
+                        .selectField("userId").selectField("username").selectField("userFullName").disableAuthz().list())
                     userNames[u.userId] = (u.userFullName ?: u.username)
                 def latestRun = [:]
                 def convIds = convs.collect { it.conversationId }
@@ -80,7 +84,9 @@
             <if condition="conv == null"><return error="true" message="Unknown conversation ${conversationId}"/></if>
             <script><![CDATA[
                 conversation = conv.getMap()
-                def ua = conv.userId ? ec.entity.find("moqui.security.UserAccount").condition("userId", conv.userId).one() : null
+                // disableAuthz + safe fields only — see list#Conversation note (UserAccount holds password hashes).
+                def ua = conv.userId ? ec.entity.find("moqui.security.UserAccount").condition("userId", conv.userId)
+                        .selectField("userId").selectField("username").selectField("userFullName").disableAuthz().one() : null
                 conversation.userFullName = ua?.userFullName ?: ua?.username
                 def agentEv = ec.entity.find("moqui.ai.AiAgent").condition("agentId", conv.agentId).one()
                 agent = agentEv != null ? [agentId: agentEv.agentId, agentName: agentEv.agentName, statusId: agentEv.statusId] : null
