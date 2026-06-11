@@ -25,6 +25,11 @@ class AgentRunner {
      *  real data with nothing irreversible executed (mutating calls suspend via the normal gate). */
     private boolean forceApprovalOnMutating = false
 
+    /** Per-run approval overrides from AiAgentTool grants (toolName -> 'Y'/'N'), loaded with the
+     *  tool schemas. Effective gating = the override when set (either direction — explicit
+     *  per-grant trust, ADR revision 2026-06-11), else the catalog tool default. */
+    private Map<String, String> approvalOverrides = [:]
+
     AgentRunner(ExecutionContext ec, AiToolFactory ai) { this.ec = ec; this.ai = ai }
 
     /** Phase 1 entry — stateless single turn. */
@@ -213,7 +218,7 @@ class AgentRunner {
                 List<Map> needApproval = (toolCalls as List<Map>).findAll { Map tc ->
                     Map td = ai.getToolByName(tc.name as String)
                     if (td == null) return false
-                    if (td.requiresApproval) return true
+                    if (toolRequiresApproval(tc.name as String)) return true
                     // preview: force-gate any MUTATING tool so a draft never executes a write on real data
                     return forceApprovalOnMutating && (td.effectEnumId == "AI_TOOL_MUTATING")
                 }
@@ -288,7 +293,7 @@ class AgentRunner {
         // production caller (decide#ToolCallRequest) only resumes once the last approval is decided; this guards
         // misuse / a double-fired decide, making a premature resume a safe no-op (not consume-and-deny).
         boolean anyUndecided = turnToolCalls.any { tc ->
-            if (!ai.getToolByName(tc.name as String)?.requiresApproval) return false   // non-gated: no approval needed
+            if (!toolRequiresApproval(tc.name as String)) return false   // non-gated: no approval needed
             String s = approvals.get(tc.id as String)?.statusId
             return s != "AI_TCREQ_APPROVED" && s != "AI_TCREQ_REJECTED"
         }
@@ -526,6 +531,7 @@ class AgentRunner {
     /** Build the agent's granted tools as a List of toolSchema Maps (wire name = toolName). */
     private List<Map> loadToolSchemas(String agentId) {
         List<Map> schemas = []
+        approvalOverrides = [:]
         for (EntityValue grant in ec.entity.find("moqui.ai.AiAgentTool")
                 .condition("agentId", agentId).useCache(false).list()) {   // fresh: the Composer grants tools to agents at runtime; a stale grant list would hide a just-granted capability
             Map td = ai.getToolById(grant.toolId as String)
@@ -533,9 +539,18 @@ class AgentRunner {
                 logger.warn("Agent ${agentId} grants unknown/ineligible tool ${grant.toolId}; skipping")
                 continue
             }
+            if (grant.requiresApprovalOverride)
+                approvalOverrides.put(td.toolName as String, grant.requiresApprovalOverride as String)
             schemas.add([name: td.toolName, description: td.description, parameters: td.schema])
         }
         return schemas
+    }
+
+    /** Effective approval gate for a tool in THIS run: per-grant override wins, else catalog default. */
+    private boolean toolRequiresApproval(String toolName) {
+        String ov = approvalOverrides.get(toolName)
+        if (ov != null) return ov == "Y"
+        return (ai.getToolByName(toolName)?.requiresApproval) as boolean
     }
 
     /** Finalize: set status + truncated on the result Map, persist the run update, return it.

@@ -111,7 +111,7 @@
         <in-parameters>
             <parameter name="agentId" required="true"/>
             <parameter name="toolId" required="true"/>
-            <parameter name="requiresApprovalOverride"><description>Optional Y/N — stricter than the tool default.</description></parameter>
+            <parameter name="requiresApprovalOverride"><description>Optional Y/N — overrides the tool default in either direction.</description></parameter>
         </in-parameters>
         <out-parameters><parameter name="agentId"/><parameter name="toolId"/></out-parameters>
         <actions>

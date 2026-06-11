@@ -178,9 +178,10 @@
         </actions>
     </service>
 
-    <!-- Set per-grant approval strictness on a draft (decision: an agent can be STRICTER than the tool
-         default, never looser — a read-only tool stays runnable; only mutating gets gated). Writes the
-         keystone's AiAgentTool.requiresApprovalOverride. -->
+    <!-- Set per-grant approval strictness on a draft. Explicit per-grant trust in EITHER direction
+         (ADR revision 2026-06-11): an agent can be stricter than the tool default, or loosen a gated
+         tool when the composer explicitly trusts it — preview still force-gates all mutating tools.
+         Writes the keystone's AiAgentTool.requiresApprovalOverride. -->
     <service verb="set" noun="Guardrail" authenticate="true">
         <in-parameters>
             <parameter name="agentId" required="true"/>

@@ -310,4 +310,70 @@ class AiApprovalTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "ApprAgentA1").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "a grant override N loosens a gated tool so the run completes without suspension"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiTestToolData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "OvrAgentN", agentName: "OvrAgentN", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentId: "OvrAgentN", toolId: "TL_GATED",
+                requiresApprovalOverride: "N"]).createOrUpdate()
+        })
+        ai.refreshCatalog()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
+        MockProvider.enqueue([assistantText: "ran without approval", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "OvrAgentN", userMessage: "go"]).call()
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        // never suspended: no approval request rows, and the gated tool executed
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).list().isEmpty()
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "OvrAgentN").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "OvrAgentN").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "a grant override Y tightens a non-gated tool so the run suspends"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiTestToolData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "OvrAgentY", agentName: "OvrAgentY", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentId: "OvrAgentY", toolId: "TL_ECHO",
+                requiresApprovalOverride: "Y"]).createOrUpdate()
+        })
+        ai.refreshCatalog()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "c1", name: "get_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
+        MockProvider.enqueue([assistantText: "should not reach here", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "OvrAgentY", userMessage: "go"]).call()
+        then:
+        out.statusId == "AI_RUN_SUSPENDED"
+        out.awaitingApproval == true
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).list().isEmpty()
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId)
+            .condition("statusId", "AI_TCREQ_PENDING").list().size() == 1
+        cleanup:
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "OvrAgentY").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "OvrAgentY").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }
