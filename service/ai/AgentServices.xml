@@ -46,7 +46,11 @@
                 structuredResult = r.structuredResult
                 awaitingApproval = r.awaitingApproval
                 approvalIds = r.approvalIds
-            ]]></script>
+            ]]>
+
+
+
+            </script>
         </actions>
     </service>
 
