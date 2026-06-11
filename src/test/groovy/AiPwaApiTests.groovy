@@ -93,4 +93,60 @@ class AiPwaApiTests extends Specification {
         gated != null
         gated.requiresApproval == "Y"
     }
+
+    def "workforce list and detail derive statuses and parse tool calls"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        ec.transaction.runRequireNew(30, "setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiConversationStatusData.xml").load()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "WfAgent", agentName: "WfAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "x", statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+            // conversation 1: completed run, user + tool-call + assistant messages
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: "WfConv1", agentId: "WfAgent",
+                userId: "AiTestUser", title: "First", createdDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentRun").setAll([agentRunId: "WfRun1", agentId: "WfAgent", agentName: "WfAgent",
+                conversationId: "WfConv1", userId: "AiTestUser", startedDate: ec.user.nowTimestamp, statusId: "AI_RUN_COMPLETED"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversationMessage").setAll([conversationId: "WfConv1", messageSeqId: "01",
+                role: "user", content: "hello", agentRunId: "WfRun1", createdDate: ec.user.nowTimestamp]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversationMessage").setAll([conversationId: "WfConv1", messageSeqId: "02",
+                role: "assistant", toolCalls: '[{"id":"c1","name":"get_echo","arguments":{"text":"hi"}}]',
+                agentRunId: "WfRun1", createdDate: ec.user.nowTimestamp]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversationMessage").setAll([conversationId: "WfConv1", messageSeqId: "03",
+                role: "assistant", content: "done", agentRunId: "WfRun1", createdDate: ec.user.nowTimestamp]).createOrUpdate()
+            // conversation 2: suspended run with one pending request
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: "WfConv2", agentId: "WfAgent",
+                userId: "AiTestUser", title: "Second", createdDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentRun").setAll([agentRunId: "WfRun2", agentId: "WfAgent", agentName: "WfAgent",
+                conversationId: "WfConv2", userId: "AiTestUser", startedDate: ec.user.nowTimestamp, statusId: "AI_RUN_SUSPENDED"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiToolCallRequest").setAll([toolCallRequestId: "WfReq1", agentRunId: "WfRun2",
+                stepSeqId: "1", toolCallId: "c9", toolName: "get_gated_echo", serviceName: "moqui.ai.test.TestServices.get#GatedEcho",
+                arguments: '{"text":"x"}', statusId: "AI_TCREQ_PENDING", requestedByUserId: "AiTestUser",
+                requestedDate: ec.user.nowTimestamp]).createOrUpdate()
+        })
+        when:
+        Map listOut = ec.service.sync().name("ai.WorkforceServices.list#Conversation").parameters([:]).call()
+        Map pendingOnly = ec.service.sync().name("ai.WorkforceServices.list#Conversation").parameters([derivedStatus: "pending"]).call()
+        Map detail = ec.service.sync().name("ai.WorkforceServices.get#ConversationDetail").parameters([conversationId: "WfConv1"]).call()
+        Map detail2 = ec.service.sync().name("ai.WorkforceServices.get#ConversationDetail").parameters([conversationId: "WfConv2"]).call()
+        then:
+        def row1 = (listOut.conversationList as List).find { it.conversationId == "WfConv1" }
+        def row2 = (listOut.conversationList as List).find { it.conversationId == "WfConv2" }
+        row1.derivedStatus == "idle"
+        row1.agentName == "WfAgent"
+        row2.derivedStatus == "pending"
+        row2.pendingToolName == "get_gated_echo"
+        (pendingOnly.conversationList as List).every { it.derivedStatus == "pending" }
+        (detail.messageList as List).size() == 3
+        (detail.messageList as List)[1].toolCalls[0].name == "get_echo"
+        detail.latestRun.statusId == "AI_RUN_COMPLETED"
+        (detail.pendingRequestList as List).isEmpty()
+        (detail2.pendingRequestList as List)[0].toolCallRequestId == "WfReq1"
+        cleanup:
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("toolCallRequestId", "WfReq1").deleteAll()
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", "in", ["WfConv1", "WfConv2"]).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", "in", ["WfRun1", "WfRun2"]).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", "in", ["WfConv1", "WfConv2"]).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "WfAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }
