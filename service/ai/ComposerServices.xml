@@ -21,7 +21,7 @@
             <entity-find entity-name="moqui.ai.AiTool" list="toolList">
                 <econdition field-name="exposable" value="Y"/>
                 <econdition field-name="statusId" value="AI_TOOL_ACTIVE"/>
-                <select-field field-name="toolId,toolName,verb,noun,description,effectEnumId,exposable,statusId"/>
+                <select-field field-name="toolId,toolName,verb,noun,description,effectEnumId,exposable,requiresApproval,statusId"/>
                 <order-by field-name="toolName"/>
             </entity-find>
             <set field="capabilityList" from="[]"/>
