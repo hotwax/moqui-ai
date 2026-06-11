@@ -74,6 +74,17 @@ class AiPwaApiTests extends Specification {
         out.defaultModelName != null
     }
 
+    def "enhance#Instructions rewrites via the provider and returns the text"() {
+        given:
+        MockProvider.reset()
+        MockProvider.enqueue([assistantText: "ENHANCED PROMPT", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = ec.service.sync().name("ai.ComposerServices.enhance#Instructions")
+            .parameters([instructions: "help with orders", providerName: "mock", modelName: "mock-1"]).call()
+        then:
+        out.enhancedInstructions == "ENHANCED PROMPT"
+    }
+
     def "find#Capability exposes the requiresApproval default"() {
         when:
         Map out = ec.service.sync().name("ai.ComposerServices.find#Capability").parameters([query: "gated"]).call()
