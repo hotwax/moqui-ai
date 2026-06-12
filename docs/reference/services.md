@@ -35,9 +35,10 @@ lives in `org.moqui.ai.*` Groovy classes (notably `AgentRunner`, `AiToolFactory`
 
 | File | Domain | Services |
 |---|---|---|
-| `AgentServices.xml` | Agent execution + authoring | `run#Agent`, `store#AiAgent`, `store#AiAgentTool`, `create#Conversation` |
+| `AgentServices.xml` | Agent execution + authoring | `run#Agent`, `store#AiAgent`, `store#AiAgentTool`, `create#Conversation`, `get#AgentDetail`, `list#Model` |
 | `ToolServices.xml` | Tool authoring (catalog) | `store#AiTool` |
-| `ComposerServices.xml` | Composer assistant meta-tools | `find#Capability`, `describe#Capability`, `list#DomainTerm`, `propose#Naming`, `set#Guardrail`, `request#Capability`, `preview#Agent`, `activate#Agent`, `discard#Draft` |
+| `ComposerServices.xml` | Composer assistant meta-tools | `find#Capability`, `describe#Capability`, `list#DomainTerm`, `propose#Naming`, `set#Guardrail`, `request#Capability`, `preview#Agent`, `activate#Agent`, `discard#Draft`, `enhance#Instructions` |
+| `WorkforceServices.xml` | PWA Workforce read aggregates | `list#Conversation`, `get#ConversationDetail` |
 | `ToolCallRequestServices.xml` | Human approval gate | `approve#ToolCallRequest`, `reject#ToolCallRequest`, `decide#ToolCallRequest`, `get#PendingToolCallRequest` |
 | `CostServices.xml` | Pricing + spend | `store#AiModelPrice`, `get#AiSpend` |
 | `FactServices.xml` | Conversation pinned facts | `remember#Fact` |
@@ -171,7 +172,7 @@ Grant a catalog tool to an agent — the Composer's `grant_capability` backing s
 |---|---|---|---|
 | `agentId` | String | yes | |
 | `toolId` | String | yes | |
-| `requiresApprovalOverride` | String | — | Optional `Y`/`N` — stricter than the tool's own default. |
+| `requiresApprovalOverride` | String | — | Optional `Y`/`N` — overrides the tool's own default in either direction (D14). |
 
 **Out parameters:** `agentId`, `toolId`.
 
@@ -208,6 +209,30 @@ Create a conversation for an agent.
 2. Sequences a `conversationId` and calls `create#moqui.ai.AiConversation` with `agentId`,
    `title`, `userId = ec.user.userId`, `createdDate = ec.user.nowTimestamp`, and
    `statusId = AI_CONV_ACTIVE`.
+
+### `get#AgentDetail`
+
+One agent plus its grants with resolved approval flags — the company-app PWA's Composer/Workforce
+read (`GET /rest/s1/ai/agents/{agentId}`).
+
+- **Auth:** `authenticate="true"` · **Transaction:** framework default.
+
+**In parameters:** `agentId` (required).
+
+**Out parameters:** `agent` (Map of the `AiAgent` row); `toolList` (List — each entry: `toolId`,
+`toolName`, `description`, `effectEnumId`, `requiresApproval` (tool default), `requiresApprovalOverride`,
+`effectiveRequiresApproval` = override ?: default ?: `N`).
+
+### `list#Model`
+
+Model + reasoning options for the PWA Composer dropdowns (`GET /rest/s1/ai/models`).
+
+- **Auth:** `authenticate="true"` · **Transaction:** framework default.
+
+**Out parameters:** `modelList` (each: `providerName`, `modelName` — current `AiModelPrice` rows for
+registered providers plus the configured default); `defaultProviderName`, `defaultModelName`
+(`ai_default_provider`/`ai_default_model`); `reasoningEffortList` (`none|low|medium|high`).
+`mock` is offered only when it is the sole registered provider (dev without keys).
 
 ---
 
@@ -378,8 +403,10 @@ Wire-safe by construction; never aborts the build.
 
 ### `set#Guardrail`
 
-Set per-grant approval strictness on a draft. An agent can be **stricter** than the tool default,
-never looser. Writes `AiAgentTool.requiresApprovalOverride`.
+Set per-grant approval strictness on a draft. Explicit per-grant trust in **either** direction
+(D14): an agent can be stricter than the tool default, or loosen a gated tool when the composer
+explicitly trusts it — preview still force-gates all mutating tools. Writes
+`AiAgentTool.requiresApprovalOverride`.
 
 - **Auth:** `authenticate="true"` · **Transaction:** framework default.
 
@@ -472,6 +499,73 @@ approvals). This is what keeps abandoned preview approvals out of the operator q
    `AiAgentRunStep` has a real FK to `AiAgentRun`).
 3. Deletes every `AiAgentTool` grant via `delete#moqui.ai.AiAgentTool`.
 4. Deletes the agent via `delete#moqui.ai.AiAgent`.
+
+### `enhance#Instructions`
+
+The PWA Composer "Enhance" button: rewrite rough instructions into a clear, structured agent
+system prompt via the configured LLM (`POST /rest/s1/ai/instructions/enhance`). Stateless —
+returns the rewrite only, never persists.
+
+- **Auth:** `authenticate="true"` · **Transaction:** framework default.
+
+**In parameters:** `instructions` (required), `agentName` (optional, woven into the prompt),
+`providerName`/`modelName` (optional — tests pass `mock`; default resolved from configured keys
+like `propose#Naming`: openai if `ai_openai_key`, else anthropic if `ai_anthropic_key`, else error).
+
+**Out parameters:** `enhancedInstructions`. Provider failure or empty text → error message,
+instructions left unchanged.
+
+---
+
+## `WorkforceServices.xml` — `ai.WorkforceServices`
+
+Experience layer for the company-app Workforce screen: purposeful read aggregates so the PWA
+renders the inbox and a thread in one call each. Reads only; all mutations go through
+`AgentServices` / `ToolCallRequestServices`. Company-wide by design (decision 2026-06-11):
+conversations from **all** users are listed; `AI_OPERATOR` scoping is a follow-up.
+
+### `list#Conversation`
+
+Workforce inbox (`GET /rest/s1/ai/conversations`): all conversations, newest activity first
+(via the `AiConversationActivity` view), each with `agentName`, the owning `userId`/`userFullName`,
+`lastActivityDate`, `derivedStatus`, and `pendingToolName`.
+
+- **Auth:** `authenticate="true"` · **Transaction:** framework default.
+
+**In parameters:** `derivedStatus` (optional filter `pending|running|error|idle`),
+`pageSize` (default 50), `pageIndex` (default 0).
+
+**Out parameters:** `conversationList`.
+
+**Status derivation** (from the conversation's latest run): `AI_RUN_SUSPENDED` → `pending`
+(+ first pending request's `toolName`); `AI_RUN_RUNNING` → `running`;
+`AI_RUN_FAILED|ABORTED|TRUNCATED` → `error`; otherwise (or no runs) → `idle`. Enrichment is
+batched (one query each for agents, users, runs, pending requests) — no per-row lookups.
+
+### `get#ConversationDetail`
+
+One thread (`GET /rest/s1/ai/conversations/{conversationId}`): conversation (+ `userFullName`),
+agent info, ordered messages with `toolCalls` JSON parsed to a List, the latest run's
+`statusId`/`errorText`, and pending `AiToolCallRequest` rows awaiting decision.
+
+- **Auth:** `authenticate="true"` · **Transaction:** framework default.
+
+**In parameters:** `conversationId` (required).
+
+**Out parameters:** `conversation`, `agent` (`agentId`, `agentName`, `statusId`), `messageList`
+(each: `messageSeqId`, `role`, `content`, `toolCalls` List|null, `toolCallId`, `agentRunId`,
+`createdDate`), `latestRun` (null when no runs), `pendingRequestList` (each: `toolCallRequestId`,
+`toolName`, `serviceName`, `arguments`).
+
+---
+
+## `ai.rest.xml` — Service REST facade
+
+`service/ai.rest.xml` exposes the above under `/rest/s1/ai` for the company-app PWA: `agents`
+(list/create/detail/update, `tools` grant/revoke, `preview`, `activate`), `tools` (capability
+search), `models`, `instructions/enhance`, `conversations` (inbox/create/detail/`messages` run),
+`toolCallRequests` (pending queue, `approve`/`reject`). The `/ai` root path is authorized for
+`ALL_USERS` via `data/AiSecurityData.xml` (`AT_REST_PATH` member of `AI_OPS_SCREENS`).
 
 ---
 

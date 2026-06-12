@@ -76,6 +76,7 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
         if (p == null) throw new IllegalArgumentException("No AI provider registered: ${name}")
         return p
     }
+    Set<String> getProviderNames() { return providers.keySet() }
 
     // ---- tool catalog (each entry is a toolDef Map; built from AiTool rows, keyed by toolId) ----
     private void ensureCatalog() { if (!catalogLoaded) refreshCatalog() }

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- Experience layer for the company-app Workforce screen: purposeful aggregates so the PWA
+         renders the inbox and a thread in one call each. Reads only; all mutations go through
+         AgentServices / ToolCallRequestServices. Company-wide by design (decision 2026-06-11):
+         conversations from ALL users are listed; AI_OPERATOR scoping is a follow-up. -->
+
+    <service verb="list" noun="Conversation" authenticate="true">
+        <description>Workforce inbox: all conversations, newest activity first, each with agentName,
+            the owning userId, and a status derived from the conversation's latest run:
+            SUSPENDED -> pending (+ pendingToolName), RUNNING -> running,
+            FAILED/ABORTED/TRUNCATED -> error, else idle.</description>
+        <in-parameters>
+            <parameter name="derivedStatus"><description>Optional filter: pending|running|error|idle</description></parameter>
+            <parameter name="pageSize" type="Integer" default-value="50"/>
+            <parameter name="pageIndex" type="Integer" default-value="0"/>
+        </in-parameters>
+        <out-parameters><parameter name="conversationList" type="List"/></out-parameters>
+        <actions>
+            <script location="component://moqui-ai/script/ai/workforce/listConversation.groovy"/>
+        </actions>
+    </service>
+
+    <service verb="get" noun="ConversationDetail" authenticate="true">
+        <description>One thread: agent info, ordered messages (toolCalls JSON parsed), the latest
+            run's status/error, and pending tool-call requests awaiting decision.</description>
+        <in-parameters><parameter name="conversationId" required="true"/></in-parameters>
+        <out-parameters>
+            <parameter name="conversation" type="Map"/>
+            <parameter name="agent" type="Map"/>
+            <parameter name="messageList" type="List"><description>each: messageSeqId, role, content,
+                toolCalls (List|null), toolCallId, agentRunId, createdDate</description></parameter>
+            <parameter name="latestRun" type="Map"><description>agentRunId, statusId, errorText; null when no runs</description></parameter>
+            <parameter name="pendingRequestList" type="List"><description>each: toolCallRequestId, toolName, serviceName, arguments</description></parameter>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiConversation" value-field="conv"/>
+            <if condition="conv == null"><return error="true" message="Unknown conversation ${conversationId}"/></if>
+            <script location="component://moqui-ai/script/ai/workforce/getConversationDetail.groovy"/>
+        </actions>
+    </service>
+</services>

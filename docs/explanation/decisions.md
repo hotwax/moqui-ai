@@ -37,6 +37,7 @@ For the as-built field-level and service-level detail these decisions produced, 
 | D11 | Shipped providers = OpenAI + Anthropic + Mock; Google/Gemini provider | **Shipped (OpenAI/Anthropic/Mock); Google Deferred** |
 | D12 | `AiAgentKnowledge` entity (attached per-agent knowledge) | **Declined / never built** |
 | D13 | Run audit (`AiAgentRun`/Step/`AiToolCall`) kept separate from the conversation transcript (`AiConversationMessage`/`Fact`) | **Shipped** |
+| D14 | Per-grant approval override is honored in **both** directions (may loosen a gated tool) | **Shipped** |
 
 ---
 
@@ -348,3 +349,30 @@ regardless. A stateless run produces audit rows but no conversation rows.
 
 **Reference.** `docs/explanation/architecture.md` → "Runs vs. conversations"; ADR 0001 (the
 conversation / memory model).
+
+---
+
+## D14 — Per-grant approval override honored in both directions
+
+**Context.** `AiAgentTool.requiresApprovalOverride` was specified (registry spec §entity) as
+"stricter than the tool default, never looser", but `AgentRunner` never consulted it at dispatch —
+gating used only the catalog tool default, so the column was inert either way.
+
+**Decision (2026-06-11).** Honor the override in **both** directions:
+`effective = requiresApprovalOverride ?? tool default`, applied by one shared helper
+(`AgentRunner.toolRequiresApproval`) at both gating sites — `run()`'s suspend filter and
+`resume()`'s undecided check — so they cannot drift. A composer explicitly granting a tool to an
+agent may mark it auto-approved (override `N`) even when the tool default is `Y`: per-grant trust
+is an explicit human decision made at composition time, surfaced as the "Auto approve" checkbox in
+the company-app Composer (hotwax/company PR #154). Preview runs still force-gate every mutating
+tool regardless of override (`forceApprovalOnMutating` is a separate OR), so a draft can never
+execute a write on real data.
+
+**Rationale.** The "stricter only" rule made the override useless for the one UX that needs it —
+a human composing an agent and deciding, tool by tool, what it may do unattended. The denylist
+floor (D2) and the exposable+active grant gate remain the non-negotiable safety boundary; approval
+strictness is policy, owned by the human who composes the agent.
+
+**Status — Shipped.** `AgentRunner.groovy` (`approvalOverrides` map loaded with tool schemas;
+`toolRequiresApproval` at both sites); covered by `AiApprovalTests` ("override N loosens…",
+"override Y tightens…").

@@ -111,7 +111,7 @@
         <in-parameters>
             <parameter name="agentId" required="true"/>
             <parameter name="toolId" required="true"/>
-            <parameter name="requiresApprovalOverride"><description>Optional Y/N — stricter than the tool default.</description></parameter>
+            <parameter name="requiresApprovalOverride"><description>Optional Y/N — overrides the tool default in either direction.</description></parameter>
         </in-parameters>
         <out-parameters><parameter name="agentId"/><parameter name="toolId"/></out-parameters>
         <actions>
@@ -170,8 +170,81 @@
         <actions>
             <entity-find-one entity-name="moqui.ai.AiConversation" value-field="conv"/>
             <if condition="conv == null"><return error="true" message="Unknown conversation: ${conversationId}"/></if>
+            <!-- Cross-user gate: this is the only REST path that drives a conversation (POST
+                 /conversations/{id}/messages). Without it any authenticated user could inject a message into ANY
+                 user's agent thread and consume their LLM spend. Owner, or an operator (AI_OPERATOR / ADMIN),
+                 only — fail-closed before run#Agent. -->
+            <if condition="conv.userId != ec.user.userId &amp;&amp; !ec.user.isInGroup('AI_OPERATOR') &amp;&amp; !ec.user.isInGroup('ADMIN')">
+                <log level="warn" message="AI authz: user ${ec.user.userId} denied posting to conversation ${conversationId} owned by ${conv.userId} (not owner/AI_OPERATOR)."/>
+                <return error="true" message="Not authorized to post to this conversation: it belongs to another user."/>
+            </if>
             <service-call name="ai.AgentServices.run#Agent" out-map="context"
                 in-map="[agentId: conv.agentId, userMessage: userMessage, conversationId: conversationId]"/>
+        </actions>
+    </service>
+
+    <!-- PWA Composer/Workforce read: one agent + its grants with resolved approval flags. -->
+    <service verb="get" noun="AgentDetail" authenticate="true">
+        <in-parameters><parameter name="agentId" required="true"/></in-parameters>
+        <out-parameters>
+            <parameter name="agent" type="Map"/>
+            <parameter name="toolList" type="List"><description>each: toolId, toolName, description, effectEnumId,
+                requiresApproval (tool default Y/N), requiresApprovalOverride (Y/N/null), effectiveRequiresApproval (Y/N)</description></parameter>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.AiAgent" value-field="agentEv"/>
+            <if condition="agentEv == null"><return error="true" message="Unknown agent ${agentId}"/></if>
+            <script><![CDATA[
+                agent = agentEv.getMap()
+                toolList = []
+                for (def g in ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", agentId).list()) {
+                    def t = ec.entity.find("moqui.ai.AiTool").condition("toolId", g.toolId).one()
+                    if (t == null) continue
+                    toolList.add([toolId: t.toolId, toolName: t.toolName, description: t.description,
+                        effectEnumId: t.effectEnumId, requiresApproval: t.requiresApproval,
+                        requiresApprovalOverride: g.requiresApprovalOverride,
+                        effectiveRequiresApproval: (g.requiresApprovalOverride ?: t.requiresApproval ?: "N")])
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Model + reasoning options for the PWA Composer dropdowns: registered providers with their
+         current AiModelPrice models plus the configured default. mock is offered only when it is
+         the sole registered provider (dev without keys). -->
+    <service verb="list" noun="Model" authenticate="true">
+        <out-parameters>
+            <parameter name="modelList" type="List"><description>each: providerName, modelName</description></parameter>
+            <parameter name="defaultProviderName"/><parameter name="defaultModelName"/>
+            <parameter name="reasoningEffortList" type="List"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
+                Set<String> providers = (ai.getProviderNames().findAll { it != "mock" }) as Set
+                if (!providers) providers = ["mock"] as Set
+                defaultProviderName = System.getProperty('ai_default_provider') ?: System.getenv('ai_default_provider') ?: 'openai'
+                defaultModelName = System.getProperty('ai_default_model') ?: System.getenv('ai_default_model') ?: 'gpt-4o-mini'
+                modelList = []
+                def now = ec.user.nowTimestamp
+                for (def p in ec.entity.find("moqui.ai.AiModelPrice").orderBy("providerName").orderBy("modelName").list()) {
+                    if (!(p.providerName in providers)) continue
+                    if (p.thruDate != null && p.thruDate < now) continue
+                    if (!modelList.any { it.providerName == p.providerName && it.modelName == p.modelName })
+                        modelList.add([providerName: p.providerName, modelName: p.modelName])
+                }
+                if (providers.contains(defaultProviderName) &&
+                        !modelList.any { it.providerName == defaultProviderName && it.modelName == defaultModelName })
+                    modelList.add([providerName: defaultProviderName, modelName: defaultModelName])
+                // Last-resort option must be a CONSISTENT provider+model pair. providers.first() may not be
+                // the default provider, so pairing it with defaultModelName (e.g. anthropic + gpt-4o-mini)
+                // would offer a combination that can never run. Offer the configured default pair (mutually
+                // consistent by construction) or mock.
+                if (!modelList) modelList.add(providers.first() == "mock"
+                    ? [providerName: "mock", modelName: "mock-1"]
+                    : [providerName: defaultProviderName, modelName: defaultModelName])
+                reasoningEffortList = ["none", "low", "medium", "high"]
+            ]]></script>
         </actions>
     </service>
 

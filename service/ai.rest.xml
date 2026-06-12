@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<resource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://moqui.org/xsd/rest-api-3.xsd"
+        name="ai" displayName="Moqui AI REST API" version="1.0.0"
+        description="REST facade for the moqui-ai agent framework, consumed by the company-app PWA
+            (Composer + Workforce). Thin mappings only; behavior lives in the ai.* services.">
+
+    <resource name="agents">
+        <method type="get"><entity name="moqui.ai.AiAgent" operation="list"/></method>
+        <method type="post"><service name="ai.AgentServices.store#AiAgent"/></method>
+        <id name="agentId">
+            <method type="get"><service name="ai.AgentServices.get#AgentDetail"/></method>
+            <method type="put"><service name="ai.AgentServices.store#AiAgent"/></method>
+            <resource name="tools">
+                <method type="post"><service name="ai.AgentServices.store#AiAgentTool"/></method>
+                <id name="toolId">
+                    <method type="delete"><entity name="moqui.ai.AiAgentTool" operation="delete"/></method>
+                </id>
+            </resource>
+            <resource name="preview">
+                <method type="post"><service name="ai.ComposerServices.preview#Agent"/></method>
+            </resource>
+            <resource name="activate">
+                <method type="post"><service name="ai.ComposerServices.activate#Agent"/></method>
+            </resource>
+        </id>
+    </resource>
+
+    <resource name="tools">
+        <method type="get"><service name="ai.ComposerServices.find#Capability"/></method>
+    </resource>
+
+    <resource name="models">
+        <method type="get"><service name="ai.AgentServices.list#Model"/></method>
+    </resource>
+
+    <resource name="instructions">
+        <resource name="enhance">
+            <method type="post"><service name="ai.ComposerServices.enhance#Instructions"/></method>
+        </resource>
+    </resource>
+
+    <resource name="conversations">
+        <method type="get"><service name="ai.WorkforceServices.list#Conversation"/></method>
+        <method type="post"><service name="ai.AgentServices.create#Conversation"/></method>
+        <id name="conversationId">
+            <method type="get"><service name="ai.WorkforceServices.get#ConversationDetail"/></method>
+            <resource name="messages">
+                <method type="post"><service name="ai.AgentServices.run#Conversation"/></method>
+            </resource>
+        </id>
+    </resource>
+
+    <resource name="toolCallRequests">
+        <method type="get"><service name="ai.ToolCallRequestServices.get#PendingToolCallRequest"/></method>
+        <id name="toolCallRequestId">
+            <resource name="approve">
+                <method type="post"><service name="ai.ToolCallRequestServices.approve#ToolCallRequest"/></method>
+            </resource>
+            <resource name="reject">
+                <method type="post"><service name="ai.ToolCallRequestServices.reject#ToolCallRequest"/></method>
+            </resource>
+        </id>
+    </resource>
+</resource>

@@ -136,6 +136,32 @@ class AiComposerTests extends Specification {
         cleanup: ec.artifactExecution.enableAuthz()
     }
 
+    def "propose#Naming refines the suggestion via the data-defined naming agent when available"() {
+        given:
+        ec.artifactExecution.disableAuthz(); MockProvider.reset(); ec.message.clearErrors()
+        // the namer ships in data (AiComposerData: AICMP_NAMING_AGENT); route it through mock here.
+        // responseSchema mirrors the seeded agent so run#Agent surfaces a typed structuredResult.
+        ec.transaction.runRequireNew(30, "setup", {
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AICMP_NAMING_AGENT", agentName: "agent-namer",
+                providerName: "mock", modelName: "mock-1", systemPrompt: "x", maxIterations: 1, statusId: "AI_AGENT_ACTIVE",
+                responseSchema: '{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"}},"required":["name","description"],"additionalProperties":false}']).createOrUpdate()
+        })
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        // the naming agent returns a typed structuredResult (responseSchema); the service reads it directly — no JSON parse
+        MockProvider.enqueue([structuredResult: [name: "Orders Maven", description: "Summarizes recent orders."],
+            finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = ec.service.sync().name("ai.ComposerServices.propose#Naming")
+            .parameters([intent: "summarize recent orders for a store manager"]).call()
+        then:
+        out.agentNameSuggestion == "orders-maven"          // lowercased + wire-safe by the service
+        out.descriptionSuggestion == "Summarizes recent orders."
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AICMP_NAMING_AGENT").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
     // ---- Task 3: set#Guardrail ----
 
     def "set#Guardrail flips a grant's requiresApprovalOverride"() {
