@@ -231,15 +231,22 @@
                     ((System.getProperty("ai_anthropic_key") ?: System.getenv("ai_anthropic_key")) ? "anthropic" : null))
                 if (pn == null) { ec.message.addError("No LLM provider configured; cannot enhance instructions."); return }
                 String mn = modelName ?: (pn == "openai" ? "gpt-4o-mini" : "claude-3-5-haiku-latest")
-                def resp = ai.getProvider(pn).chat([model: mn,
-                    systemContext: "You improve system prompts for business software agents. Rewrite the user's rough " +
-                        "instructions as a clear, well-structured agent system prompt: keep ALL of their intent and " +
-                        "constraints, add structure (role, scope, tone, when to use tools, when to ask), and invent " +
-                        "nothing they did not imply. Reply with the rewritten prompt text only - no preamble, no " +
-                        "markdown fences." + (agentName ? " The agent is named '${agentName}'." : ""),
-                    messages: [[role: "user", content: instructions as String]]])
-                enhancedInstructions = resp?.assistantText
-                if (!enhancedInstructions) ec.message.addError("Provider returned no text; instructions left unchanged.")
+                // Guarded like propose#Naming: an unregistered provider, a network/timeout, or a provider
+                // error returns the documented graceful message (leaving the draft untouched) instead of a
+                // raw 500. Called directly via REST (not a SECA), so ec.message.addError is the right channel.
+                try {
+                    def resp = ai.getProvider(pn).chat([model: mn,
+                        systemContext: "You improve system prompts for business software agents. Rewrite the user's rough " +
+                            "instructions as a clear, well-structured agent system prompt: keep ALL of their intent and " +
+                            "constraints, add structure (role, scope, tone, when to use tools, when to ask), and invent " +
+                            "nothing they did not imply. Reply with the rewritten prompt text only - no preamble, no " +
+                            "markdown fences." + (agentName ? " The agent is named '${agentName}'." : ""),
+                        messages: [[role: "user", content: instructions as String]]])
+                    enhancedInstructions = resp?.assistantText
+                } catch (Exception e) {
+                    ec.logger.warn("enhance#Instructions provider call failed: ${e.message}")
+                }
+                if (!enhancedInstructions) ec.message.addError("Could not enhance instructions (provider unavailable or returned no text); instructions left unchanged.")
             ]]></script>
         </actions>
     </service>

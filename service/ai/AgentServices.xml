@@ -228,8 +228,13 @@
                 if (providers.contains(defaultProviderName) &&
                         !modelList.any { it.providerName == defaultProviderName && it.modelName == defaultModelName })
                     modelList.add([providerName: defaultProviderName, modelName: defaultModelName])
-                if (!modelList) modelList.add([providerName: providers.first(),
-                    modelName: providers.first() == "mock" ? "mock-1" : defaultModelName])
+                // Last-resort option must be a CONSISTENT provider+model pair. providers.first() may not be
+                // the default provider, so pairing it with defaultModelName (e.g. anthropic + gpt-4o-mini)
+                // would offer a combination that can never run. Offer the configured default pair (mutually
+                // consistent by construction) or mock.
+                if (!modelList) modelList.add(providers.first() == "mock"
+                    ? [providerName: "mock", modelName: "mock-1"]
+                    : [providerName: defaultProviderName, modelName: defaultModelName])
                 reasoningEffortList = ["none", "low", "medium", "high"]
             ]]></script>
         </actions>

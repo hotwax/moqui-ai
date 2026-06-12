@@ -376,4 +376,43 @@ class AiApprovalTests extends Specification {
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "OvrAgentY").deleteAll()
         ec.artifactExecution.enableAuthz()
     }
+
+    def "a preview run can never be resumed: its held call does not execute even once the request is approved"() {
+        given:
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiTestToolData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "PrevAgent", agentName: "PrevAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_DRAFT"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentId: "PrevAgent", toolId: "TL_GATED"]).createOrUpdate()
+        })
+        ai.refreshCatalog()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "do it"]]], tokensIn: 1L, tokensOut: 1L])
+        // a preview run HOLDS the would-be call and suspends with isPreview=Y
+        Map out = new org.moqui.ai.AgentRunner(ec, ai).runPreview("PrevAgent", "go")
+        // even if its held request is (mis)decided APPROVED out-of-band ...
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId)
+            .updateAll([statusId: "AI_TCREQ_APPROVED", decidedByUserId: "AiTestUser"])
+        when: // ... resuming the preview run must be refused (fail-closed), never executing the held call
+        Map r = new org.moqui.ai.AgentRunner(ec, ai).resume(out.agentRunId as String)
+        EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
+        then:
+        out.statusId == "AI_RUN_SUSPENDED"
+        run.isPreview == "Y"
+        r.statusId == "AI_RUN_SUSPENDED"     // guard refused to resume
+        run.pendingState != null             // suspended state left untouched
+        // the held call NEVER executed: no AiToolCall row for the preview run
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).list().isEmpty()
+        cleanup:
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "PrevAgent").deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "PrevAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
 }

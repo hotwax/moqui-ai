@@ -269,6 +269,14 @@ class AgentRunner {
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", agentRunId).one()
         if (run == null) throw new IllegalArgumentException("Unknown run: ${agentRunId}")
         if (run.statusId != "AI_RUN_SUSPENDED") return [agentRunId: agentRunId, statusId: run.statusId]
+        // Fail-closed at the single execution chokepoint: a preview run force-gates mutating tools only to
+        // SHOW them — it must NEVER dispatch them. A preview's held AiToolCallRequest rows are kept out of the
+        // approval queue (get#PendingToolCallRequest), but guard here too so no decision path can ever resume a
+        // preview run and execute a real write, regardless of how the request id was obtained.
+        if (run.isPreview == "Y") {
+            logger.warn("Refusing to resume preview run ${agentRunId}: preview held calls never execute")
+            return [agentRunId: agentRunId, statusId: run.statusId]
+        }
 
         EntityValue agent = ec.entity.find("moqui.ai.AiAgent").condition("agentId", run.agentId).useCache(false).one()  // fresh read (see run(): registry mutates at runtime / out-of-band loads)
         String conversationId = run.conversationId
@@ -550,7 +558,9 @@ class AgentRunner {
     private boolean toolRequiresApproval(String toolName) {
         String ov = approvalOverrides.get(toolName)
         if (ov != null) return ov == "Y"
-        return (ai.getToolByName(toolName)?.requiresApproval) as boolean
+        // catalog requiresApproval is a real Boolean (DefinitionLoader); compare explicitly rather than
+        // `as boolean` — a String "N" would coerce to true and silently gate every tool.
+        return ai.getToolByName(toolName)?.requiresApproval == Boolean.TRUE
     }
 
     /** Finalize: set status + truncated on the result Map, persist the run update, return it.

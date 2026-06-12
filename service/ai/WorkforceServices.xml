@@ -60,6 +60,11 @@
                         userFullName: userNames[c.userId], lastActivityDate: c.lastActivityDate ?: c.createdDate,
                         derivedStatus: ds, pendingToolName: pendingToolName])
                 }
+                // Re-sort on the COALESCED date: AiConversationActivity.lastActivityDate is max(message.createdDate)
+                // over an optional join, so a message-less (brand-new) conversation has a null DB sort key and would
+                // otherwise sink to the nulls-last edge. Sort by (lastActivityDate ?: createdDate) so newest activity
+                // — including a just-started conversation — is genuinely first before paginating.
+                conversationList.sort { a, b -> b.lastActivityDate <=> a.lastActivityDate }
                 int ps = (pageSize ?: 50) as int; int pi = (pageIndex ?: 0) as int
                 int from = Math.min(pi * ps, conversationList.size())
                 conversationList = conversationList.subList(from, Math.min(from + ps, conversationList.size()))
