@@ -151,20 +151,7 @@
         </actions>
     </service>
 
-    <service verb="list" noun="KnowledgeTopic" authenticate="true">
-        <description>List all knowledge topics, optionally filtered by statusId. For the AiOps console.</description>
-        <in-parameters>
-            <parameter name="statusId"/>
-        </in-parameters>
-        <out-parameters>
-            <parameter name="topics" type="List"/>
-        </out-parameters>
-        <actions>
-            <entity-find entity-name="moqui.ai.AiKnowledgeTopic" list="topics">
-                <econdition field-name="statusId" ignore-if-empty="true"/>
-                <order-by field-name="topicName"/>
-            </entity-find>
-        </actions>
-    </service>
+    <!-- NOTE: list#KnowledgeTopic retired — a plain list is served by the entity engine.
+         Screen reads moqui.ai.AiKnowledgeTopic directly; REST: GET /rest/s1/ai/knowledgeTopics. -->
 
 </services>

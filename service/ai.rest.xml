@@ -61,4 +61,13 @@
             </resource>
         </id>
     </resource>
+
+    <!-- AiOps reads served straight from the entity engine (no wrapper service). Filter via query params,
+         e.g. GET /knowledgeTopics?statusId=AI_KNOW_APPROVED, GET /capabilityRequests?statusId=AI_CAPREQ_OPEN. -->
+    <resource name="knowledgeTopics">
+        <method type="get"><entity name="moqui.ai.AiKnowledgeTopic" operation="list"/></method>
+    </resource>
+    <resource name="capabilityRequests">
+        <method type="get"><entity name="moqui.ai.AiCapabilityRequest" operation="list"/></method>
+    </resource>
 </resource>
