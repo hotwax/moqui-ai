@@ -56,21 +56,21 @@
             <set field="rows" from="[]"/>
             <!-- per-group rows: select the group dimension so the engine groups by it (agent or user). -->
             <if condition="groupBy == 'agent' || groupBy == 'user'">
-                <script><![CDATA[
-                    String keyField = groupBy == 'agent' ? 'agentName' : 'userId'
-                    def ef = ec.entity.find("moqui.ai.AiAgentRunSpend")
-                        .selectField(keyField).selectField("totalCost").selectField("totalTokensIn")
-                        .selectField("totalTokensOut").selectField("runCount")
-                    if (agentName) ef.condition("agentName", agentName)
-                    if (userId) ef.condition("userId", userId)
-                    if (fromDate) ef.condition("startedDate", ">=", fromDate)
-                    if (thruDate) ef.condition("startedDate", "<", thruDate)
-                    for (def r in ef.list()) rows.add([key: r.get(keyField),
-                        totalCost: (r.totalCost ?: 0G) as BigDecimal,
-                        totalTokensIn: (r.totalTokensIn ?: 0L) as Long,
-                        totalTokensOut: (r.totalTokensOut ?: 0L) as Long,
-                        runCount: (r.runCount ?: 0L) as Long])
-                ]]></script>
+                <set field="keyField" from="groupBy == 'agent' ? 'agentName' : 'userId'"/>
+                <entity-find entity-name="moqui.ai.AiAgentRunSpend" list="groupList">
+                    <econdition field-name="agentName" ignore-if-empty="true"/>
+                    <econdition field-name="userId" ignore-if-empty="true"/>
+                    <econdition field-name="startedDate" operator="greater-equals" from="fromDate" ignore-if-empty="true"/>
+                    <econdition field-name="startedDate" operator="less" from="thruDate" ignore-if-empty="true"/>
+                    <select-field field-name="${keyField}"/>
+                    <select-field field-name="totalCost"/><select-field field-name="totalTokensIn"/>
+                    <select-field field-name="totalTokensOut"/><select-field field-name="runCount"/>
+                </entity-find>
+                <iterate list="groupList" entry="r">
+                    <set field="rows" from="rows + [[key: r.get(keyField), totalCost: (r.totalCost ?: 0G) as BigDecimal,
+                        totalTokensIn: (r.totalTokensIn ?: 0L) as Long, totalTokensOut: (r.totalTokensOut ?: 0L) as Long,
+                        runCount: (r.runCount ?: 0L) as Long]]"/>
+                </iterate>
             </if>
         </actions>
     </service>
