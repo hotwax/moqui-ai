@@ -7,21 +7,6 @@
          the Moqui built-in /rest/ endpoint: GET /rest/s1/ai/CapabilityRestApi/list/CapabilityRequest etc.
          No business logic here — all validation and state transitions are in CapabilityServices. -->
 
-    <!-- GET /rest/s1/ai/CapabilityRestApi/list/CapabilityRequest?statusId=AI_CAPREQ_OPEN -->
-    <service verb="list" noun="CapabilityRequest" authenticate="true">
-        <description>List capability requests. Pass ?statusId= to filter by status.</description>
-        <in-parameters>
-            <parameter name="statusId"/>
-        </in-parameters>
-        <out-parameters>
-            <parameter name="requests" type="List"/>
-        </out-parameters>
-        <actions>
-            <service-call name="ai.CapabilityServices.list#CapabilityRequest" out-map="context"
-                in-map="[statusId: statusId]"/>
-        </actions>
-    </service>
-
     <!-- GET /rest/s1/ai/CapabilityRestApi/get/CapabilityRequest?capabilityRequestId=... -->
     <service verb="get" noun="CapabilityRequest" authenticate="true">
         <description>Get a single capability request by id.</description>

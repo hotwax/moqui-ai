@@ -29,23 +29,8 @@
         </out-parameters>
         <actions>
             <script><![CDATA[
-                def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentId, userMessage, conversationId)
-                assistantMessage = r.assistantMessage
-                agentRunId = r.agentRunId
-                conversationId = r.conversationId
-                tokensIn = r.tokensIn
-                tokensOut = r.tokensOut
-                iterations = r.iterations
-                truncated = r.truncated
-                statusId = r.statusId
-                servedByModelId = r.servedByModelId
-                providerName = r.servedProviderName
-                estimatedCost = r.estimatedCost
-                providerRunId = r.providerRunId
-                structuredResult = r.structuredResult
-                awaitingApproval = r.awaitingApproval
-                toolCallRequestIds = r.toolCallRequestIds
+                def r = new org.moqui.ai.AgentRunner(ec).run(agentId, userMessage, conversationId)
+                ec.context.putAll(r)   // the result map keys ARE the out-parameters
             ]]></script>
         </actions>
     </service>
@@ -182,9 +167,6 @@
                 in-map="[agentId: conv.agentId, userMessage: userMessage, conversationId: conversationId]"/>
         </actions>
     </service>
-
-    <!-- NOTE: get#AgentDetail was retired — GET /agents/{id} is now served by the AiAgent 'detail' master
-         (entity REST). The client derives effectiveRequiresApproval = grant.requiresApprovalOverride ?: tool.requiresApproval. -->
 
     <!-- Model + reasoning options for the PWA Composer dropdowns: registered providers with their
          current AiModelPrice models plus the configured default. mock is offered only when it is

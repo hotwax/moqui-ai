@@ -23,9 +23,4 @@
         </actions>
     </service>
 
-    <!-- NOTE: get#ConversationDetail was retired — GET /conversations/{id} is now served by the
-         AiConversation 'detail' master (entity REST), which nests agent + messages + runs -> tool-call
-         requests. The client parses message.toolCalls (stored JSON), picks the latest run, and filters
-         PENDING requests. list#Conversation (the inbox) stays a service: its derived status is a
-         greatest-n-per-group over runs the entity engine can't express. -->
 </services>

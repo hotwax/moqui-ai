@@ -38,29 +38,37 @@
             <parameter name="rows" type="List"><description>when grouped: [[key:..., totalCost:..., totalTokensIn:..., totalTokensOut:..., runCount:...], ...]</description></parameter>
         </out-parameters>
         <actions>
-            <entity-find entity-name="moqui.ai.AiAgentRun" list="runs">
+            <entity-find entity-name="moqui.ai.AiAgentRunSpend" list="totalList">
                 <econdition field-name="agentName" ignore-if-empty="true"/>
                 <econdition field-name="userId" ignore-if-empty="true"/>
                 <econdition field-name="startedDate" operator="greater-equals" from="fromDate" ignore-if-empty="true"/>
                 <econdition field-name="startedDate" operator="less" from="thruDate" ignore-if-empty="true"/>
+                <select-field field-name="totalCost"/><select-field field-name="totalTokensIn"/>
+                <select-field field-name="totalTokensOut"/><select-field field-name="runCount"/>
             </entity-find>
-            <script><![CDATA[
-                totalCost = (runs.sum { (it.estimatedCost ?: 0G) as BigDecimal } ?: 0G) as BigDecimal
-                totalTokensIn = (runs.sum { (it.tokensIn ?: 0L) as long } ?: 0L) as Long
-                totalTokensOut = (runs.sum { (it.tokensOut ?: 0L) as long } ?: 0L) as Long
-                runCount = runs.size() as Long
-                rows = []
-                if (groupBy == 'agent' || groupBy == 'user') {
-                    String keyField = groupBy == 'agent' ? 'agentName' : 'userId'
-                    runs.groupBy { it.get(keyField) }.each { k, groupRuns ->
-                        rows.add([key: k,
-                            totalCost: (groupRuns.sum { (it.estimatedCost ?: 0G) as BigDecimal } ?: 0G) as BigDecimal,
-                            totalTokensIn: (groupRuns.sum { (it.tokensIn ?: 0L) as long } ?: 0L) as Long,
-                            totalTokensOut: (groupRuns.sum { (it.tokensOut ?: 0L) as long } ?: 0L) as Long,
-                            runCount: groupRuns.size() as Long])
-                    }
-                }
-            ]]></script>
+            <set field="total" from="totalList ? totalList[0] : null"/>
+            <set field="totalCost" from="(total?.totalCost ?: 0G) as BigDecimal"/>
+            <set field="totalTokensIn" from="(total?.totalTokensIn ?: 0L) as Long"/>
+            <set field="totalTokensOut" from="(total?.totalTokensOut ?: 0L) as Long"/>
+            <set field="runCount" from="(total?.runCount ?: 0L) as Long"/>
+            <set field="rows" from="[]"/>
+            <if condition="groupBy == 'agent' || groupBy == 'user'">
+                <set field="keyField" from="groupBy == 'agent' ? 'agentName' : 'userId'"/>
+                <entity-find entity-name="moqui.ai.AiAgentRunSpend" list="groupList">
+                    <econdition field-name="agentName" ignore-if-empty="true"/>
+                    <econdition field-name="userId" ignore-if-empty="true"/>
+                    <econdition field-name="startedDate" operator="greater-equals" from="fromDate" ignore-if-empty="true"/>
+                    <econdition field-name="startedDate" operator="less" from="thruDate" ignore-if-empty="true"/>
+                    <select-field field-name="${keyField}"/>
+                    <select-field field-name="totalCost"/><select-field field-name="totalTokensIn"/>
+                    <select-field field-name="totalTokensOut"/><select-field field-name="runCount"/>
+                </entity-find>
+                <iterate list="groupList" entry="r">
+                    <set field="rows" from="rows + [[key: r.get(keyField), totalCost: (r.totalCost ?: 0G) as BigDecimal,
+                        totalTokensIn: (r.totalTokensIn ?: 0L) as Long, totalTokensOut: (r.totalTokensOut ?: 0L) as Long,
+                        runCount: (r.runCount ?: 0L) as Long]]"/>
+                </iterate>
+            </if>
         </actions>
     </service>
 </services>

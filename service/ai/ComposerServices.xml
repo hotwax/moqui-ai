@@ -246,8 +246,7 @@
         </out-parameters>
         <actions>
             <script><![CDATA[
-                def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                def r = new org.moqui.ai.AgentRunner(ec, ai).runPreview(agentId as String, testMessage as String)
+                def r = new org.moqui.ai.AgentRunner(ec).runPreview(agentId as String, testMessage as String)
                 agentRunId = r.agentRunId; statusId = r.statusId; assistantMessage = r.assistantMessage
                 heldCalls = []
                 for (def a in ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", agentRunId)

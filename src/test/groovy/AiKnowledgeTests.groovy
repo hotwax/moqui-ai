@@ -73,7 +73,7 @@ class AiKnowledgeTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
-    private AgentRunner runner() { new AgentRunner(ec, ec.factory.getTool("AI", AiToolFactory.class)) }
+    private AgentRunner runner() { new AgentRunner(ec) }
 
     // ---- Group 1: ContextAssembler.withKnowledge unit tests ----
 

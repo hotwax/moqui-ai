@@ -252,7 +252,7 @@ class AiComposerTests extends Specification {
             [id: "r1", name: "get_echo", arguments: [text: "read me"]],
             [id: "w1", name: "set_echo", arguments: [text: "write me"]]], tokensIn: 1L, tokensOut: 1L])
         when:
-        Map r = new org.moqui.ai.AgentRunner(ec, ai).runPreview(ag.agentId as String, "go")
+        Map r = new org.moqui.ai.AgentRunner(ec).runPreview(ag.agentId as String, "go")
         then:
         r.statusId == "AI_RUN_SUSPENDED"
         // exactly the mutating call is held; whole turn suspended -> nothing executed yet
@@ -492,7 +492,7 @@ class AiComposerTests extends Specification {
         MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "w1", name: "set_echo", arguments: [text: "x"]]], tokensIn: 1L, tokensOut: 1L])
         when:
-        Map r = new org.moqui.ai.AgentRunner(ec, ai).runPreview(ag.agentId as String, "go")
+        Map r = new org.moqui.ai.AgentRunner(ec).runPreview(ag.agentId as String, "go")
         then: "the preview run is flagged so the queue/discard logic can recognize it"
         r.statusId == "AI_RUN_SUSPENDED"
         ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", r.agentRunId).one().isPreview == "Y"

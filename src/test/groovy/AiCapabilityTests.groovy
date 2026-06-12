@@ -70,27 +70,6 @@ class AiCapabilityTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
-    // ---- list#CapabilityRequest ----
-
-    def "list#CapabilityRequest returns rows and filters by statusId"() {
-        given:
-        makeOpenRequest("CAPREQ_TEST_L1")
-        makeOpenRequest("CAPREQ_TEST_L2", [statusId: "AI_CAPREQ_DISMISSED"])
-        when:
-        Map all = ec.service.sync().name("ai.CapabilityServices.list#CapabilityRequest").parameters([:]).call()
-        Map open = ec.service.sync().name("ai.CapabilityServices.list#CapabilityRequest")
-            .parameters([statusId: "AI_CAPREQ_OPEN"]).call()
-        then:
-        !ec.message.hasError()
-        (all.requests as List).find { it.capabilityRequestId == "CAPREQ_TEST_L1" } != null
-        (all.requests as List).find { it.capabilityRequestId == "CAPREQ_TEST_L2" } != null
-        (open.requests as List).find { it.capabilityRequestId == "CAPREQ_TEST_L1" } != null
-        (open.requests as List).find { it.capabilityRequestId == "CAPREQ_TEST_L2" } == null
-        cleanup:
-        ec.entity.find("moqui.ai.AiCapabilityRequest").condition("capabilityRequestId", "CAPREQ_TEST_L1").deleteAll()
-        ec.entity.find("moqui.ai.AiCapabilityRequest").condition("capabilityRequestId", "CAPREQ_TEST_L2").deleteAll()
-    }
-
     // ---- dismiss#CapabilityRequest ----
 
     def "dismiss#CapabilityRequest transitions OPEN to DISMISSED and stamps audit"() {

@@ -109,7 +109,7 @@ class AiApprovalTests extends Specification {
         // mark the approval APPROVED (the service layer is Task 4; here we set it directly)
         ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).updateAll([statusId: "AI_TCREQ_APPROVED", decidedByUserId: "AiTestUser"])
         when:
-        Map r = new org.moqui.ai.AgentRunner(ec, ai).resume(out.agentRunId as String)
+        Map r = new org.moqui.ai.AgentRunner(ec).resume(out.agentRunId as String)
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
         then:
         r.statusId == "AI_RUN_COMPLETED"
@@ -142,7 +142,7 @@ class AiApprovalTests extends Specification {
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "hi"]]], tokensIn: 1L, tokensOut: 1L])
         Map out = ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: "ApprAgent3", userMessage: "go"]).call()
         when: // resume WITHOUT deciding the approval (still AI_TCREQ_PENDING)
-        Map r = new org.moqui.ai.AgentRunner(ec, ai).resume(out.agentRunId as String)
+        Map r = new org.moqui.ai.AgentRunner(ec).resume(out.agentRunId as String)
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
         then:
         r.statusId == "AI_RUN_SUSPENDED"                  // guard refused
@@ -405,12 +405,12 @@ class AiApprovalTests extends Specification {
         MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "c1", name: "get_gated_echo", arguments: [text: "do it"]]], tokensIn: 1L, tokensOut: 1L])
         // a preview run HOLDS the would-be call and suspends with isPreview=Y
-        Map out = new org.moqui.ai.AgentRunner(ec, ai).runPreview("PrevAgent", "go")
+        Map out = new org.moqui.ai.AgentRunner(ec).runPreview("PrevAgent", "go")
         // even if its held request is (mis)decided APPROVED out-of-band ...
         ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId)
             .updateAll([statusId: "AI_TCREQ_APPROVED", decidedByUserId: "AiTestUser"])
         when: // ... resuming the preview run must be refused (fail-closed), never executing the held call
-        Map r = new org.moqui.ai.AgentRunner(ec, ai).resume(out.agentRunId as String)
+        Map r = new org.moqui.ai.AgentRunner(ec).resume(out.agentRunId as String)
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
         then:
         out.statusId == "AI_RUN_SUSPENDED"

@@ -7,22 +7,6 @@
          the read + triage + resolve half: list the queue, dismiss noise, fulfill (link an existing
          tool), or provision (create a tool inline and mark the request done in one transaction). -->
 
-    <service verb="list" noun="CapabilityRequest" authenticate="true">
-        <description>List capability requests, optionally filtered by statusId, newest first. For the AiOps console.</description>
-        <in-parameters>
-            <parameter name="statusId"/>
-        </in-parameters>
-        <out-parameters>
-            <parameter name="requests" type="List"/>
-        </out-parameters>
-        <actions>
-            <entity-find entity-name="moqui.ai.AiCapabilityRequest" list="requests">
-                <econdition field-name="statusId" ignore-if-empty="true"/>
-                <order-by field-name="-requestedDate"/>
-            </entity-find>
-        </actions>
-    </service>
-
     <service verb="dismiss" noun="CapabilityRequest" authenticate="true">
         <description>Dismiss an open capability request as noise/not-actionable. Stamps the curator + date + note.</description>
         <in-parameters>

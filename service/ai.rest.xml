@@ -61,4 +61,11 @@
             </resource>
         </id>
     </resource>
+
+    <resource name="knowledgeTopics">
+        <method type="get"><entity name="moqui.ai.AiKnowledgeTopic" operation="list"/></method>
+    </resource>
+    <resource name="capabilityRequests">
+        <method type="get"><entity name="moqui.ai.AiCapabilityRequest" operation="list"/></method>
+    </resource>
 </resource>

@@ -7,21 +7,6 @@
          the Moqui built-in /rest/ endpoint: POST /rest/s1/ai/KnowledgeRestApi/store/KnowledgeTopic etc.
          No business logic here — all validation and state transitions are in KnowledgeServices. -->
 
-    <!-- GET /rest/s1/ai/KnowledgeRestApi/list/KnowledgeTopic?statusId=AI_KNOW_APPROVED -->
-    <service verb="list" noun="KnowledgeTopic" authenticate="true">
-        <description>List knowledge topics. Pass ?statusId= to filter by status.</description>
-        <in-parameters>
-            <parameter name="statusId"/>
-        </in-parameters>
-        <out-parameters>
-            <parameter name="topics" type="List"/>
-        </out-parameters>
-        <actions>
-            <service-call name="ai.KnowledgeServices.list#KnowledgeTopic" out-map="context"
-                in-map="[statusId: statusId]"/>
-        </actions>
-    </service>
-
     <!-- POST /rest/s1/ai/KnowledgeRestApi/store/KnowledgeTopic -->
     <service verb="store" noun="KnowledgeTopic" authenticate="true">
         <description>Create or update a knowledge topic (body file must already exist in knowledge/).</description>
