@@ -30,7 +30,7 @@ class AgentRunner {
      *  per-grant trust, ADR revision 2026-06-11), else the catalog tool default. */
     private Map<String, String> approvalOverrides = [:]
 
-    AgentRunner(ExecutionContext ec, AiToolFactory ai) { this.ec = ec; this.ai = ai }
+    AgentRunner(ExecutionContext ec) { this.ec = ec; this.ai = ec.factory.getTool("AI", AiToolFactory.class) }
 
     /** Phase 1 entry — stateless single turn. */
     Map run(String agentId, String userMessage) { return run(agentId, userMessage, null) }

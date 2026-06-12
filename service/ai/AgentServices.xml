@@ -29,8 +29,7 @@
         </out-parameters>
         <actions>
             <script><![CDATA[
-                def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentId, userMessage, conversationId)
+                def r = new org.moqui.ai.AgentRunner(ec).run(agentId, userMessage, conversationId)
                 ec.context.putAll(r)   // the result map keys ARE the out-parameters
             ]]></script>
         </actions>

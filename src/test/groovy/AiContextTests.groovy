@@ -1,14 +1,12 @@
 import spock.lang.*
 import org.moqui.context.ExecutionContext
 import org.moqui.Moqui
-import org.moqui.ai.AiToolFactory
 import org.moqui.ai.ContextAssembler
 import org.moqui.ai.provider.MockProvider
 import org.moqui.entity.EntityValue
 
 class AiContextTests extends Specification {
     @Shared ExecutionContext ec
-    @Shared AiToolFactory ai
 
     // The active Shiro realm (co.hotwax.auth.OfbizShiroRealm) authenticates against the OFBiz UserLogin
     // model, not moqui.security.UserAccount, so the test user needs Party/Person/UserLogin rows for
@@ -22,7 +20,6 @@ class AiContextTests extends Specification {
 
     def setupSpec() {
         ec = Moqui.getExecutionContext()
-        ai = ec.factory.getTool("AI", AiToolFactory.class)
         ec.artifactExecution.disableAuthz()
         ec.transaction.runRequireNew(30, "ai test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/AiStatusData.xml").load()
@@ -148,7 +145,7 @@ class AiContextTests extends Specification {
         })
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        new org.moqui.ai.AgentRunner(ec, ai).run("WinAgent", "newest", convId)
+        new org.moqui.ai.AgentRunner(ec).run("WinAgent", "newest", convId)
         List sent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.messages as List
         then:
         sent.size() == 3                             // 2 windowed replayed + this turn's user message
@@ -178,7 +175,7 @@ class AiContextTests extends Specification {
             tokensIn: 1L, tokensOut: 1L])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "noted", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        Map out = new org.moqui.ai.AgentRunner(ec, ai).run("MemAgent", "the total is \$4,812.50", convId)
+        Map out = new org.moqui.ai.AgentRunner(ec).run("MemAgent", "the total is \$4,812.50", convId)
         EntityValue fact = ec.entity.find("moqui.ai.AiConversationFact")
             .condition("conversationId", convId).condition("factKey", "order_total").one()
         then:
@@ -211,7 +208,7 @@ class AiContextTests extends Specification {
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "order_total", factValue: "\$100.00"]]], tokensIn: 1L, tokensOut: 1L])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
-        Map run1 = new org.moqui.ai.AgentRunner(ec, ai).run("SupAgent", "total is \$100", convId)
+        Map run1 = new org.moqui.ai.AgentRunner(ec).run("SupAgent", "total is \$100", convId)
         def created = ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).condition("factKey", "order_total").one().createdDate
         when:
         // run 2: remember the SAME key with a corrected value
@@ -219,7 +216,7 @@ class AiContextTests extends Specification {
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
             toolCalls: [[id: "r2", name: "remember", arguments: [factKey: "order_total", factValue: "\$250.00"]]], tokensIn: 1L, tokensOut: 1L])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "updated", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
-        Map run2 = new org.moqui.ai.AgentRunner(ec, ai).run("SupAgent", "correction: total is \$250", convId)
+        Map run2 = new org.moqui.ai.AgentRunner(ec).run("SupAgent", "correction: total is \$250", convId)
         EntityValue fact = ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).condition("factKey", "order_total").one()
         then:
         ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).list().size() == 1   // superseded, not duplicated
@@ -254,7 +251,7 @@ class AiContextTests extends Specification {
         })
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        new org.moqui.ai.AgentRunner(ec, ai).run("NoCtxAgent", "newest", convId)
+        new org.moqui.ai.AgentRunner(ec).run("NoCtxAgent", "newest", convId)
         List sent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.messages as List
         then:
         sent.size() == 6                             // 5 replayed + this turn, unchanged
@@ -284,13 +281,13 @@ class AiContextTests extends Specification {
             toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "order_total", factValue: "\$4,812.50"]]],
             tokensIn: 1L, tokensOut: 1L])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "noted", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
-        new org.moqui.ai.AgentRunner(ec, ai).run("FidAgent", "the order total is \$4,812.50", convId)
+        new org.moqui.ai.AgentRunner(ec).run("FidAgent", "the order total is \$4,812.50", convId)
         when:
         // Turn 2: many turns later the early message is windowed out (window=1), but the FACT must persist.
         org.moqui.ai.provider.MockProvider.reset()
         org.moqui.ai.provider.MockProvider.LAST_REQUEST = null
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "the total was \$4,812.50", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
-        new org.moqui.ai.AgentRunner(ec, ai).run("FidAgent", "what was the order total?", convId)
+        new org.moqui.ai.AgentRunner(ec).run("FidAgent", "what was the order total?", convId)
         String sysSent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.systemContext as String
         then:
         sysSent.contains("## Known facts")
@@ -325,7 +322,7 @@ class AiContextTests extends Specification {
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "SUMMARY: discussed old 1-3", finishReason: "stop", toolCalls: [], tokensIn: 5L, tokensOut: 3L])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        new org.moqui.ai.AgentRunner(ec, ai).run("SumAgent", "newest", convId)
+        new org.moqui.ai.AgentRunner(ec).run("SumAgent", "newest", convId)
         EntityValue conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).one()
         String sysSent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.systemContext as String
         List sent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.messages as List
@@ -364,7 +361,7 @@ class AiContextTests extends Specification {
         org.moqui.ai.provider.MockProvider.enqueue([__error: "summary provider down"])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "ok", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        Map out = new org.moqui.ai.AgentRunner(ec, ai).run("SumFailAgent", "newest", convId)
+        Map out = new org.moqui.ai.AgentRunner(ec).run("SumFailAgent", "newest", convId)
         EntityValue conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).one()
         List sent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.messages as List
         then:
@@ -404,7 +401,7 @@ class AiContextTests extends Specification {
             toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "k", factValue: "v"]]], tokensIn: 1L, tokensOut: 1L])
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "done", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        Map out = new org.moqui.ai.AgentRunner(ec, ai).run("SumMultiAgent", "newest", convId)
+        Map out = new org.moqui.ai.AgentRunner(ec).run("SumMultiAgent", "newest", convId)
         EntityValue conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).one()
         then:
         out.statusId == "AI_RUN_COMPLETED"
@@ -441,7 +438,7 @@ class AiContextTests extends Specification {
         // only the main answer is enqueued; if the code wrongly re-summarized, it would consume this
         org.moqui.ai.provider.MockProvider.enqueue([assistantText: "answer", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
-        Map out = new org.moqui.ai.AgentRunner(ec, ai).run("CarryAgent", "and now?", convId)
+        Map out = new org.moqui.ai.AgentRunner(ec).run("CarryAgent", "and now?", convId)
         EntityValue conv = ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).one()
         String sysSent = org.moqui.ai.provider.MockProvider.LAST_REQUEST.systemContext as String
         then:

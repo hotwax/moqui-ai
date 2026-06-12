@@ -63,8 +63,7 @@
                 <set field="runStatusId" value="AI_RUN_SUSPENDED"/>
                 <else>
                     <script>
-                        def aiTool = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                        def r = new org.moqui.ai.AgentRunner(ec, aiTool).resume(agentRunId)
+                        def r = new org.moqui.ai.AgentRunner(ec).resume(agentRunId)
                         runStatusId = r.statusId
                     </script>
                 </else>

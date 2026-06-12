@@ -52,7 +52,7 @@ class AgentRunnerTests extends Specification {
     }
     def cleanup() { MockProvider.reset(); ec.artifactExecution.enableAuthz() }
 
-    private AgentRunner runner() { new AgentRunner(ec, ec.factory.getTool("AI", AiToolFactory.class)) }
+    private AgentRunner runner() { new AgentRunner(ec) }
 
     def "text-only response returns the assistant message"() {
         given: MockProvider.enqueue([assistantText: "hello", finishReason: "stop", tokensIn: 4L, tokensOut: 2L])
