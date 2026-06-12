@@ -74,15 +74,26 @@ class AiPwaApiTests extends Specification {
         out.defaultModelName != null
     }
 
-    def "enhance#Instructions rewrites via the provider and returns the text"() {
+    def "enhance#Instructions rewrites via the data-defined enhancement agent"() {
         given:
+        ec.artifactExecution.disableAuthz()
         MockProvider.reset()
+        // the enhancer ships in data (AiComposerData: AICMP_ENHANCE_AGENT); route it through mock here
+        ec.transaction.runRequireNew(30, "setup", {
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AICMP_ENHANCE_AGENT", agentName: "instruction-enhancer",
+                providerName: "mock", modelName: "mock-1", systemPrompt: "x", maxIterations: 1, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+        })
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
         MockProvider.enqueue([assistantText: "ENHANCED PROMPT", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
         Map out = ec.service.sync().name("ai.ComposerServices.enhance#Instructions")
-            .parameters([instructions: "help with orders", providerName: "mock", modelName: "mock-1"]).call()
+            .parameters([instructions: "help with orders"]).call()
         then:
         out.enhancedInstructions == "ENHANCED PROMPT"
+        cleanup:
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", "AICMP_ENHANCE_AGENT").deleteAll()
+        ec.artifactExecution.enableAuthz()
     }
 
     def "find#Capability exposes the requiresApproval default"() {

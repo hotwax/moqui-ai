@@ -70,4 +70,22 @@ RULES:
     <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_PREVIEW"/>
     <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_ACTIVATE"/>
     <moqui.ai.AiAgentTool agentId="AICMP_AGENT" toolId="AICMP_REQ_CAP"/>
+
+    <!-- ===== framework enrichment agents (siblings of the Composer) =====
+         These help a user author agents, so — like the Composer — they ARE agents defined in DATA, not a
+         hardcoded prompt+model buried in a Groovy <script>. Single-shot: no tools, maxIterations 1. The
+         backing services (ComposerServices.enhance#Instructions / propose#Naming) run them through AgentRunner,
+         so each call gets the normal observability, cost tracking, and model-fallback the framework provides,
+         and the prompt/model are tunable in data per deployment. -->
+    <moqui.ai.AiAgent agentId="AICMP_ENHANCE_AGENT" agentName="instruction-enhancer"
+        providerName="openai" modelName="gpt-4o-mini" maxIterations="1"
+        contextStrategy="window" statusId="AI_AGENT_ACTIVE"
+        description="Rewrites a user's rough agent instructions into a clear, structured system prompt."
+        systemPrompt="You improve system prompts for business software agents. Rewrite the user's rough instructions as a clear, well-structured agent system prompt: keep ALL of their intent and constraints, add structure (role, scope, tone, when to use tools, when to ask), and invent nothing they did not imply. Reply with the rewritten prompt text only — no preamble, no markdown fences."/>
+
+    <moqui.ai.AiAgent agentId="AICMP_NAMING_AGENT" agentName="agent-namer"
+        providerName="openai" modelName="gpt-4o-mini" maxIterations="1"
+        contextStrategy="window" statusId="AI_AGENT_ACTIVE"
+        description="Suggests a short, glossary-grounded agent name + one-line description for an intent."
+        systemPrompt="Suggest a short, lowercase, hyphenated agent name (no more than 4 words) and a one-line description for the agent the user describes. Ground the name in any business terms provided in the message when relevant. Reply as JSON {&quot;name&quot;:&quot;...&quot;,&quot;description&quot;:&quot;...&quot;} only — no preamble, no markdown fences."/>
 </entity-facade-xml>

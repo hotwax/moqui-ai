@@ -129,7 +129,7 @@
          Knowledgebase glossary, and the chosen noun is snapped to its canonical glossary term (so a
          dialect word like "rma" resolves to "return"). Falls back gracefully if the glossary is empty
          or no provider/key is configured, so it never fails the build. -->
-    <service verb="propose" noun="Naming" authenticate="true">
+    <service verb="propose" noun="Naming" authenticate="true" transaction="ignore">
         <in-parameters>
             <parameter name="intent" required="true"><description>what the user wants the agent to do</description></parameter>
         </in-parameters>
@@ -155,23 +155,17 @@
                 String slug = (noun == "assistant" ? "assistant" : "${noun}-assistant")
                 agentNameSuggestion = slug.toLowerCase().replaceAll(/[^a-z0-9-]+/, "-").replaceAll(/-+/, "-")
                 descriptionSuggestion = "Assistant for: ${intent}"
-                // optional LLM refinement (best-guess): only if a provider is configured. Guarded — never aborts.
+                // optional LLM refinement (best-guess): run the data-defined naming agent (AICMP_NAMING_AGENT)
+                // through AgentRunner. Best-effort — a missing agent or any provider/network failure is caught
+                // and we keep the heuristic suggestion. Prompt + model live in data, not hardcoded here.
                 try {
                     def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                    String providerName = System.getProperty("ai_openai_key") ? "openai" :
-                        (System.getProperty("ai_anthropic_key") ? "anthropic" : null)
-                    if (providerName) {
-                        def provider = ai.getProvider(providerName)
-                        def resp = provider.chat([model: providerName == "openai" ? "gpt-4o-mini" : "claude-3-5-haiku-latest",
-                            systemContext: "Suggest a short, lowercase, hyphenated agent name (<=4 words) and a one-line description. " +
-                                "Ground the name in these business terms when relevant: ${terms.join(', ')}. " +
-                                "Reply as JSON {\"name\":\"...\",\"description\":\"...\"}.",
-                            messages: [[role: "user", content: intent as String]]])
-                        if (resp?.assistantText) {
-                            def j = new groovy.json.JsonSlurper().parseText(resp.assistantText as String)
-                            if (j.name) agentNameSuggestion = (j.name as String).toLowerCase().replaceAll(/[^a-z0-9-]+/, "-").replaceAll(/-+/, "-")
-                            if (j.description) descriptionSuggestion = j.description
-                        }
+                    String namingMsg = "Intent: ${intent}." + (terms ? " Business terms to ground in: ${terms.join(', ')}." : "")
+                    def r = new org.moqui.ai.AgentRunner(ec, ai).run("AICMP_NAMING_AGENT", namingMsg as String, null)
+                    if (r?.assistantMessage) {
+                        def j = new groovy.json.JsonSlurper().parseText(r.assistantMessage as String)
+                        if (j.name) agentNameSuggestion = (j.name as String).toLowerCase().replaceAll(/[^a-z0-9-]+/, "-").replaceAll(/-+/, "-")
+                        if (j.description) descriptionSuggestion = j.description
                     }
                 } catch (Throwable t) { ec.logger.warn("propose#Naming LLM refine skipped: ${t.message}") }
             ]]></script>
@@ -213,41 +207,28 @@
         </actions>
     </service>
 
-    <!-- PWA Composer "Enhance": rewrite rough instructions into a clear agent system prompt via the
-         configured LLM. Stateless — returns the rewrite only, never persists. providerName/modelName
-         overridable (tests pass mock); default resolved from configured keys like propose#Naming. -->
-    <service verb="enhance" noun="Instructions" authenticate="true">
+    <!-- PWA Composer "Enhance": rewrite rough instructions into a clear agent system prompt. Stateless —
+         returns the rewrite only, never persists. The "enhancer" is the data-defined AICMP_ENHANCE_AGENT
+         (prompt + model live in data/AiComposerData.xml, not hardcoded here); this service is a thin wrapper
+         that runs it through AgentRunner for the normal observability/cost/fallback. transaction="ignore":
+         run#Agent drives an LLM call that must hold no enclosing tx (mirrors run#Conversation). -->
+    <service verb="enhance" noun="Instructions" authenticate="true" transaction="ignore">
         <in-parameters>
             <parameter name="instructions" required="true"/>
             <parameter name="agentName"/>
-            <parameter name="providerName"/><parameter name="modelName"/>
         </in-parameters>
         <out-parameters><parameter name="enhancedInstructions"/></out-parameters>
         <actions>
-            <script><![CDATA[
-                def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                String pn = providerName ?: (
-                    (System.getProperty("ai_openai_key") ?: System.getenv("ai_openai_key")) ? "openai" :
-                    ((System.getProperty("ai_anthropic_key") ?: System.getenv("ai_anthropic_key")) ? "anthropic" : null))
-                if (pn == null) { ec.message.addError("No LLM provider configured; cannot enhance instructions."); return }
-                String mn = modelName ?: (pn == "openai" ? "gpt-4o-mini" : "claude-3-5-haiku-latest")
-                // Guarded like propose#Naming: an unregistered provider, a network/timeout, or a provider
-                // error returns the documented graceful message (leaving the draft untouched) instead of a
-                // raw 500. Called directly via REST (not a SECA), so ec.message.addError is the right channel.
-                try {
-                    def resp = ai.getProvider(pn).chat([model: mn,
-                        systemContext: "You improve system prompts for business software agents. Rewrite the user's rough " +
-                            "instructions as a clear, well-structured agent system prompt: keep ALL of their intent and " +
-                            "constraints, add structure (role, scope, tone, when to use tools, when to ask), and invent " +
-                            "nothing they did not imply. Reply with the rewritten prompt text only - no preamble, no " +
-                            "markdown fences." + (agentName ? " The agent is named '${agentName}'." : ""),
-                        messages: [[role: "user", content: instructions as String]]])
-                    enhancedInstructions = resp?.assistantText
-                } catch (Exception e) {
-                    ec.logger.warn("enhance#Instructions provider call failed: ${e.message}")
-                }
-                if (!enhancedInstructions) ec.message.addError("Could not enhance instructions (provider unavailable or returned no text); instructions left unchanged.")
-            ]]></script>
+            <!-- fold the optional agentName into the message (the system prompt is fixed in data) -->
+            <set field="enhanceMsg" from="instructions"/>
+            <if condition="agentName"><set field="enhanceMsg" from="'Agent name: ' + agentName + '. Instructions to rewrite: ' + instructions"/></if>
+            <service-call name="ai.AgentServices.run#Agent" out-map="runOut"
+                in-map="[agentId: 'AICMP_ENHANCE_AGENT', userMessage: enhanceMsg]"/>
+            <set field="enhancedInstructions" from="runOut.assistantMessage"/>
+            <!-- graceful: a provider/network failure leaves a FAILED run with no text; never a raw 500 -->
+            <if condition="!enhancedInstructions">
+                <return error="true" message="Could not enhance instructions (the enhancement agent is unavailable or returned no text); instructions left unchanged."/>
+            </if>
         </actions>
     </service>
 
