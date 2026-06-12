@@ -274,6 +274,20 @@
         <field name="currencyUomId" type="id"/>
     </entity>
 
+    <!-- Cost rollup over runs: the entity engine does the SUM(estimatedCost/tokens) + COUNT, conditionable
+         by agentName / userId / startedDate. Backs get#AiSpend: select agentName or userId to group by it,
+         select none for the grand total (Moqui groups by the SELECTED non-aggregate fields). -->
+    <view-entity entity-name="AiAgentRunSpend" package="moqui.ai">
+        <member-entity entity-alias="RUN" entity-name="moqui.ai.AiAgentRun"/>
+        <alias entity-alias="RUN" name="agentName"/>
+        <alias entity-alias="RUN" name="userId"/>
+        <alias entity-alias="RUN" name="startedDate"/>
+        <alias entity-alias="RUN" name="totalCost"       field="estimatedCost" function="sum"/>
+        <alias entity-alias="RUN" name="totalTokensIn"   field="tokensIn"      function="sum"/>
+        <alias entity-alias="RUN" name="totalTokensOut"  field="tokensOut"     function="sum"/>
+        <alias entity-alias="RUN" name="runCount"        field="agentRunId"    function="count"/>
+    </view-entity>
+
     <!-- ====================== 6. Builder Knowledgebase / domain glossary ==================
          Curated domain nouns + capability verbs that ground agent/tool naming, their dialect
          synonyms, and the learning log of proposed-vs-kept names. -->
