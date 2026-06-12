@@ -45,7 +45,7 @@
              its tool) + status, replacing ai.AgentServices.get#AgentDetail. The client derives
              effectiveRequiresApproval = grant.requiresApprovalOverride ?: tool.requiresApproval. -->
         <master name="detail">
-            <detail relationship="grants"><detail relationship="tool"/></detail>
+            <detail relationship="grants"><detail relationship="tool"><detail relationship="effect"/></detail></detail>
             <detail relationship="status"/>
         </master>
     </entity>
@@ -68,6 +68,8 @@
         </relationship>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
         <index name="AI_TOOL_NAME" unique="true"><index-field name="toolName"/></index>
+        <!-- a tool read carries its resolved effect (read-only/mutating) + status -->
+        <master><detail relationship="effect"/><detail relationship="status"/></master>
     </entity>
 
     <!-- Non-overridable floor (spec D4/§6.3): service-name regex patterns that may NEVER become tools.
@@ -84,6 +86,8 @@
         <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
         <!-- one-nofk: the tool may be a seeded/user row; keep the grant resilient to catalog edits. -->
         <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="tool"/>
+        <!-- a grant read carries its tool (with the tool's resolved effect) -->
+        <master><detail relationship="tool"><detail relationship="effect"/></detail></master>
     </entity>
 
     <entity entity-name="AiAgentModel" package="moqui.ai">
@@ -126,6 +130,8 @@
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
         <!-- explicit reverse for human-approval gate rows, so the AiConversation master nests run -> requests -->
         <relationship type="many" related="moqui.ai.AiToolCallRequest" short-alias="toolCallRequests"><key-map field-name="agentRunId"/></relationship>
+        <!-- a run read carries its tool-call requests + resolved status -->
+        <master><detail relationship="toolCallRequests"/><detail relationship="status"/></master>
     </entity>
 
     <entity entity-name="AiAgentRunStep" package="moqui.ai">
@@ -172,6 +178,8 @@
         <!-- one-nofk: append-only audit; must not block the run/agent lifecycle (mirrors AiAgentRun) -->
         <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <!-- a request read carries its resolved status -->
+        <master><detail relationship="status"/></master>
     </entity>
 
     <!-- Operator queue source: AiToolCallRequest joined to its run's isPreview, so the pending queue can be
@@ -211,6 +219,7 @@
             <detail relationship="agent"/>
             <detail relationship="messages"/>
             <detail relationship="runs"><detail relationship="toolCallRequests"/></detail>
+            <detail relationship="status"/>
         </master>
     </entity>
 
