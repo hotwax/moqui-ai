@@ -183,31 +183,8 @@
         </actions>
     </service>
 
-    <!-- PWA Composer/Workforce read: one agent + its grants with resolved approval flags. -->
-    <service verb="get" noun="AgentDetail" authenticate="true">
-        <in-parameters><parameter name="agentId" required="true"/></in-parameters>
-        <out-parameters>
-            <parameter name="agent" type="Map"/>
-            <parameter name="toolList" type="List"><description>each: toolId, toolName, description, effectEnumId,
-                requiresApproval (tool default Y/N), requiresApprovalOverride (Y/N/null), effectiveRequiresApproval (Y/N)</description></parameter>
-        </out-parameters>
-        <actions>
-            <entity-find-one entity-name="moqui.ai.AiAgent" value-field="agentEv"/>
-            <if condition="agentEv == null"><return error="true" message="Unknown agent ${agentId}"/></if>
-            <script><![CDATA[
-                agent = agentEv.getMap()
-                toolList = []
-                for (def g in ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", agentId).list()) {
-                    def t = ec.entity.find("moqui.ai.AiTool").condition("toolId", g.toolId).one()
-                    if (t == null) continue
-                    toolList.add([toolId: t.toolId, toolName: t.toolName, description: t.description,
-                        effectEnumId: t.effectEnumId, requiresApproval: t.requiresApproval,
-                        requiresApprovalOverride: g.requiresApprovalOverride,
-                        effectiveRequiresApproval: (g.requiresApprovalOverride ?: t.requiresApproval ?: "N")])
-                }
-            ]]></script>
-        </actions>
-    </service>
+    <!-- NOTE: get#AgentDetail was retired — GET /agents/{id} is now served by the AiAgent 'detail' master
+         (entity REST). The client derives effectiveRequiresApproval = grant.requiresApprovalOverride ?: tool.requiresApproval. -->
 
     <!-- Model + reasoning options for the PWA Composer dropdowns: registered providers with their
          current AiModelPrice models plus the configured default. mock is offered only when it is

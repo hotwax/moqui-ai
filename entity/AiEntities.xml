@@ -45,7 +45,7 @@
              its tool) + status, replacing ai.AgentServices.get#AgentDetail. The client derives
              effectiveRequiresApproval = grant.requiresApprovalOverride ?: tool.requiresApproval. -->
         <master name="detail">
-            <detail relationship="grants"><detail relationship="tool"><detail relationship="effect"/></detail></detail>
+            <detail relationship="grants"><detail relationship="tool"/></detail>
             <detail relationship="status"/>
         </master>
     </entity>
@@ -68,8 +68,8 @@
         </relationship>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
         <index name="AI_TOOL_NAME" unique="true"><index-field name="toolName"/></index>
-        <!-- a tool read carries its resolved effect (read-only/mutating) + status -->
-        <master><detail relationship="effect"/><detail relationship="status"/></master>
+        <!-- a tool read carries its status -->
+        <master><detail relationship="status"/></master>
     </entity>
 
     <!-- Non-overridable floor (spec D4/§6.3): service-name regex patterns that may NEVER become tools.
@@ -86,8 +86,8 @@
         <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
         <!-- one-nofk: the tool may be a seeded/user row; keep the grant resilient to catalog edits. -->
         <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="tool"/>
-        <!-- a grant read carries its tool (with the tool's resolved effect) -->
-        <master><detail relationship="tool"><detail relationship="effect"/></detail></master>
+        <!-- a grant read carries its tool -->
+        <master><detail relationship="tool"/></master>
     </entity>
 
     <entity entity-name="AiAgentModel" package="moqui.ai">

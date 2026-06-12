@@ -23,22 +23,9 @@
         </actions>
     </service>
 
-    <service verb="get" noun="ConversationDetail" authenticate="true">
-        <description>One thread: agent info, ordered messages (toolCalls JSON parsed), the latest
-            run's status/error, and pending tool-call requests awaiting decision.</description>
-        <in-parameters><parameter name="conversationId" required="true"/></in-parameters>
-        <out-parameters>
-            <parameter name="conversation" type="Map"/>
-            <parameter name="agent" type="Map"/>
-            <parameter name="messageList" type="List"><description>each: messageSeqId, role, content,
-                toolCalls (List|null), toolCallId, agentRunId, createdDate</description></parameter>
-            <parameter name="latestRun" type="Map"><description>agentRunId, statusId, errorText; null when no runs</description></parameter>
-            <parameter name="pendingRequestList" type="List"><description>each: toolCallRequestId, toolName, serviceName, arguments</description></parameter>
-        </out-parameters>
-        <actions>
-            <entity-find-one entity-name="moqui.ai.AiConversation" value-field="conv"/>
-            <if condition="conv == null"><return error="true" message="Unknown conversation ${conversationId}"/></if>
-            <script location="component://moqui-ai/script/ai/workforce/getConversationDetail.groovy"/>
-        </actions>
-    </service>
+    <!-- NOTE: get#ConversationDetail was retired — GET /conversations/{id} is now served by the
+         AiConversation 'detail' master (entity REST), which nests agent + messages + runs -> tool-call
+         requests. The client parses message.toolCalls (stored JSON), picks the latest run, and filters
+         PENDING requests. list#Conversation (the inbox) stays a service: its derived status is a
+         greatest-n-per-group over runs the entity engine can't express. -->
 </services>
