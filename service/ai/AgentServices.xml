@@ -31,21 +31,7 @@
             <script><![CDATA[
                 def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
                 def r = new org.moqui.ai.AgentRunner(ec, ai).run(agentId, userMessage, conversationId)
-                assistantMessage = r.assistantMessage
-                agentRunId = r.agentRunId
-                conversationId = r.conversationId
-                tokensIn = r.tokensIn
-                tokensOut = r.tokensOut
-                iterations = r.iterations
-                truncated = r.truncated
-                statusId = r.statusId
-                servedByModelId = r.servedByModelId
-                providerName = r.servedProviderName
-                estimatedCost = r.estimatedCost
-                providerRunId = r.providerRunId
-                structuredResult = r.structuredResult
-                awaitingApproval = r.awaitingApproval
-                toolCallRequestIds = r.toolCallRequestIds
+                ec.context.putAll(r)   // the result map keys ARE the out-parameters
             ]]></script>
         </actions>
     </service>

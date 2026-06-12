@@ -49,7 +49,7 @@ class AgentRunner {
      *  @param conversationId optional; when set, prior conversation messages are replayed and
      *  this turn's messages are persisted back.
      *  @return runResult Map: [assistantMessage, agentRunId, conversationId, tokensIn, tokensOut,
-     *  iterations, truncated, statusId, servedByModelId, servedProviderName, providerRunId,
+     *  iterations, truncated, statusId, servedByModelId, providerName, providerRunId,
      *  structuredResult, estimatedCost] */
     Map run(String agentId, String userMessage, String conversationId) {
         // useCache(false): the agent registry mutates at runtime (the Composer drafts/activates
@@ -75,7 +75,7 @@ class AgentRunner {
         Map result = [agentRunId: runId, conversationId: conversationId, assistantMessage: null,
                       tokensIn: 0L, tokensOut: 0L, iterations: 0, truncated: false, statusId: "AI_RUN_RUNNING",
                       structuredResult: null, servedByModelId: primary.modelName as String,
-                      servedProviderName: primary.providerName as String, providerRunId: null, estimatedCost: 0G]
+                      providerName: primary.providerName as String, providerRunId: null, estimatedCost: 0G]
         persist("create#moqui.ai.AiAgentRun", [agentRunId: runId, agentId: agentId,
             agentName: agent.agentName, conversationId: conversationId,
             userId: ec.user.userId, startedDate: ec.user.nowTimestamp, statusId: "AI_RUN_RUNNING",
@@ -178,7 +178,7 @@ class AgentRunner {
                         [systemContext: sysCtx, messages: sendMessages, tools: toolSchemas,
                          responseSchema: responseSchema, reasoning: reasoning], runId)
                 candIdx = call.idx as int                     // sticky: stay on the working candidate
-                result.servedProviderName = call.providerName
+                result.providerName = call.providerName
                 result.servedByModelId = call.modelName
                 for (Map fa in (call.failedAttempts as List<Map>)) {   // observability for each skipped candidate
                     stepSeq++
@@ -568,12 +568,12 @@ class AgentRunner {
     private Map finish(Map result, String runId, String conversationId, String statusId, String errorText) {
         result.statusId = statusId
         result.truncated = (statusId == "AI_RUN_TRUNCATED")
-        result.estimatedCost = estimateCost(result.servedProviderName as String, result.servedByModelId as String,
+        result.estimatedCost = estimateCost(result.providerName as String, result.servedByModelId as String,
             result.tokensIn as long, result.tokensOut as long)
         persist("update#moqui.ai.AiAgentRun", [agentRunId: runId, endedDate: ec.user.nowTimestamp,
             statusId: statusId, assistantMessage: result.assistantMessage, iterations: result.iterations,
             tokensIn: result.tokensIn, tokensOut: result.tokensOut, errorText: errorText,
-            providerName: result.servedProviderName, servedByModelId: result.servedByModelId,
+            providerName: result.providerName, servedByModelId: result.servedByModelId,
             providerRunId: result.providerRunId, estimatedCost: result.estimatedCost])
         return result
     }
