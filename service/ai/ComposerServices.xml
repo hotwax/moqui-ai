@@ -125,10 +125,12 @@
     </service>
 
     <!-- Best-guess agent naming (decision §12.3): KB-grounded heuristic + optional LLM refinement.
-         Wire-safe by construction. The grounding is now REAL — list#DomainTerm is backed by the Builder
+         Wire-safe by construction. The grounding is REAL — list#DomainTerm is backed by the Builder
          Knowledgebase glossary, and the chosen noun is snapped to its canonical glossary term (so a
-         dialect word like "rma" resolves to "return"). Falls back gracefully if the glossary is empty
-         or no provider/key is configured, so it never fails the build. -->
+         dialect word like "rma" resolves to "return"). The LLM refinement runs AICMP_NAMING_AGENT through
+         the run#Agent service (like enhance#Instructions); the agent's responseSchema yields a typed
+         structuredResult, so there is no JSON parsing here. Best-effort: it falls back to the heuristic if
+         the glossary is empty, the agent is missing, or no provider/key is configured — never fails the build. -->
     <service verb="propose" noun="Naming" authenticate="true" transaction="ignore">
         <in-parameters>
             <parameter name="intent" required="true"><description>what the user wants the agent to do</description></parameter>
@@ -138,37 +140,33 @@
             <parameter name="descriptionSuggestion"/>
         </out-parameters>
         <actions>
-            <script><![CDATA[
-                // heuristic floor: derive a slug from the intent + KB-grounded nouns. list#DomainTerm with
-                // no query returns the full grounding slice (APPROVED glossary terms + catalog nouns);
-                // pick the term that appears in the intent.
-                def terms = ec.service.sync().name("ai.ComposerServices.list#DomainTerm").parameters([:]).call().termList ?: []
-                String noun = terms.find { (intent as String).toLowerCase().contains((it as String).toLowerCase()) } ?: "assistant"
-                // snap the chosen noun to its canonical glossary term (dialect -> canonical), if the KB knows it
-                if (noun != "assistant") {
-                    try {
-                        def snap = ec.service.sync().name("ai.GlossaryServices.propose#Naming")
-                            .parameters([proposedNoun: noun, intentText: intent]).call()
-                        if (snap?.noun) noun = snap.noun
-                    } catch (Throwable t) { ec.logger.warn("propose#Naming glossary snap skipped: ${t.message}") }
-                }
-                String slug = (noun == "assistant" ? "assistant" : "${noun}-assistant")
-                agentNameSuggestion = slug.toLowerCase().replaceAll(/[^a-z0-9-]+/, "-").replaceAll(/-+/, "-")
-                descriptionSuggestion = "Assistant for: ${intent}"
-                // optional LLM refinement (best-guess): run the data-defined naming agent (AICMP_NAMING_AGENT)
-                // through AgentRunner. Best-effort — a missing agent or any provider/network failure is caught
-                // and we keep the heuristic suggestion. Prompt + model live in data, not hardcoded here.
-                try {
-                    def ai = ec.factory.getTool("AI", org.moqui.ai.AiToolFactory.class)
-                    String namingMsg = "Intent: ${intent}." + (terms ? " Business terms to ground in: ${terms.join(', ')}." : "")
-                    def r = new org.moqui.ai.AgentRunner(ec, ai).run("AICMP_NAMING_AGENT", namingMsg as String, null)
-                    if (r?.assistantMessage) {
-                        def j = new groovy.json.JsonSlurper().parseText(r.assistantMessage as String)
-                        if (j.name) agentNameSuggestion = (j.name as String).toLowerCase().replaceAll(/[^a-z0-9-]+/, "-").replaceAll(/-+/, "-")
-                        if (j.description) descriptionSuggestion = j.description
-                    }
-                } catch (Throwable t) { ec.logger.warn("propose#Naming LLM refine skipped: ${t.message}") }
-            ]]></script>
+            <!-- heuristic floor: derive a wire-safe slug from the intent + KB-grounded nouns. list#DomainTerm
+                 with no query returns the full grounding slice (APPROVED glossary terms + catalog nouns). -->
+            <service-call name="ai.ComposerServices.list#DomainTerm" out-map="dtOut" in-map="[:]"/>
+            <set field="terms" from="dtOut.termList ?: []"/>
+            <!-- pick the first business term that appears in the intent (else the generic 'assistant') -->
+            <set field="noun" from="terms.find { (intent as String).toLowerCase().contains((it as String).toLowerCase()) } ?: 'assistant'"/>
+            <!-- snap a matched noun to its canonical glossary term (dialect -> canonical); best-effort -->
+            <if condition="noun != 'assistant'">
+                <service-call name="ai.GlossaryServices.propose#Naming" out-map="snapOut" ignore-error="true"
+                    in-map="[proposedNoun: noun, intentText: intent]"/>
+                <if condition="snapOut?.noun"><set field="noun" from="snapOut.noun"/></if>
+            </if>
+            <set field="slug" from="noun == 'assistant' ? 'assistant' : noun + '-assistant'"/>
+            <set field="agentNameSuggestion" from="slug.toLowerCase().replaceAll('[^a-z0-9-]+', '-').replaceAll('-+', '-')"/>
+            <set field="descriptionSuggestion" from="'Assistant for: ' + intent"/>
+            <!-- optional LLM refinement: run the data-defined naming agent through the run#Agent service. Its
+                 responseSchema yields a typed structuredResult (no JSON parsing). ignore-error keeps the
+                 heuristic suggestion when the agent is missing or a provider/network call fails. -->
+            <set field="namingMsg" from="'Intent: ' + intent + (terms ? ' Business terms to ground in: ' + terms.join(', ') + '.' : '')"/>
+            <service-call name="ai.AgentServices.run#Agent" out-map="runOut" ignore-error="true"
+                in-map="[agentId: 'AICMP_NAMING_AGENT', userMessage: namingMsg]"/>
+            <if condition="runOut?.structuredResult?.name">
+                <set field="agentNameSuggestion" from="(runOut.structuredResult.name as String).toLowerCase().replaceAll('[^a-z0-9-]+', '-').replaceAll('-+', '-')"/>
+            </if>
+            <if condition="runOut?.structuredResult?.description">
+                <set field="descriptionSuggestion" from="runOut.structuredResult.description"/>
+            </if>
         </actions>
     </service>
 

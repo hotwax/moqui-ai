@@ -139,15 +139,17 @@ class AiComposerTests extends Specification {
     def "propose#Naming refines the suggestion via the data-defined naming agent when available"() {
         given:
         ec.artifactExecution.disableAuthz(); MockProvider.reset(); ec.message.clearErrors()
-        // the namer ships in data (AiComposerData: AICMP_NAMING_AGENT); route it through mock here
+        // the namer ships in data (AiComposerData: AICMP_NAMING_AGENT); route it through mock here.
+        // responseSchema mirrors the seeded agent so run#Agent surfaces a typed structuredResult.
         ec.transaction.runRequireNew(30, "setup", {
             ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "AICMP_NAMING_AGENT", agentName: "agent-namer",
-                providerName: "mock", modelName: "mock-1", systemPrompt: "x", maxIterations: 1, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+                providerName: "mock", modelName: "mock-1", systemPrompt: "x", maxIterations: 1, statusId: "AI_AGENT_ACTIVE",
+                responseSchema: '{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"}},"required":["name","description"],"additionalProperties":false}']).createOrUpdate()
         })
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         ec.message.clearErrors()
-        // the naming agent replies with JSON; the service parses it and overrides the heuristic suggestion
-        MockProvider.enqueue([assistantText: '{"name":"Orders Maven","description":"Summarizes recent orders."}',
+        // the naming agent returns a typed structuredResult (responseSchema); the service reads it directly — no JSON parse
+        MockProvider.enqueue([structuredResult: [name: "Orders Maven", description: "Summarizes recent orders."],
             finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
         when:
         Map out = ec.service.sync().name("ai.ComposerServices.propose#Naming")

@@ -83,9 +83,12 @@ RULES:
         description="Rewrites a user's rough agent instructions into a clear, structured system prompt."
         systemPrompt="You improve system prompts for business software agents. Rewrite the user's rough instructions as a clear, well-structured agent system prompt: keep ALL of their intent and constraints, add structure (role, scope, tone, when to use tools, when to ask), and invent nothing they did not imply. Reply with the rewritten prompt text only — no preamble, no markdown fences."/>
 
+    <!-- structured output: responseSchema makes run#Agent return a typed structuredResult {name, description},
+         so propose#Naming reads the fields directly instead of JSON-parsing the reply text. -->
     <moqui.ai.AiAgent agentId="AICMP_NAMING_AGENT" agentName="agent-namer"
         providerName="openai" modelName="gpt-4o-mini" maxIterations="1"
         contextStrategy="window" statusId="AI_AGENT_ACTIVE"
+        responseSchema="{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;name&quot;:{&quot;type&quot;:&quot;string&quot;},&quot;description&quot;:{&quot;type&quot;:&quot;string&quot;}},&quot;required&quot;:[&quot;name&quot;,&quot;description&quot;],&quot;additionalProperties&quot;:false}"
         description="Suggests a short, glossary-grounded agent name + one-line description for an intent."
-        systemPrompt="Suggest a short, lowercase, hyphenated agent name (no more than 4 words) and a one-line description for the agent the user describes. Ground the name in any business terms provided in the message when relevant. Reply as JSON {&quot;name&quot;:&quot;...&quot;,&quot;description&quot;:&quot;...&quot;} only — no preamble, no markdown fences."/>
+        systemPrompt="Suggest a short, lowercase, hyphenated agent name (no more than 4 words) and a one-line description for the agent the user describes. Ground the name in any business terms provided in the message when relevant."/>
 </entity-facade-xml>
