@@ -1,8 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- v1 authorization for the AI Ops console: grant all authenticated users (ALL_USERS) view+action
      access to the moqui-ai screens + their transitions. Mirrors the built-in ALL_USERS -> ALL_SCREENS
-     grant. Tighten to a dedicated AI_OPERATOR group in a follow-up. -->
+     grant. This ALL_USERS grant governs only whether the screens/services are INVOKABLE.
+
+     The two MUTATING cross-user paths are scoped per-record IN-SERVICE (an inline owner-OR-AI_OPERATOR guard),
+     not by this coarse grant: AgentServices.run#Conversation (driving a thread) and
+     ToolCallRequestServices.decide#ToolCallRequest (approving/rejecting a gated tool call) require the caller to
+     OWN the conversation or hold AI_OPERATOR / ADMIN. Read aggregates (WorkforceServices) stay company-wide by
+     the 2026-06-11 product decision. The AI_OPERATOR group below is declared so deployments can grant it; no
+     members are seeded here (deployment-specific — grant it to the staff who run the cross-user Ai Ops queue). -->
 <entity-facade-xml type="install">
+    <!-- Dedicated operator role for cross-user AI actions (owner-OR-operator gate). Declared, not populated:
+         grant membership per deployment via moqui.security.UserGroupMember. ADMIN is also honored by the gate. -->
+    <moqui.security.UserGroup userGroupId="AI_OPERATOR" description="AI Operator (may drive/approve any user's AI conversation)"/>
+
     <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_SCREENS" description="AI Ops console screens + transitions"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
         artifactName="component://moqui-ai/screen/.*" artifactTypeEnumId="AT_XML_SCREEN" nameIsPattern="Y"/>

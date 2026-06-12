@@ -5,21 +5,19 @@
     <service verb="approve" noun="ToolCallRequest" transaction="ignore" authenticate="true">
         <in-parameters><parameter name="toolCallRequestId" required="true"/><parameter name="decisionNote"/></in-parameters>
         <out-parameters><parameter name="agentRunId"/><parameter name="runStatusId"/></out-parameters>
-        <actions><script>
-            def r = ec.service.sync().name("ai.ToolCallRequestServices.decide#ToolCallRequest")
-                .parameters([toolCallRequestId: toolCallRequestId, statusId: "AI_TCREQ_APPROVED", decisionNote: decisionNote]).call()
-            agentRunId = r.agentRunId; runStatusId = r.runStatusId
-        </script></actions>
+        <actions>
+            <service-call name="ai.ToolCallRequestServices.decide#ToolCallRequest" out-map="context"
+                in-map="[toolCallRequestId: toolCallRequestId, statusId: 'AI_TCREQ_APPROVED', decisionNote: decisionNote]"/>
+        </actions>
     </service>
 
     <service verb="reject" noun="ToolCallRequest" transaction="ignore" authenticate="true">
         <in-parameters><parameter name="toolCallRequestId" required="true"/><parameter name="decisionNote"/></in-parameters>
         <out-parameters><parameter name="agentRunId"/><parameter name="runStatusId"/></out-parameters>
-        <actions><script>
-            def r = ec.service.sync().name("ai.ToolCallRequestServices.decide#ToolCallRequest")
-                .parameters([toolCallRequestId: toolCallRequestId, statusId: "AI_TCREQ_REJECTED", decisionNote: decisionNote]).call()
-            agentRunId = r.agentRunId; runStatusId = r.runStatusId
-        </script></actions>
+        <actions>
+            <service-call name="ai.ToolCallRequestServices.decide#ToolCallRequest" out-map="context"
+                in-map="[toolCallRequestId: toolCallRequestId, statusId: 'AI_TCREQ_REJECTED', decisionNote: decisionNote]"/>
+        </actions>
     </service>
 
     <!-- shared: record one decision; resume the run when no pending tool call requests remain for it -->
@@ -37,6 +35,23 @@
             <entity-find-one entity-name="moqui.ai.AiToolCallRequest" value-field="appr"/>
             <if condition="appr == null"><return error="true" message="Unknown toolCallRequestId ${toolCallRequestId}"/></if>
             <if condition="appr.statusId != 'AI_TCREQ_PENDING'"><return error="true" message="Tool call request already decided"/></if>
+            <!-- Cross-user gate: a gated tool call is the conversation owner's decision to make. Without this any
+                 authenticated user could approve/reject ANOTHER user's pending MUTATING tool call (then resume()
+                 executes it). Resolve the owner from the run: the conversation owner for a conversation-backed
+                 run, else the run initiator for a stateless run. Owner, or an operator (AI_OPERATOR / ADMIN),
+                 only — fail-closed before the decision is recorded and resume() runs. -->
+            <entity-find-one entity-name="moqui.ai.AiAgentRun" value-field="aprRun">
+                <field-map field-name="agentRunId" from="appr.agentRunId"/></entity-find-one>
+            <set field="ownerUserId" from="aprRun?.userId"/>
+            <if condition="aprRun?.conversationId">
+                <entity-find-one entity-name="moqui.ai.AiConversation" value-field="aprConv">
+                    <field-map field-name="conversationId" from="aprRun.conversationId"/></entity-find-one>
+                <set field="ownerUserId" from="aprConv?.userId ?: ownerUserId"/>
+            </if>
+            <if condition="ownerUserId != ec.user.userId &amp;&amp; !ec.user.isInGroup('AI_OPERATOR') &amp;&amp; !ec.user.isInGroup('ADMIN')">
+                <log level="warn" message="AI authz: user ${ec.user.userId} denied deciding tool-call request ${toolCallRequestId} owned by ${ownerUserId} (not owner/AI_OPERATOR)."/>
+                <return error="true" message="Not authorized to decide this tool-call request: it belongs to another user."/>
+            </if>
             <service-call name="update#moqui.ai.AiToolCallRequest" in-map="[toolCallRequestId: toolCallRequestId, statusId: statusId,
                 decisionNote: decisionNote, decidedByUserId: ec.user.userId, decidedDate: ec.user.nowTimestamp]"/>
             <set field="agentRunId" from="appr.agentRunId"/>

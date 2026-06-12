@@ -170,6 +170,14 @@
         <actions>
             <entity-find-one entity-name="moqui.ai.AiConversation" value-field="conv"/>
             <if condition="conv == null"><return error="true" message="Unknown conversation: ${conversationId}"/></if>
+            <!-- Cross-user gate: this is the only REST path that drives a conversation (POST
+                 /conversations/{id}/messages). Without it any authenticated user could inject a message into ANY
+                 user's agent thread and consume their LLM spend. Owner, or an operator (AI_OPERATOR / ADMIN),
+                 only — fail-closed before run#Agent. -->
+            <if condition="conv.userId != ec.user.userId &amp;&amp; !ec.user.isInGroup('AI_OPERATOR') &amp;&amp; !ec.user.isInGroup('ADMIN')">
+                <log level="warn" message="AI authz: user ${ec.user.userId} denied posting to conversation ${conversationId} owned by ${conv.userId} (not owner/AI_OPERATOR)."/>
+                <return error="true" message="Not authorized to post to this conversation: it belongs to another user."/>
+            </if>
             <service-call name="ai.AgentServices.run#Agent" out-map="context"
                 in-map="[agentId: conv.agentId, userMessage: userMessage, conversationId: conversationId]"/>
         </actions>
