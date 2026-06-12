@@ -6,7 +6,6 @@
     <transition name="archive"><service-call name="ai.KnowledgeServices.archive#KnowledgeTopic" in-map="[topicId:topicId]"/><default-response url="."/></transition>
 
     <actions>
-        <!-- read the entity directly; a plain list needs no service -->
         <entity-find entity-name="moqui.ai.AiKnowledgeTopic" list="topics"><order-by field-name="topicName"/></entity-find>
     </actions>
     <widgets>

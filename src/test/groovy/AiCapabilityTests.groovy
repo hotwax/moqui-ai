@@ -70,8 +70,6 @@ class AiCapabilityTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
-    // list#CapabilityRequest was retired — a plain list is served by the entity engine now (no custom logic to test).
-
     // ---- dismiss#CapabilityRequest ----
 
     def "dismiss#CapabilityRequest transitions OPEN to DISMISSED and stamps audit"() {

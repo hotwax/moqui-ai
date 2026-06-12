@@ -7,9 +7,6 @@
          the Moqui built-in /rest/ endpoint: POST /rest/s1/ai/KnowledgeRestApi/store/KnowledgeTopic etc.
          No business logic here — all validation and state transitions are in KnowledgeServices. -->
 
-    <!-- NOTE: the list#KnowledgeTopic REST wrapper was retired — list reads come from the entity
-         engine (ai.rest.xml: GET /knowledgeTopics -> moqui.ai.AiKnowledgeTopic). -->
-
     <!-- POST /rest/s1/ai/KnowledgeRestApi/store/KnowledgeTopic -->
     <service verb="store" noun="KnowledgeTopic" authenticate="true">
         <description>Create or update a knowledge topic (body file must already exist in knowledge/).</description>

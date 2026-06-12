@@ -38,8 +38,6 @@
             <parameter name="rows" type="List"><description>when grouped: [[key:..., totalCost:..., totalTokensIn:..., totalTokensOut:..., runCount:...], ...]</description></parameter>
         </out-parameters>
         <actions>
-            <!-- grand total: the cost view summed with no group dimension selected; the entity engine does
-                 the SUM/COUNT in SQL (no loading every run into memory). -->
             <entity-find entity-name="moqui.ai.AiAgentRunSpend" list="totalList">
                 <econdition field-name="agentName" ignore-if-empty="true"/>
                 <econdition field-name="userId" ignore-if-empty="true"/>
@@ -54,7 +52,6 @@
             <set field="totalTokensOut" from="(total?.totalTokensOut ?: 0L) as Long"/>
             <set field="runCount" from="(total?.runCount ?: 0L) as Long"/>
             <set field="rows" from="[]"/>
-            <!-- per-group rows: select the group dimension so the engine groups by it (agent or user). -->
             <if condition="groupBy == 'agent' || groupBy == 'user'">
                 <set field="keyField" from="groupBy == 'agent' ? 'agentName' : 'userId'"/>
                 <entity-find entity-name="moqui.ai.AiAgentRunSpend" list="groupList">

@@ -151,7 +151,4 @@
         </actions>
     </service>
 
-    <!-- NOTE: list#KnowledgeTopic retired — a plain list is served by the entity engine.
-         Screen reads moqui.ai.AiKnowledgeTopic directly; REST: GET /rest/s1/ai/knowledgeTopics. -->
-
 </services>

@@ -183,9 +183,6 @@
         </actions>
     </service>
 
-    <!-- NOTE: get#AgentDetail was retired — GET /agents/{id} is now served by the AiAgent 'detail' master
-         (entity REST). The client derives effectiveRequiresApproval = grant.requiresApprovalOverride ?: tool.requiresApproval. -->
-
     <!-- Model + reasoning options for the PWA Composer dropdowns: registered providers with their
          current AiModelPrice models plus the configured default. mock is offered only when it is
          the sole registered provider (dev without keys). -->

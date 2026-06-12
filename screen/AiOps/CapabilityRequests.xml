@@ -5,7 +5,6 @@
     <transition name="dismiss"><service-call name="ai.CapabilityServices.dismiss#CapabilityRequest" in-map="[capabilityRequestId:capabilityRequestId]"/><default-response url="."/></transition>
 
     <actions>
-        <!-- read the entity directly; a plain list needs no service -->
         <entity-find entity-name="moqui.ai.AiCapabilityRequest" list="requests"><order-by field-name="-requestedDate"/></entity-find>
     </actions>
     <widgets>

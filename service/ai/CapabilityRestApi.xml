@@ -7,9 +7,6 @@
          the Moqui built-in /rest/ endpoint: GET /rest/s1/ai/CapabilityRestApi/list/CapabilityRequest etc.
          No business logic here — all validation and state transitions are in CapabilityServices. -->
 
-    <!-- NOTE: the list#CapabilityRequest REST wrapper was retired — list reads come from the entity
-         engine (ai.rest.xml: GET /capabilityRequests -> moqui.ai.AiCapabilityRequest). -->
-
     <!-- GET /rest/s1/ai/CapabilityRestApi/get/CapabilityRequest?capabilityRequestId=... -->
     <service verb="get" noun="CapabilityRequest" authenticate="true">
         <description>Get a single capability request by id.</description>

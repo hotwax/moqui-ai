@@ -7,9 +7,6 @@
          the read + triage + resolve half: list the queue, dismiss noise, fulfill (link an existing
          tool), or provision (create a tool inline and mark the request done in one transaction). -->
 
-    <!-- NOTE: list#CapabilityRequest retired — a plain list is served by the entity engine.
-         Screen reads moqui.ai.AiCapabilityRequest directly; REST: GET /rest/s1/ai/capabilityRequests. -->
-
     <service verb="dismiss" noun="CapabilityRequest" authenticate="true">
         <description>Dismiss an open capability request as noise/not-actionable. Stamps the curator + date + note.</description>
         <in-parameters>

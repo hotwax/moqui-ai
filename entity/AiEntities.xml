@@ -38,7 +38,6 @@
         <field name="maxToolCallsPerTurn" type="number-integer"/>
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentStatus: AI_AGENT_DRAFT | AI_AGENT_ACTIVE | AI_AGENT_DISABLED</description></field>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
-        <!-- explicit reverse for the agent's tool grants, so the entity-REST master can nest them -->
         <relationship type="many" related="moqui.ai.AiAgentTool" short-alias="grants"><key-map field-name="agentId"/></relationship>
         <index name="AI_AGENT_NAME" unique="true"><index-field name="agentName"/></index>
         <!-- entity-REST master (GET .../AiAgent/{id} with master=detail): the agent + its grants (each with
@@ -128,7 +127,6 @@
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
         <relationship type="one-nofk" related="moqui.ai.AiConversation" short-alias="conversation"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
-        <!-- explicit reverse for human-approval gate rows, so the AiConversation master nests run -> requests -->
         <relationship type="many" related="moqui.ai.AiToolCallRequest" short-alias="toolCallRequests"><key-map field-name="agentRunId"/></relationship>
         <!-- a run read carries its tool-call requests + resolved status -->
         <master><detail relationship="toolCallRequests"/><detail relationship="status"/></master>
@@ -178,7 +176,6 @@
         <!-- one-nofk: append-only audit; must not block the run/agent lifecycle (mirrors AiAgentRun) -->
         <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
-        <!-- a request read carries its resolved status -->
         <master><detail relationship="status"/></master>
     </entity>
 
@@ -208,7 +205,6 @@
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiConversationStatus: AI_CONV_ACTIVE | AI_CONV_CLOSED</description></field>
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
-        <!-- explicit reverses so the entity-REST master can nest the whole thread in one read -->
         <relationship type="many" related="moqui.ai.AiConversationMessage" short-alias="messages"><key-map field-name="conversationId"/></relationship>
         <relationship type="many" related="moqui.ai.AiAgentRun" short-alias="runs"><key-map field-name="conversationId"/></relationship>
         <!-- entity-REST master (GET .../AiConversation/{id} with master=detail): the conversation + agent +
@@ -274,9 +270,8 @@
         <field name="currencyUomId" type="id"/>
     </entity>
 
-    <!-- Cost rollup over runs: the entity engine does the SUM(estimatedCost/tokens) + COUNT, conditionable
-         by agentName / userId / startedDate. Backs get#AiSpend: select agentName or userId to group by it,
-         select none for the grand total (Moqui groups by the SELECTED non-aggregate fields). -->
+    <!-- Cost rollup backing get#AiSpend: Moqui groups by the SELECTED non-aggregate fields
+         (select the group dimension to group by it, select none for the grand total). -->
     <view-entity entity-name="AiAgentRunSpend" package="moqui.ai">
         <member-entity entity-alias="RUN" entity-name="moqui.ai.AiAgentRun"/>
         <alias entity-alias="RUN" name="agentName"/>
@@ -304,12 +299,10 @@
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
         <relationship type="one-nofk" title="AiTermKind" related="moqui.basic.Enumeration" short-alias="kindEnum">
             <key-map field-name="termKind" related="enumId"/></relationship>
-        <!-- explicit reverse: the dialect synonyms that map to this term -->
         <relationship type="many" related="moqui.ai.AiTermSynonym" short-alias="synonyms"><key-map field-name="termId"/></relationship>
         <index name="AI_TERM_UNIQUE" unique="true">
             <index-field name="term"/><index-field name="termKind"/><index-field name="ownerScope"/></index>
-        <!-- a term read carries its resolved status + its synonyms (kindEnum left raw: avoids an
-             ALL_USERS grant on moqui.basic.Enumeration, same call as the tool 'effect' nesting) -->
+        <!-- kindEnum left out of the master to avoid an ALL_USERS grant on moqui.basic.Enumeration -->
         <master><detail relationship="status"/><detail relationship="synonyms"/></master>
     </entity>
 
@@ -349,12 +342,10 @@
         <field name="ownerScope"      type="id"/>
         <field name="createdByUserId" type="id"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
-        <!-- explicit reverse: the agents granted this topic -->
         <relationship type="many" related="moqui.ai.AiAgentKnowledge" short-alias="agentGrants"><key-map field-name="topicId"/></relationship>
         <index name="AI_KNOW_TOPIC_NAME" unique="true">
             <index-field name="topicName"/>
         </index>
-        <!-- a topic read carries its resolved status -->
         <master><detail relationship="status"/></master>
     </entity>
 
@@ -363,7 +354,6 @@
         <field name="topicId"  type="id" is-pk="true"/>
         <relationship type="one"      related="moqui.ai.AiAgent"          short-alias="agent"/>
         <relationship type="one-nofk" related="moqui.ai.AiKnowledgeTopic" short-alias="topic"/>
-        <!-- a knowledge grant read carries its topic (like AiAgentTool -> tool) -->
         <master><detail relationship="topic"/></master>
     </entity>
 
@@ -388,7 +378,6 @@
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
         <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
         <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="fulfilledTool"><key-map field-name="fulfilledToolId" related="toolId"/></relationship>
-        <!-- a request read carries its resolved status + the tool that fulfilled it -->
         <master><detail relationship="status"/><detail relationship="fulfilledTool"/></master>
     </entity>
 
