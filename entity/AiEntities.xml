@@ -290,8 +290,13 @@
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
         <relationship type="one-nofk" title="AiTermKind" related="moqui.basic.Enumeration" short-alias="kindEnum">
             <key-map field-name="termKind" related="enumId"/></relationship>
+        <!-- explicit reverse: the dialect synonyms that map to this term -->
+        <relationship type="many" related="moqui.ai.AiTermSynonym" short-alias="synonyms"><key-map field-name="termId"/></relationship>
         <index name="AI_TERM_UNIQUE" unique="true">
             <index-field name="term"/><index-field name="termKind"/><index-field name="ownerScope"/></index>
+        <!-- a term read carries its resolved status + its synonyms (kindEnum left raw: avoids an
+             ALL_USERS grant on moqui.basic.Enumeration, same call as the tool 'effect' nesting) -->
+        <master><detail relationship="status"/><detail relationship="synonyms"/></master>
     </entity>
 
     <!-- The dialect: aliases that map to a canonical term ("rma" -> return). -->
@@ -330,9 +335,13 @@
         <field name="ownerScope"      type="id"/>
         <field name="createdByUserId" type="id"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <!-- explicit reverse: the agents granted this topic -->
+        <relationship type="many" related="moqui.ai.AiAgentKnowledge" short-alias="agentGrants"><key-map field-name="topicId"/></relationship>
         <index name="AI_KNOW_TOPIC_NAME" unique="true">
             <index-field name="topicName"/>
         </index>
+        <!-- a topic read carries its resolved status -->
+        <master><detail relationship="status"/></master>
     </entity>
 
     <entity entity-name="AiAgentKnowledge" package="moqui.ai">
@@ -340,6 +349,8 @@
         <field name="topicId"  type="id" is-pk="true"/>
         <relationship type="one"      related="moqui.ai.AiAgent"          short-alias="agent"/>
         <relationship type="one-nofk" related="moqui.ai.AiKnowledgeTopic" short-alias="topic"/>
+        <!-- a knowledge grant read carries its topic (like AiAgentTool -> tool) -->
+        <master><detail relationship="topic"/></master>
     </entity>
 
     <!-- ============================ 8. Composer ===========================================
@@ -363,6 +374,8 @@
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
         <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
         <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="fulfilledTool"><key-map field-name="fulfilledToolId" related="toolId"/></relationship>
+        <!-- a request read carries its resolved status + the tool that fulfilled it -->
+        <master><detail relationship="status"/><detail relationship="fulfilledTool"/></master>
     </entity>
 
 </entities>
