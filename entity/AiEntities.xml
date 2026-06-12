@@ -38,7 +38,16 @@
         <field name="maxToolCallsPerTurn" type="number-integer"/>
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiAgentStatus: AI_AGENT_DRAFT | AI_AGENT_ACTIVE | AI_AGENT_DISABLED</description></field>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <!-- explicit reverse for the agent's tool grants, so the entity-REST master can nest them -->
+        <relationship type="many" related="moqui.ai.AiAgentTool" short-alias="grants"><key-map field-name="agentId"/></relationship>
         <index name="AI_AGENT_NAME" unique="true"><index-field name="agentName"/></index>
+        <!-- entity-REST master (GET .../AiAgent/{id} with master=detail): the agent + its grants (each with
+             its tool) + status, replacing ai.AgentServices.get#AgentDetail. The client derives
+             effectiveRequiresApproval = grant.requiresApprovalOverride ?: tool.requiresApproval. -->
+        <master name="detail">
+            <detail relationship="grants"><detail relationship="tool"/></detail>
+            <detail relationship="status"/>
+        </master>
     </entity>
 
     <entity entity-name="AiTool" package="moqui.ai">
@@ -59,6 +68,8 @@
         </relationship>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
         <index name="AI_TOOL_NAME" unique="true"><index-field name="toolName"/></index>
+        <!-- a tool read carries its status -->
+        <master><detail relationship="status"/></master>
     </entity>
 
     <!-- Non-overridable floor (spec D4/§6.3): service-name regex patterns that may NEVER become tools.
@@ -75,6 +86,8 @@
         <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
         <!-- one-nofk: the tool may be a seeded/user row; keep the grant resilient to catalog edits. -->
         <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="tool"/>
+        <!-- a grant read carries its tool -->
+        <master><detail relationship="tool"/></master>
     </entity>
 
     <entity entity-name="AiAgentModel" package="moqui.ai">
@@ -115,6 +128,10 @@
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
         <relationship type="one-nofk" related="moqui.ai.AiConversation" short-alias="conversation"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <!-- explicit reverse for human-approval gate rows, so the AiConversation master nests run -> requests -->
+        <relationship type="many" related="moqui.ai.AiToolCallRequest" short-alias="toolCallRequests"><key-map field-name="agentRunId"/></relationship>
+        <!-- a run read carries its tool-call requests + resolved status -->
+        <master><detail relationship="toolCallRequests"/><detail relationship="status"/></master>
     </entity>
 
     <entity entity-name="AiAgentRunStep" package="moqui.ai">
@@ -161,7 +178,23 @@
         <!-- one-nofk: append-only audit; must not block the run/agent lifecycle (mirrors AiAgentRun) -->
         <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <!-- a request read carries its resolved status -->
+        <master><detail relationship="status"/></master>
     </entity>
+
+    <!-- Operator queue source: AiToolCallRequest joined to its run's isPreview, so the pending queue can be
+         served by entity REST (GET .../AiToolCallRequestActivity?statusId=AI_TCREQ_PENDING) and exclude
+         throwaway preview runs (filter isPreview != Y) without a bespoke service. join-optional so a request
+         whose run row is gone still appears. Replaces ai.ToolCallRequestServices.get#PendingToolCallRequest. -->
+    <view-entity entity-name="AiToolCallRequestActivity" package="moqui.ai">
+        <member-entity entity-alias="TCR" entity-name="moqui.ai.AiToolCallRequest"/>
+        <member-entity entity-alias="RUN" entity-name="moqui.ai.AiAgentRun" join-from-alias="TCR" join-optional="true">
+            <key-map field-name="agentRunId"/>
+        </member-entity>
+        <alias-all entity-alias="TCR"/>
+        <alias name="isPreview" entity-alias="RUN"/>
+        <alias name="conversationId" entity-alias="RUN"/>
+    </view-entity>
 
     <!-- ============================ 4. Conversation & context ============================= -->
     <entity entity-name="AiConversation" package="moqui.ai">
@@ -175,6 +208,19 @@
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiConversationStatus: AI_CONV_ACTIVE | AI_CONV_CLOSED</description></field>
         <relationship type="one-nofk" related="moqui.ai.AiAgent" short-alias="agent"/>
         <relationship type="one" related="moqui.basic.StatusItem" short-alias="status"/>
+        <!-- explicit reverses so the entity-REST master can nest the whole thread in one read -->
+        <relationship type="many" related="moqui.ai.AiConversationMessage" short-alias="messages"><key-map field-name="conversationId"/></relationship>
+        <relationship type="many" related="moqui.ai.AiAgentRun" short-alias="runs"><key-map field-name="conversationId"/></relationship>
+        <!-- entity-REST master (GET .../AiConversation/{id} with master=detail): the conversation + agent +
+             ordered messages + its runs (each with its tool-call requests), replacing
+             ai.WorkforceServices.get#ConversationDetail. The client parses message.toolCalls (stored JSON),
+             picks the latest run by startedDate, and filters PENDING requests. -->
+        <master name="detail">
+            <detail relationship="agent"/>
+            <detail relationship="messages"/>
+            <detail relationship="runs"><detail relationship="toolCallRequests"/></detail>
+            <detail relationship="status"/>
+        </master>
     </entity>
 
     <!-- One persisted message per turn-part, in order, replayed on the next call. -->

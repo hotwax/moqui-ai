@@ -8,7 +8,7 @@
         <method type="get"><entity name="moqui.ai.AiAgent" operation="list"/></method>
         <method type="post"><service name="ai.AgentServices.store#AiAgent"/></method>
         <id name="agentId">
-            <method type="get"><service name="ai.AgentServices.get#AgentDetail"/></method>
+            <method type="get"><entity name="moqui.ai.AiAgent" operation="one" masterName="detail"/></method>
             <method type="put"><service name="ai.AgentServices.store#AiAgent"/></method>
             <resource name="tools">
                 <method type="post"><service name="ai.AgentServices.store#AiAgentTool"/></method>
@@ -43,7 +43,7 @@
         <method type="get"><service name="ai.WorkforceServices.list#Conversation"/></method>
         <method type="post"><service name="ai.AgentServices.create#Conversation"/></method>
         <id name="conversationId">
-            <method type="get"><service name="ai.WorkforceServices.get#ConversationDetail"/></method>
+            <method type="get"><entity name="moqui.ai.AiConversation" operation="one" masterName="detail"/></method>
             <resource name="messages">
                 <method type="post"><service name="ai.AgentServices.run#Conversation"/></method>
             </resource>
@@ -51,7 +51,7 @@
     </resource>
 
     <resource name="toolCallRequests">
-        <method type="get"><service name="ai.ToolCallRequestServices.get#PendingToolCallRequest"/></method>
+        <method type="get"><entity name="moqui.ai.AiToolCallRequestActivity" operation="list"/></method>
         <id name="toolCallRequestId">
             <resource name="approve">
                 <method type="post"><service name="ai.ToolCallRequestServices.approve#ToolCallRequest"/></method>
