@@ -357,6 +357,23 @@
         <master><detail relationship="topic"/></master>
     </entity>
 
+    <!-- An agent's knowledge grants joined to their topic detail. Lets find#AgentKnowledge filter
+         agentId + approved + effective in one read instead of a find-one per grant. Inner join, so a
+         grant whose topic no longer exists drops out (matches the old find-one == null skip). -->
+    <view-entity entity-name="AiAgentKnowledgeTopicDetail" package="moqui.ai">
+        <member-entity entity-alias="AGK" entity-name="moqui.ai.AiAgentKnowledge"/>
+        <member-entity entity-alias="TOP" entity-name="moqui.ai.AiKnowledgeTopic" join-from-alias="AGK">
+            <key-map field-name="topicId"/>
+        </member-entity>
+        <alias entity-alias="AGK" name="agentId"/>
+        <alias entity-alias="AGK" name="topicId"/>
+        <alias entity-alias="TOP" name="topicName"/>
+        <alias entity-alias="TOP" name="contentLocation"/>
+        <alias entity-alias="TOP" name="statusId"/>
+        <alias entity-alias="TOP" name="fromDate"/>
+        <alias entity-alias="TOP" name="thruDate"/>
+    </view-entity>
+
     <!-- ============================ 8. Composer ===========================================
          A gap the Composer Assistant found but cannot fill (only the Curator may create tools).
          Append-only queue for the future Curator. -->
