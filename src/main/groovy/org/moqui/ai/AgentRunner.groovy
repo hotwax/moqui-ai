@@ -50,7 +50,7 @@ class AgentRunner {
      *  this turn's messages are persisted back.
      *  @return runResult Map: [assistantMessage, agentRunId, conversationId, tokensIn, tokensOut,
      *  iterations, truncated, statusId, servedByModelId, providerName, providerRunId,
-     *  structuredResult, estimatedCost] */
+     *  structuredResult, estimatedCost, awaitingApproval, toolCallRequestIds] */
     Map run(String agentId, String userMessage, String conversationId) {
         // useCache(false): the agent registry mutates at runtime (the Composer drafts/activates
         // agents) and seed data may be loaded out-of-band by a separate `gradlew load` process,
