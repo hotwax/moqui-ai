@@ -866,8 +866,9 @@ Curator: reject a suggested term.
 
 The Curator-side read + triage + resolve half of the capability-request queue (the write half,
 `request#Capability`, lives in `ComposerServices`). All `authenticate="true"`, framework-default
-transaction. Exposed over REST via `CapabilityRestApi.xml` (thin pass-throughs, adding a
-`get#CapabilityRequest`).
+transaction. Invoked by the AiOps Curator screen (`screen/AiOps/CapabilityRequests.xml`), which
+calls these services directly; the queue list is exposed over REST straight from the entity engine
+(`ai.rest.xml` → `AiCapabilityRequest` `operation="list"`).
 
 ### `list#CapabilityRequest`
 
