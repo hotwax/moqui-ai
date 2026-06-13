@@ -43,7 +43,7 @@
                 Map<String,String> nouns = [:]
                 for (Map.Entry<String,String> e in entityNoun.entrySet()) {
                     // only seed a noun whose backing entity actually exists in THIS deployment
-                    if (presentEntityNames.contains("mantle.order." + e.key) || presentEntityNames.any { it.endsWith("." + e.key) })
+                    if (presentEntityNames.any { it.endsWith("." + e.key) })
                         nouns.put(e.value, "Domain object: ${e.key}".toString())
                 }
                 for (String c in udmConcepts) nouns.put(c, "UDM domain concept".toString())
