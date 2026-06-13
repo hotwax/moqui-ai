@@ -595,17 +595,13 @@ class AgentRunner {
         return out
     }
 
-    /** Persist one message to the conversation (own short tx; guarded — never aborts the run). */
+    /** Persist one message to the conversation (own short tx; guarded — never aborts the run).
+     *  entity-auto create sequences messageSeqId (the secondary PK). */
     private void persistConversationMessage(String conversationId, String runId, Map msg) {
-        try {
-            EntityValue v = ec.entity.makeValue("moqui.ai.AiConversationMessage")
-            v.set("conversationId", conversationId)
-            v.setSequencedIdSecondary()
-            v.setAll([role: msg.role, content: msg.content, toolCallId: msg.toolCallId,
-                toolCalls: msg.toolCalls != null ? JsonOutput.toJson(msg.toolCalls) : null,
-                agentRunId: runId, createdDate: ec.user.nowTimestamp])
-            v.create()
-        } catch (Throwable t) { logger.warn("Conversation message persist failed (continuing): ${t.message}") }
+        persist("create#moqui.ai.AiConversationMessage", [conversationId: conversationId,
+            role: msg.role, content: msg.content, toolCallId: msg.toolCallId,
+            toolCalls: msg.toolCalls != null ? JsonOutput.toJson(msg.toolCalls) : null,
+            agentRunId: runId, createdDate: ec.user.nowTimestamp])
     }
 
     /** Persistence never aborts the run: each write is its own service call (own tx); on
