@@ -55,15 +55,17 @@
         </in-parameters>
         <out-parameters><parameter name="agentId"/></out-parameters>
         <actions>
-            <!-- unique agentName check (only when a name is given and it would collide with a DIFFERENT agent) -->
+            <!-- agentName is unique-indexed (AI_AGENT_NAME): at most one other owner can hold it, so ask
+                 the query directly — name matches AND not this agent. On create agentId is empty, so the
+                 not-equal condition drops (ignore-if-empty) and any same-name row is a clash. -->
             <if condition="agentName">
-                <entity-find entity-name="moqui.ai.AiAgent" list="nameClash">
-                    <econdition field-name="agentName" from="agentName"/></entity-find>
-                <iterate list="nameClash" entry="other">
-                    <if condition="other.agentId != agentId">
-                        <return error="true" message="An agent named '${agentName}' already exists (agentId ${other.agentId}); choose a different name."/>
-                    </if>
-                </iterate>
+                <entity-find entity-name="moqui.ai.AiAgent" list="nameClash" limit="1">
+                    <econdition field-name="agentName" from="agentName"/>
+                    <econdition field-name="agentId" operator="not-equal" from="agentId" ignore-if-empty="true"/>
+                </entity-find>
+                <if condition="nameClash">
+                    <return error="true" message="An agent named '${agentName}' already exists (agentId ${nameClash[0].agentId}); choose a different name."/>
+                </if>
             </if>
             <if condition="!agentId">
                 <set field="agentId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiAgent', null, null)"/>

@@ -25,7 +25,7 @@
         <field name="modelName" type="text-medium"/>
         <field name="systemPrompt" type="text-very-long"/>
         <field name="responseSchema" type="text-very-long"><description>Optional JSON Schema (as text). When set, run#Agent returns a typed structuredResult Map; adapters translate to the provider's native structured-output mechanism.</description></field>
-        <field name="contextStrategy" type="text-short"><description>off (default) | window. window = bound the replayed history + offer the remember tool + inject pinned facts (ADR 0001 Phase 1).</description></field>
+        <field name="contextStrategy" type="text-short"><description>off (default) | window | summarize. window = bound the replayed history + offer the remember tool + inject pinned facts (ADR 0001 Phase 1). summarize = same, but compact overflow into a running summary instead of dropping old messages.</description></field>
         <field name="contextWindowMessages" type="number-integer"><description>When contextStrategy=window: max replayed prior-turn messages to keep (current turn always kept). Default 20 when unset.</description></field>
         <field name="contextWindowChars" type="number-integer"><description>When contextStrategy=window: char-estimate guard (~chars/4 tokens) for the assembled view. Default 48000 when unset.</description></field>
         <field name="knowledgeMaxChars" type="number-integer">
@@ -81,7 +81,7 @@
     <entity entity-name="AiAgentTool" package="moqui.ai">
         <field name="agentId" type="id" is-pk="true"/>
         <field name="toolId" type="id" is-pk="true"/>
-        <field name="requiresApprovalOverride" type="text-indicator"><description>Optional Y/N — lets one agent be stricter than the tool's default requiresApproval (never looser; the tool default is a floor).</description></field>
+        <field name="requiresApprovalOverride" type="text-indicator"><description>Optional Y/N — overrides the tool's default requiresApproval in either direction (stricter or looser). Preview runs still force-gate mutating tools regardless.</description></field>
         <relationship type="one" related="moqui.ai.AiAgent" short-alias="agent"/>
         <!-- one-nofk: the tool may be a seeded/user row; keep the grant resilient to catalog edits. -->
         <relationship type="one-nofk" related="moqui.ai.AiTool" short-alias="tool"/>
@@ -182,7 +182,7 @@
     <!-- Operator queue source: AiToolCallRequest joined to its run's isPreview, so the pending queue can be
          served by entity REST (GET .../AiToolCallRequestActivity?statusId=AI_TCREQ_PENDING) and exclude
          throwaway preview runs (filter isPreview != Y) without a bespoke service. join-optional so a request
-         whose run row is gone still appears. Replaces ai.ToolCallRequestServices.get#PendingToolCallRequest. -->
+         whose run row is gone still appears. Backs the entity-REST read; the get#PendingToolCallRequest service still backs the AiOps Approvals screen. -->
     <view-entity entity-name="AiToolCallRequestActivity" package="moqui.ai">
         <member-entity entity-alias="TCR" entity-name="moqui.ai.AiToolCallRequest"/>
         <member-entity entity-alias="RUN" entity-name="moqui.ai.AiAgentRun" join-from-alias="TCR" join-optional="true">
@@ -356,6 +356,23 @@
         <relationship type="one-nofk" related="moqui.ai.AiKnowledgeTopic" short-alias="topic"/>
         <master><detail relationship="topic"/></master>
     </entity>
+
+    <!-- An agent's knowledge grants joined to their topic detail. Lets find#AgentKnowledge filter
+         agentId + approved + effective in one read instead of a find-one per grant. Inner join, so a
+         grant whose topic no longer exists drops out (matches the old find-one == null skip). -->
+    <view-entity entity-name="AiAgentKnowledgeTopicDetail" package="moqui.ai">
+        <member-entity entity-alias="AGK" entity-name="moqui.ai.AiAgentKnowledge"/>
+        <member-entity entity-alias="TOP" entity-name="moqui.ai.AiKnowledgeTopic" join-from-alias="AGK">
+            <key-map field-name="topicId"/>
+        </member-entity>
+        <alias entity-alias="AGK" name="agentId"/>
+        <alias entity-alias="AGK" name="topicId"/>
+        <alias entity-alias="TOP" name="topicName"/>
+        <alias entity-alias="TOP" name="contentLocation"/>
+        <alias entity-alias="TOP" name="statusId"/>
+        <alias entity-alias="TOP" name="fromDate"/>
+        <alias entity-alias="TOP" name="thruDate"/>
+    </view-entity>
 
     <!-- ============================ 8. Composer ===========================================
          A gap the Composer Assistant found but cannot fill (only the Curator may create tools).

@@ -127,27 +127,27 @@
             <parameter name="topics" type="List"/>
         </out-parameters>
         <actions>
-            <set field="now" from="ec.user.nowTimestamp"/>
-            <entity-find entity-name="moqui.ai.AiAgentKnowledge" list="grants">
+            <!-- One join: the agent's grants whose topic is APPROVED and currently effective, ordered for
+                 deterministic injection. Only the body-file read needs a per-row step (it hits the resource
+                 facade, not the DB), so it stays in the iterate; a missing file is skipped with a warning. -->
+            <entity-find entity-name="moqui.ai.AiAgentKnowledgeTopicDetail" list="grants">
                 <econdition field-name="agentId"/>
+                <econdition field-name="statusId" value="AI_KNOW_APPROVED"/>
+                <date-filter/>
+                <order-by field-name="topicName"/>
+                <select-field field-name="topicId"/>
+                <select-field field-name="topicName"/>
+                <select-field field-name="contentLocation"/>
             </entity-find>
             <set field="topics" from="[]"/>
             <iterate list="grants" entry="grant">
-                <entity-find-one entity-name="moqui.ai.AiKnowledgeTopic" value-field="topic">
-                    <field-map field-name="topicId" from="grant.topicId"/>
-                </entity-find-one>
-                <if condition="topic == null"><continue/></if>
-                <if condition="topic.statusId != 'AI_KNOW_APPROVED'"><continue/></if>
-                <if condition="topic.fromDate != null &amp;&amp; topic.fromDate > now"><continue/></if>
-                <if condition="topic.thruDate != null &amp;&amp; topic.thruDate &lt;= now"><continue/></if>
-                <set field="content" from="ec.resource.getLocationText(topic.contentLocation, true)"/>
+                <set field="content" from="ec.resource.getLocationText(grant.contentLocation, true)"/>
                 <if condition="!content">
-                    <log level="warn" message="Knowledge topic ${topic.topicId} body not found at ${topic.contentLocation} — skipping"/>
+                    <log level="warn" message="Knowledge topic ${grant.topicId} body not found at ${grant.contentLocation} — skipping"/>
                     <continue/>
                 </if>
-                <script>topics.add([topicId: topic.topicId, topicName: topic.topicName, content: content])</script>
+                <script>topics.add([topicId: grant.topicId, topicName: grant.topicName, content: content])</script>
             </iterate>
-            <set field="topics" from="topics.sort { a, b -> a.topicName &lt;=&gt; b.topicName }"/>
         </actions>
     </service>
 
