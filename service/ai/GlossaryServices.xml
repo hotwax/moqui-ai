@@ -131,13 +131,14 @@
     <service verb="capture" noun="NamingSignal" authenticate="false">
         <in-parameters>
             <parameter name="signalType" required="true"/><!-- AI_SIG_TOOL_NAME | AI_SIG_AGENT_NAME -->
-            <parameter name="chosenName" required="true"/>
+            <parameter name="chosenName"/>
             <parameter name="suggestedName"/>
             <parameter name="intentText"/>
         </in-parameters>
         <out-parameters><parameter name="signalId"/></out-parameters>
         <actions>
             <if condition="ec.context.signalGuard == true"><return/></if>
+            <if condition="!chosenName"><return/></if>
             <set field="signalId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiNamingSignal', null, null)"/>
             <set field="overridden" from="(suggestedName != null &amp;&amp; suggestedName != chosenName) ? 'Y' : 'N'"/>
             <service-call name="create#moqui.ai.AiNamingSignal" in-map="[signalId: signalId, signalType: signalType,
