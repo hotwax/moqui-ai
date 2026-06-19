@@ -14,7 +14,9 @@
      Lives in its own data file (not AiGlossaryData.xml) so the glossary test suite, which loads only
      the status/enum reference data, never picks up a runnable job. -->
 <entity-facade-xml type="ext">
+<!--
     <moqui.service.job.ServiceJob jobName="ai_seed_DomainGlossary"
             description="Seed/refresh the AI domain glossary (idempotent)"
-            serviceName="ai.GlossaryServices.seed#DomainGlossary" cronExpression="0 0 * * *" paused="N"/>
+            serviceName="ai.GlossaryServices.seed#DomainGlossary" cronExpression="0 0 * * *" paused="Y"/>
+            -->
 </entity-facade-xml>
