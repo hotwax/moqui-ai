@@ -45,3 +45,14 @@ task refreshLibJar(type: Copy) {
     into "${projectDir}/lib"
 }
 jar.finalizedBy refreshLibJar
+
+tasks.register('copyDependencies', Copy) {
+    dependsOn cleanLib
+    from {
+        configurations.runtimeClasspath -
+                project(':framework').configurations.runtimeClasspath -
+                files(project(':framework').tasks.named('jar').flatMap { it.archiveFile })
+    }
+    into file(projectDir.absolutePath + '/lib')
+}
+jar.dependsOn copyDependencies
