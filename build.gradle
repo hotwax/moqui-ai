@@ -36,6 +36,9 @@ test {
     classpath = classpath.filter { it.exists() }
 }
 
+task cleanLib(type: Delete) { delete fileTree(dir: projectDir.absolutePath+'/lib', include: '*') }
+clean.dependsOn cleanLib
+
 tasks.register('copyDependencies', Copy) {
     dependsOn cleanLib
     from {
