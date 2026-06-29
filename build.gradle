@@ -1,8 +1,5 @@
 apply plugin: 'groovy'
 
-sourceCompatibility = '11'
-targetCompatibility = '11'
-
 // projectDir = runtime/component/moqui-ai ; runtime dir is two levels up
 def runtimeDir = file("${projectDir}/../..")
 
