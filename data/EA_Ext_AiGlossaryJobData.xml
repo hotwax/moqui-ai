@@ -16,5 +16,5 @@
 <entity-facade-xml type="ext">
     <moqui.service.job.ServiceJob jobName="ai_seed_DomainGlossary"
             description="Seed/refresh the AI domain glossary (idempotent)"
-            serviceName="ai.GlossaryServices.seed#DomainGlossary" cronExpression="0 0 * * *" paused="N"/>
+            serviceName="ai.GlossaryServices.seed#DomainGlossary" cronExpression="0 0 0 * * ?" paused="N"/>
 </entity-facade-xml>
