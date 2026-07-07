@@ -2,6 +2,9 @@ apply plugin: 'groovy'
 
 // projectDir = runtime/component/moqui-ai ; runtime dir is two levels up
 def runtimeDir = file("${projectDir}/../..")
+def componentNode = parseComponent(project)
+version = componentNode.'@version'
+def jarBaseName = componentNode.'@name'
 
 repositories {
     // framework declares some deps (e.g. btm) from framework/lib via flatDir; dependents must too
@@ -38,6 +41,11 @@ test {
 
 task cleanLib(type: Delete) { delete fileTree(dir: projectDir.absolutePath+'/lib', include: '*') }
 clean.dependsOn cleanLib
+
+jar {
+    destinationDirectory = file(projectDir.absolutePath + '/lib')
+    archiveBaseName = jarBaseName
+}
 
 tasks.register('copyDependencies', Copy) {
     dependsOn cleanLib
