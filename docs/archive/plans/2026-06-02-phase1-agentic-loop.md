@@ -93,7 +93,7 @@ it**. Per spec each test gets its EC via `Moqui.getExecutionContext()` in `setup
 <?xml version="1.0" encoding="UTF-8"?>
 <component name="moqui-ai" version="0.1.0"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/component-3.xsd"/>
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/moqui-conf-3.xsd"/>
 ```
 
 - [ ] **Step 2: Register the ToolFactory in component MoquiConf**
