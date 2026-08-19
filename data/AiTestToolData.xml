@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<entity-facade-xml type="ext-seed">
+<entity-facade-xml type="ext-demo">
     <!-- Test-only tools (load explicitly in tests). Mirror the old ai/test.tools.xml + approval-test.tools.xml. -->
     <moqui.ai.AiTool toolId="TL_ECHO" toolName="get_echo" verb="get" noun="echo"
         serviceName="moqui.ai.test.TestServices.get#Echo"

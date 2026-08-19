@@ -9,7 +9,7 @@
      OWN the conversation or hold AI_OPERATOR / ADMIN. Read aggregates (WorkforceServices) stay company-wide by
      the 2026-06-11 product decision. The AI_OPERATOR group below is declared so deployments can grant it; no
      members are seeded here (deployment-specific — grant it to the staff who run the cross-user Ai Ops queue). -->
-<entity-facade-xml type="install">
+<entity-facade-xml type="ext-seed">
     <!-- Dedicated operator role for cross-user AI actions (owner-OR-operator gate). Declared, not populated:
          grant membership per deployment via moqui.security.UserGroupMember. ADMIN is also honored by the gate. -->
     <moqui.security.UserGroup userGroupId="AI_OPERATOR" description="AI Operator (may drive/approve any user's AI conversation)"/>
