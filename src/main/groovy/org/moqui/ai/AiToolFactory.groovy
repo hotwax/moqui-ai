@@ -1,5 +1,6 @@
 package org.moqui.ai
 
+import groovy.transform.CompileStatic
 import org.moqui.context.ExecutionContextFactory
 import org.moqui.context.ToolFactory
 import org.moqui.ai.provider.MockProvider
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory
  *  and the in-memory tool catalog BUILT FROM AiTool rows (DB is the source of truth — spec D3),
  *  lazy-loaded on first access and rebuildable via refreshCatalog(). Agents/knowledge are
  *  NOT held here — they are read from entities per run (see AgentRunner). */
+@CompileStatic
 class AiToolFactory implements ToolFactory<AiToolFactory> {
     protected final static Logger logger = LoggerFactory.getLogger(AiToolFactory.class)
 

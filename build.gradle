@@ -1,11 +1,19 @@
-apply plugin: 'groovy'
+plugins {
+    id 'groovy'
+    id 'de.undercouch.download' version '5.6.0'
+}
 
-// projectDir = runtime/component/moqui-ai ; runtime dir is two levels up
-def runtimeDir = file("${projectDir}/../..")
+def componentNode = parseComponent(project)
+version = componentNode.'@version'
+
+def moquiDir = projectDir.parentFile.parentFile.parentFile
+def frameworkDir = file(moquiDir.absolutePath + '/framework')
+def runtimeDir = file(moquiDir.absolutePath + '/runtime')
+def jarBaseName = componentNode.'@name'
 
 repositories {
-    // framework declares some deps (e.g. btm) from framework/lib via flatDir; dependents must too
-    flatDir name: 'frameworkLib', dirs: file("${projectDir}/../../../framework/lib").absolutePath
+    flatDir name: 'localLib', dirs: frameworkDir.absolutePath + '/lib'
+    flatDir name: 'librepo', dirs: projectDir.absolutePath + '/librepo'
     mavenCentral()
 }
 
@@ -35,9 +43,22 @@ test {
     classpath += files(projectDir.absolutePath)
     classpath = classpath.filter { it.exists() }
 }
+// Log4J has annotation processors, disable to avoid warning
+tasks.withType(JavaCompile).configureEach { options.compilerArgs << "-proc:none" }
+tasks.withType(GroovyCompile).configureEach { options.compilerArgs << "-proc:none" }
 
-task cleanLib(type: Delete) { delete fileTree(dir: projectDir.absolutePath+'/lib', include: '*') }
+
+// by default the Java plugin runs test on build, change to not do that (only run test if explicit task)
+// no longer works as of gradle 4.8 or possibly earlier, use clear() instead: check.dependsOn.remove(test)
+check.dependsOn.clear()
+
+tasks.register('cleanLib', Delete) { delete fileTree(dir: projectDir.absolutePath + '/lib', include: '*') }
 clean.dependsOn cleanLib
+
+jar {
+    destinationDirectory = file(projectDir.absolutePath + '/lib')
+    archiveBaseName = jarBaseName
+}
 
 tasks.register('copyDependencies', Copy) {
     dependsOn cleanLib
