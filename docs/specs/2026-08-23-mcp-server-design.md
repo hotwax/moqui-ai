@@ -1,10 +1,11 @@
 # MCP Server Design
 
 Date: 2026-08-23 (consolidated 2026-08-24 after implementation review)
-Status: steps 1-5 and 7 implemented and live (discover/list/call, conformance,
-legacy compat, guards, audit, ServiceSchemas). Remaining: step 6 OAuth — to be built
-on the moqui-sso component (pac4j; IdP config as OidcFlow data, externalUserId
-provisioning) plus our thin resource-server layer
+Status: ALL steps implemented and live. OAuth 2.1 resource server (step 6) is built
+on the moqui-sso component and verified end-to-end against a local OIDC issuer:
+discovery -> JWKS -> RS256 validation -> audience check -> externalUserId mapping ->
+scope enforcement -> audited call. Production rollout still needs: a real IdP
+configured as an AuthFlow/OidcFlow row, audit retention, and an operator screen
 Component: `moqui-ai`
 
 ## Purpose
@@ -42,6 +43,7 @@ calls tools on a server. This design targets specification revision **2026-07-28
 | 16 | Exposure | The scan never polices the service verb. Declaring a tool in `*.mcp.xml` IS the exposure decision and the author owns it ("if you define it, you asked for it"). Only `effect="read"` claims the readOnlyHint annotation; anything else claims nothing, and MCP client defaults treat the tool as potentially destructive. |
 | 17 | Legacy tolerance | Per the spec's MAY clause: requests with no `MCP-Protocol-Version` header, or naming a known older revision (2024-11-05 … 2025-11-25), are served legacy-style — `initialize` answered, no header/`_meta` gates. Verified necessary: the claude CLI still leads with the legacy `initialize` handshake, then speaks the 2025-11-25 dialect (version header, no `Mcp-Method`), and treats HTTP 400 as fatal without the spec's fallback body inspection. Strict gates apply to 2026-07-28+ traffic only; unknown versions still get `-32022`. |
 | 18 | Denylist | RESOLVED (guard step): the MCP scan checks `AiToolDenylist` as an operator floor. A DB pattern row vetoes a service regardless of what any `*.mcp.xml` declares — the file author proposes (decision 16), the deployment operator can block without touching a vendor component's files. Read at scan time; a denylist edit takes effect on the next catalog cache rebuild. |
+| 19 | OAuth foundation | Built on `moqui/moqui-sso` 2.0.0 (dependency of this component): IdP config lives in its `AuthFlow`/`OidcFlow` entities (issuer + JWKS via OIDC discovery, cached in `ai.mcp.oauth.meta`), nimbus-jose-jwt comes from its lib. Our layer is the thin resource server: `McpBearerValidator` (pure: token + JWKSet + issuer + audience in, claims out), the engine's Bearer gate (401 + `WWW-Authenticate` `resource_metadata`, 403 unknown-subject, 403 `insufficient_scope` per tool `scope`), `McpMetadataServlet` for `/.well-known/oauth-protected-resource`, and `mcp_enabled` (default N — the endpoint ships dark). Moqui web auth (Basic / the fork's HMAC JWT) remains the fallback door; the fork's speculative Bearer-HMAC failure is cleared in the transition so it cannot veto RS256 validation. |
 
 ## Scope
 

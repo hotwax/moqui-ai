@@ -21,6 +21,10 @@ dependencies {
     implementation project(':framework')
     // servlet-api is compileOnly in framework (provided by the container), so tests must add it — mirrors framework
     testImplementation 'jakarta.servlet:jakarta.servlet-api:6.1.0'
+    // JWT validation for the MCP resource layer: provided at RUNTIME by moqui-sso's lib
+    // (nimbus-jose-jwt-10.6.jar), so compileOnly here — never copied into this component's lib
+    compileOnly 'com.nimbusds:nimbus-jose-jwt:10.6'
+    testImplementation 'com.nimbusds:nimbus-jose-jwt:10.6'
     // JUnit Platform: launcher + suite (@Suite/@SelectClasses) + jupiter (@AfterAll) — mirrors framework
     testImplementation 'org.junit.platform:junit-platform-launcher:6.0.1'
     testImplementation 'org.junit.platform:junit-platform-suite:6.0.1'
