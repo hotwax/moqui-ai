@@ -34,7 +34,7 @@ class OpenAiProviderTests extends Specification {
         body.messages[1].role == "user"
         body.tools[0].type == "function"
         body.tools[0].function.name == "get_Echo"   // sanitized: OpenAI names must match ^[a-zA-Z0-9_-]+$
-        body.tools[0].function.parameters.properties.text.type == "string"
+        ((Map) body.tools[0].function.parameters.get('properties')).get('text').get('type') == "string"
     }
 
     def "encodes an assistant tool-call turn with arguments as a JSON string"() {
@@ -121,7 +121,7 @@ class OpenAiProviderTests extends Specification {
         then:
         body.response_format.type == "json_schema"
         body.response_format.json_schema.strict == true
-        body.response_format.json_schema.schema.properties.sentiment.type == "string"
+        ((Map) body.response_format.json_schema.schema.get('properties')).get('sentiment').get('type') == "string"
     }
 
     def "applyStructured parses assistant JSON into structuredResult"() {
