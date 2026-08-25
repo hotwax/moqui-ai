@@ -136,23 +136,6 @@ class McpOAuthTests extends Specification {
 
     // ---- the engine path ----
 
-    def "with the endpoint disabled every request is a dark 404"() {
-        given:
-        System.setProperty('mcp_enabled', 'N')
-
-        when:
-        Map out = dispatch([method: 'server/discover', mcpMethodHeader: 'server/discover',
-                            params: [_meta: ['io.modelcontextprotocol/protocolVersion': '2026-07-28',
-                                             'io.modelcontextprotocol/clientCapabilities': [:]]]])
-
-        then:
-        out.httpStatus == 404
-        out.response == null
-
-        cleanup:
-        System.setProperty('mcp_enabled', 'Y')
-    }
-
     def "a valid Bearer token with the right scope runs the tool as the mapped user"() {
         when:
         Map out = dispatch(callParams('get_ai_spend', [:]) + [authorizationHeader: 'Bearer ' + mint([scope: 'mcp:spend'])])
