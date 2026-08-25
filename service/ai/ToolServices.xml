@@ -24,10 +24,10 @@
         </in-parameters>
         <out-parameters><parameter name="toolId"/><parameter name="toolName"/></out-parameters>
         <actions>
-            <!-- 1. validate the service resolves (fail-loud; reuse ToolSchemaBuilder resolution) -->
+            <!-- 1. validate the service resolves (fail-loud; reuse ServiceSchemas resolution) -->
             <script><![CDATA[
                 try {
-                    org.moqui.ai.ToolSchemaBuilder.build(ec.factory, serviceName)
+                    org.moqui.ai.ServiceSchemas.inSchema(ec.factory, serviceName)
                 } catch (Exception e) {
                     ec.message.addError("Unknown or invalid service for tool: ${serviceName} (${e.message})")
                 }

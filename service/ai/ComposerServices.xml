@@ -77,7 +77,7 @@
                 context.description = tool.description; context.effect = tool.effectEnumId
                 context.serviceName = tool.serviceName; context.exposable = tool.exposable
                 // schema generated on demand from the live service definition (never stored)
-                context.inputSchema = org.moqui.ai.ToolSchemaBuilder.build(ec.factory, tool.serviceName as String)
+                context.inputSchema = org.moqui.ai.ServiceSchemas.inSchema(ec.factory, tool.serviceName as String)
             </script>
         </actions>
     </service>

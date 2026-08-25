@@ -100,7 +100,7 @@ class AiComposerTests extends Specification {
         out.description == "List recent orders."
         out.effect == "AI_TOOL_READ_ONLY"
         // schema is generated on demand from the live service definition
-        (out.inputSchema as Map).properties.containsKey("maxOrders")
+        ((Map) (out.inputSchema as Map).get('properties')).containsKey("maxOrders")
         cleanup:
         ec.entity.find("moqui.ai.AiTool").condition("toolId", s.toolId).deleteAll()
         ec.artifactExecution.enableAuthz()
@@ -396,8 +396,10 @@ class AiComposerTests extends Specification {
         ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
         dropAgentByName("orders-summary-bot")   // isolation: clear any leftover from a prior run
         String draftAgentId = ec.entity.sequencedIdPrimary("moqui.ai.AiAgent", null, null)
+        // titled: an untitled conversation triggers the auto-naming LLM call on each run until it
+        // gets a title, which would consume the head of the FIFO mock script and shift every turn
         Map conv = ec.service.sync().name("ai.AgentServices.create#Conversation")
-            .parameters([agentId: "AICMP_AGENT"]).call()
+            .parameters([agentId: "AICMP_AGENT", title: "composer e2e"]).call()
         ec.message.clearErrors()
 
         // Turn 1: discover the capability

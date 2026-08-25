@@ -91,7 +91,7 @@
 
     <!-- Grant a catalog tool to an agent (the Composer's grant_capability backing service). An explicit
          service (not entity-auto store#moqui.ai.AiAgentTool) so it can be a tool: entity-auto services have
-         no ServiceDefinition and cannot be introspected by ToolSchemaBuilder. Idempotent create-or-update;
+         no ServiceDefinition and cannot be introspected by ServiceSchemas. Idempotent create-or-update;
          only exposable+active tools may be granted (the safety floor — a draft can never reference a service
          the Curator hasn't blessed). -->
     <service verb="store" noun="AiAgentTool" authenticate="true">

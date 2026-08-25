@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Schema for *.mcp.xml files (spec: docs/specs/2026-08-23-mcp-server-design.md).
+     Ships in the component, not the framework (design decision 2: no core changes).
+     The scan does its own semantic checks; this schema serves editors and authors. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+    <xs:element name="mcp">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="tool" minOccurs="0" maxOccurs="unbounded">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="service">
+                                <xs:complexType>
+                                    <xs:attribute name="name" type="xs:string" use="required"/>
+                                </xs:complexType>
+                            </xs:element>
+                            <xs:element name="parameter" minOccurs="0" maxOccurs="unbounded">
+                                <xs:complexType>
+                                    <xs:attribute name="name" type="xs:string" use="required"/>
+                                    <xs:attribute name="fixed" type="xs:string">
+                                        <xs:annotation><xs:documentation>Value injected at call time;
+                                            a fixed parameter never appears in the tool's inputSchema.
+                                            Supports ${...} config expansion.</xs:documentation></xs:annotation>
+                                    </xs:attribute>
+                                </xs:complexType>
+                            </xs:element>
+                        </xs:sequence>
+                        <xs:attribute name="name" use="required">
+                            <xs:annotation><xs:documentation>MCP tool name, unique across the whole
+                                server; verb_noun snake_case by project convention.</xs:documentation></xs:annotation>
+                            <xs:simpleType><xs:restriction base="xs:string">
+                                <xs:pattern value="[a-z0-9_]+"/></xs:restriction></xs:simpleType>
+                        </xs:attribute>
+                        <xs:attribute name="title" type="xs:string"/>
+                        <xs:attribute name="description" type="xs:string" use="required"/>
+                        <xs:attribute name="effect">
+                            <xs:annotation><xs:documentation>The author's declaration of the tool's
+                                effect. "read" claims the readOnlyHint annotation for clients;
+                                "mutating" or omitted claims nothing, and MCP client defaults then
+                                treat the tool as potentially destructive (the safe direction).
+                                The scan never derives or polices effect from the service verb:
+                                declaring a tool in this file IS the exposure decision.</xs:documentation></xs:annotation>
+                            <xs:simpleType><xs:restriction base="xs:string">
+                                <xs:enumeration value="read"/>
+                                <xs:enumeration value="mutating"/></xs:restriction></xs:simpleType>
+                        </xs:attribute>
+                        <xs:attribute name="scope" type="xs:string">
+                            <xs:annotation><xs:documentation>OAuth scope required to call this tool
+                                (used from the auth step onward).</xs:documentation></xs:annotation>
+                        </xs:attribute>
+                    </xs:complexType>
+                </xs:element>
+            </xs:sequence>
+            <xs:attribute name="name" type="xs:string" use="required"/>
+            <xs:attribute name="display-name" type="xs:string"/>
+            <xs:attribute name="version" type="xs:string"/>
+            <xs:attribute name="description" type="xs:string"/>
+        </xs:complexType>
+    </xs:element>
+</xs:schema>

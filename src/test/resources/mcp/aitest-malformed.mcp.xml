@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Deliberately malformed XML (unclosed tool element): the scan must log and skip this FILE
+     and still load every other file. -->
+<mcp name="broken" version="1.0.0" description="Malformed fixture.">
+    <tool name="never_loads" description="This element is never closed.">
+        <service name="moqui.ai.test.TestServices.get#Echo"/>
+</mcp>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Second fixture file declaring a tool name the first file already owns: the scan must
+     reject the duplicate (first wins) and log both file locations. -->
+<mcp xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="../../../../xsd/mcp-api-1.xsd"
+     name="aitest2" version="1.0.0" description="Duplicate-name fixture.">
+    <tool name="echo_text" description="Colliding declaration of echo_text.">
+        <service name="moqui.ai.test.TestServices.get#Echo"/>
+    </tool>
+</mcp>

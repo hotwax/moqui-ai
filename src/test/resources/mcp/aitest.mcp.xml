@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test fixture for the MCP scan rules. Lives under src/test/resources, NOT in a component
+     service directory, so the production scan never sees it; tests pass its location explicitly. -->
+<mcp xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="../../../../xsd/mcp-api-1.xsd"
+     name="aitest" display-name="AI Test Tools" version="1.0.0"
+     description="Scan-rule fixtures over the moqui.ai.test.TestServices echoes.">
+
+    <!-- narrowing: only the listed parameter reaches the schema -->
+    <tool name="echo_text" title="Echo Text" description="Echo the text back.">
+        <service name="moqui.ai.test.TestServices.get#Echo"/>
+        <parameter name="text"/>
+    </tool>
+
+    <!-- fixed: repeat is injected at call time and never appears in the schema -->
+    <tool name="echo_fixed" description="Echo with a server-fixed repeat count.">
+        <service name="moqui.ai.test.TestServices.get#Echo"/>
+        <parameter name="text"/>
+        <parameter name="repeat" fixed="2"/>
+    </tool>
+
+    <!-- full-expose default: no parameter children, every in-parameter reaches the schema.
+         repeat=-1 makes the service return an error, so call tests can provoke one. -->
+    <tool name="echo_full" description="Echo with every parameter exposed.">
+        <service name="moqui.ai.test.TestServices.get#Echo"/>
+    </tool>
+
+    <!-- backs a real framework service the seeded AiToolDenylist blocks (org.moqui.impl.*
+         and *[Pp]assword*): the operator floor drops it no matter what this file declares -->
+    <tool name="change_password" description="Denylisted service; the operator floor drops it.">
+        <service name="org.moqui.impl.UserServices.update#Password"/>
+    </tool>
+
+    <!-- backing service does not exist: skipped with an error log, scan continues -->
+    <tool name="echo_missing" description="Backing service does not exist.">
+        <service name="moqui.ai.test.TestServices.get#Nope"/>
+    </tool>
+
+    <!-- write-verb service, no effect declared: it loads — declaring a tool IS the exposure
+         decision, the author owns it. No effect attribute means no annotations claim. -->
+    <tool name="echo_mutating" description="Write-verb echo; the author declared it, so it loads.">
+        <service name="moqui.ai.test.TestServices.set#Echo"/>
+    </tool>
+</mcp>

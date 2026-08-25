@@ -33,7 +33,7 @@ class AnthropicProviderTests extends Specification {
         body.system == "be terse"
         body.messages[0].role == "user"
         body.tools[0].name == "get_Echo"   // sanitized: Anthropic names must match ^[a-zA-Z0-9_-]{1,128}$
-        body.tools[0].input_schema.properties.text.type == "string"
+        ((Map) body.tools[0].input_schema.get('properties')).get('text').get('type') == "string"
     }
 
     def "decodes a tool_use response into tool-call Maps"() {
@@ -86,7 +86,7 @@ class AnthropicProviderTests extends Specification {
         Map body = new JsonSlurper().parseText(p.encodeRequest(
             [model: "m", messages: [[role: "user", content: "hi"]], responseSchema: schema])) as Map
         then:
-        body.tools.find { it.name == "structured_output" }.input_schema.properties.sentiment.type == "string"
+        body.tools.find { it.name == "structured_output" }.input_schema.get('properties').get('sentiment').get('type') == "string"
         body.tool_choice.type == "tool"
         body.tool_choice.name == "structured_output"
     }

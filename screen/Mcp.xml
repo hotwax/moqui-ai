@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The /mcp endpoint (spec: docs/specs/2026-08-23-mcp-server-design.md). Transport only,
+     mirroring webroot/rpc.xml: extract the JSON-RPC body fields and the transport facts
+     (headers, parse state), hand them to the engine service, write the returned Map. ALL
+     behavior lives in ai.mcp.McpServices.dispatch#Request so it is testable at the service
+     level; nothing in this file is worth testing. GET/PUT/DELETE get 405: this revision of
+     Streamable HTTP removed the GET stream endpoint and sessions. -->
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        require-authentication="false" track-artifact-hit="false" default-menu-include="false">
+    <transition name="json" method="post" require-session-token="false">
+        <actions>
+            <!-- this fork's UserFacadeImpl speculatively HMAC-validates ANY Bearer header at
+                 request init (the ofbiz-JWT patch); a token it cannot validate leaves error
+                 messages which would stop the service-call below ("Found error(s) before
+                 service"). Those speculative failures are noise here. A fork-JWT that
+                 SUCCEEDS has already logged the user in and is honored by tools/call. -->
+            <script>ec.message.clearErrors()</script>
+            <service-call name="ai.mcp.McpServices.dispatch#Request" out-map="context"
+                    in-map="[jsonrpc: ec.web.requestParameters.jsonrpc,
+                             method: ec.web.requestParameters.method,
+                             id: ec.web.requestParameters.id,
+                             params: ec.web.requestParameters.params,
+                             protocolVersionHeader: ec.web.request.getHeader('MCP-Protocol-Version'),
+                             mcpMethodHeader: ec.web.request.getHeader('Mcp-Method'),
+                             mcpNameHeader: ec.web.request.getHeader('Mcp-Name'),
+                             parseError: ec.web.requestParameters._requestBodyJsonParseError]"/>
+            <!-- Write directly: status must be set BEFORE the body is written (the response
+                 commits on flush), and ec.web.sendJsonResponse would overwrite any status with
+                 200 (WebFacadeImpl.sendJsonResponseInternal:714). A null response body is a
+                 notification: 202, no body. -->
+            <script><![CDATA[
+                def resp = ec.web.response
+                resp.setStatus((int) httpStatus)
+                if (response != null) {
+                    String jsonStr = groovy.json.JsonOutput.toJson(response)
+                    resp.setContentType("application/json")
+                    resp.setContentLength(jsonStr.getBytes("UTF-8").length)
+                    resp.writer.write(jsonStr)
+                    resp.writer.flush()
+                }
+            ]]></script>
+        </actions>
+        <default-response type="none"/>
+    </transition>
+    <transition name="json" method="get">
+        <actions><script>ec.web.response.setStatus(405)</script></actions>
+        <default-response type="none"/>
+    </transition>
+    <transition name="json" method="put">
+        <actions><script>ec.web.response.setStatus(405)</script></actions>
+        <default-response type="none"/>
+    </transition>
+    <transition name="json" method="delete">
+        <actions><script>ec.web.response.setStatus(405)</script></actions>
+        <default-response type="none"/>
+    </transition>
+    <widgets><!-- this screen is never rendered; the transition is the endpoint --></widgets>
+</screen>

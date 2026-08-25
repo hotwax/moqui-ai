@@ -144,9 +144,15 @@
     </entity>
 
     <entity entity-name="AiToolCall" package="moqui.ai">
-        <field name="agentRunId" type="id" is-pk="true"/>
-        <field name="stepSeqId" type="id" is-pk="true"/>
-        <field name="toolCallId" type="id" is-pk="true"/>
+        <description>One executed (or refused) tool call, whoever made it: an agent run or an
+            external MCP client (design decision 12 — a tool call is ONE concept, so one table
+            answers "who called what, when, with what arguments, and what happened").</description>
+        <field name="toolCallId" type="id" is-pk="true"><description>Sequenced sole PK.</description></field>
+        <field name="sourceEnumId" type="id"><description>Enumeration enumTypeId=AiToolCallSource: AI_TCS_AGENT | AI_TCS_MCP.</description></field>
+        <field name="userId" type="id"><description>The calling user (audit: who).</description></field>
+        <field name="agentRunId" type="id"><description>Null for MCP-originated calls.</description></field>
+        <field name="stepSeqId" type="id"><description>Null for MCP-originated calls.</description></field>
+        <field name="providerCallId" type="text-short"><description>The LLM provider's tool-call id within its turn (this WAS the toolCallId before decision 12); null for MCP calls.</description></field>
         <field name="toolId" type="id"><description>The tool that was called (id); toolName/serviceName are display/dispatch snapshots.</description></field>
         <field name="toolName" type="text-medium"/>
         <field name="serviceName" type="text-medium"/>
@@ -155,6 +161,10 @@
         <field name="success" type="text-indicator"/>
         <field name="errorText" type="text-very-long"/>
         <field name="durationMs" type="number-integer"/>
+        <relationship type="one-nofk" related="moqui.ai.AiAgentRun" short-alias="run"/>
+        <relationship type="one" title="AiToolCallSource" related="moqui.basic.Enumeration" short-alias="source">
+            <key-map field-name="sourceEnumId" related="enumId"/></relationship>
+        <index name="AI_TOOL_CALL_RUN"><index-field name="agentRunId"/></index>
     </entity>
 
     <!-- ============================ 3. Human-approval gate ================================

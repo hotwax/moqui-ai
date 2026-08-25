@@ -5,13 +5,13 @@ import org.moqui.Moqui
 
 @Suite
 @SelectClasses([ AiToolFactoryBootTests.class, AiEntitiesTests.class,
-        MockProviderTests.class, ToolSchemaBuilderTests.class, DefinitionLoaderTests.class,
+        MockProviderTests.class, ServiceSchemasTests.class, DefinitionLoaderTests.class,
         AgentRunnerTests.class, RunAgentServiceTests.class, AnthropicProviderTests.class,
         AiConversationTests.class, OpenAiProviderTests.class, AiCostTests.class,
         AiContextTests.class, AiApprovalTests.class, AiReasoningTests.class,
         AiRegistryTests.class, NotNakedSeedTests.class, AiComposerTests.class,
         AiGlossaryTests.class, AiKnowledgeTests.class, AiCapabilityTests.class,
-        AiPwaApiTests.class ])
+        AiPwaApiTests.class, McpDispatchTests.class, McpToolsTests.class, McpCallTests.class, McpConformanceTests.class, McpTarpitTests.class ])
 class MoquiSuite {
     @AfterAll
     static void destroyMoqui() { Moqui.destroyActiveExecutionContextFactory() }

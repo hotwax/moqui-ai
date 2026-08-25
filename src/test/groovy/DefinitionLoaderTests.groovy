@@ -29,7 +29,7 @@ class DefinitionLoaderTests extends Specification {
         tool.toolName == "get_echo"                 // wire name is verb_noun, NOT the service FQN
         tool.serviceName == "moqui.ai.test.TestServices.get#Echo"
         tool.description.contains("Echoes")
-        tool.schema.properties.text.type == "string"   // generated on demand from the live service
+        ((Map) tool.schema.get('properties')).get('text').get('type') == "string"   // generated on demand from the live service
     }
 
     def "only active + exposable tools are grant-eligible in the catalog"() {
