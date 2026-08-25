@@ -116,7 +116,7 @@ class AiApprovalTests extends Specification {
         run.assistantMessage == "done after approval"
         run.pendingState == null
         // the gated tool actually executed (a successful AiToolCall for it)
-        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c1").one().success == "Y"
         cleanup:
         ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgent2").deleteAll()
@@ -148,7 +148,7 @@ class AiApprovalTests extends Specification {
         r.statusId == "AI_RUN_SUSPENDED"                  // guard refused
         run.statusId == "AI_RUN_SUSPENDED"                // run untouched
         run.pendingState != null                          // state not cleared
-        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").list().isEmpty()  // gated tool did NOT execute
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c1").list().isEmpty()  // gated tool did NOT execute
         cleanup:
         ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgent3").deleteAll()
@@ -183,7 +183,7 @@ class AiApprovalTests extends Specification {
         run.assistantMessage == "done after approval"
         run.pendingState == null
         // the gated tool actually executed (a successful AiToolCall for it)
-        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c1").one().success == "Y"
         cleanup:
         ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgent4").deleteAll()
@@ -214,7 +214,7 @@ class AiApprovalTests extends Specification {
         Map dec = ec.service.sync().name("ai.ToolCallRequestServices.reject#ToolCallRequest")
             .parameters([toolCallRequestId: toolCallRequestId, decisionNote: "not allowed"]).call()
         EntityValue run = ec.entity.find("moqui.ai.AiAgentRun").condition("agentRunId", out.agentRunId).one()
-        EntityValue tc = ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one()
+        EntityValue tc = ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c1").one()
         then:
         dec.runStatusId == "AI_RUN_COMPLETED"
         run.assistantMessage == "ok, skipped that"
@@ -269,8 +269,8 @@ class AiApprovalTests extends Specification {
         then: // run completed and BOTH tools ran successfully
         dec.runStatusId == "AI_RUN_COMPLETED"
         run.assistantMessage == "both done"
-        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
-        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c2").one().success == "Y"
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c1").one().success == "Y"
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c2").one().success == "Y"
         cleanup:
         ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "ApprAgentMix").deleteAll()
@@ -346,7 +346,7 @@ class AiApprovalTests extends Specification {
         out.statusId == "AI_RUN_COMPLETED"
         // never suspended: no approval request rows, and the gated tool executed
         ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).list().isEmpty()
-        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c1").one().success == "Y"
         cleanup:
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "OvrAgentN").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "OvrAgentN").deleteAll()
@@ -564,7 +564,7 @@ class AiApprovalTests extends Specification {
         then:
         dec.runStatusId == "AI_RUN_COMPLETED"
         ec.entity.find("moqui.ai.AiToolCallRequest").condition("toolCallRequestId", reqId).one().decidedByUserId == "AiTestOperator"
-        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("toolCallId", "c1").one().success == "Y"
+        ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c1").one().success == "Y"
         cleanup:
         ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).deleteAll()
         ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", "GateAgent2").deleteAll()

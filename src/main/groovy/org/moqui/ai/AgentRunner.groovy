@@ -320,7 +320,7 @@ class AgentRunner {
                 Map rejTd = ai.getToolByName(tc.name as String)
                 resultJson = JsonOutput.toJson([error: "Denied by user${appr.decisionNote ? ': ' + appr.decisionNote : ''}"])
                 persist("create#moqui.ai.AiToolCall", [agentRunId: agentRunId, stepSeqId: stepSeq as String,
-                    toolCallId: tc.id, toolId: rejTd?.toolId, toolName: tc.name, serviceName: rejTd?.serviceName,
+                    providerCallId: tc.id, sourceEnumId: 'AI_TCS_AGENT', userId: ec.user?.userId, toolId: rejTd?.toolId, toolName: tc.name, serviceName: rejTd?.serviceName,
                     arguments: JsonOutput.toJson(tc.arguments ?: [:]), result: resultJson, success: "N",
                     errorText: "rejected", durationMs: 0])
             } else {
@@ -369,7 +369,7 @@ class AgentRunner {
             }
         }
         persist("create#moqui.ai.AiToolCall", [agentRunId: runId, stepSeqId: stepSeq as String,
-            toolCallId: tc.id, toolId: td?.toolId, toolName: tc.name, serviceName: td?.serviceName,
+            providerCallId: tc.id, sourceEnumId: 'AI_TCS_AGENT', userId: ec.user?.userId, toolId: td?.toolId, toolName: tc.name, serviceName: td?.serviceName,
             arguments: JsonOutput.toJson(tc.arguments ?: [:]), result: resultJson,
             success: success ? "Y" : "N", errorText: errorText,
             durationMs: (System.currentTimeMillis() - start) as int])
@@ -415,7 +415,7 @@ class AgentRunner {
             }
         }
         persist("create#moqui.ai.AiToolCall", [agentRunId: runId, stepSeqId: stepSeq as String,
-            toolCallId: tc.id, toolName: tc.name, serviceName: "ai.FactServices.remember#Fact",
+            providerCallId: tc.id, sourceEnumId: 'AI_TCS_AGENT', userId: ec.user?.userId, toolName: tc.name, serviceName: "ai.FactServices.remember#Fact",
             arguments: JsonOutput.toJson(args), result: resultJson,
             success: success ? "Y" : "N", errorText: errorText,
             durationMs: (System.currentTimeMillis() - start) as int])

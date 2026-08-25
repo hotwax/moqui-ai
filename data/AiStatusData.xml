@@ -65,6 +65,10 @@
     <moqui.basic.StatusFlowTransition statusFlowId="AiCapReqFlow" statusId="AI_CAPREQ_OPEN" toStatusId="AI_CAPREQ_DISMISSED" transitionSequence="2" transitionName="Dismiss"/>
 
     <!-- Denylist floor: admin/security/internal service patterns (spec §4.4/§6.3). Non-overridable. -->
+    <moqui.basic.EnumerationType description="AI Tool Call Source" enumTypeId="AiToolCallSource"/>
+    <moqui.basic.Enumeration description="Agent run" enumId="AI_TCS_AGENT" enumTypeId="AiToolCallSource"/>
+    <moqui.basic.Enumeration description="MCP client" enumId="AI_TCS_MCP" enumTypeId="AiToolCallSource"/>
+
     <moqui.ai.AiToolDenylist servicePattern=".*\.delete#.*"          reason="Deletes must not be AI-exposable"/>
     <moqui.ai.AiToolDenylist servicePattern="org\.moqui\.impl\..*"    reason="Framework-internal services"/>
     <moqui.ai.AiToolDenylist servicePattern=".*[Pp]assword.*"         reason="Credential/security services"/>

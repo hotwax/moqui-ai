@@ -5,7 +5,7 @@ import org.moqui.entity.EntityValue
 
 /** Builds the in-memory tool catalog from AiTool rows (DB is the source of truth — spec D3).
  *  Only ACTIVE + exposable tools are grant-eligible. The JSON schema for each tool is generated
- *  on demand from the LIVE service via ToolSchemaBuilder (never stored — spec §6). Returns a NEW
+ *  on demand from the LIVE service via ServiceSchemas (never stored — spec §6). Returns a NEW
  *  map keyed by toolId; the factory swaps it atomically and also indexes it by toolName. */
 class DefinitionLoader {
     static Map<String, Map> loadCatalog(ExecutionContextFactory ecf) {
@@ -20,7 +20,7 @@ class DefinitionLoader {
                 String serviceName = t.serviceName as String
                 Map schema
                 try {
-                    schema = ToolSchemaBuilder.build(ecf, serviceName)   // fail-loud per tool
+                    schema = ServiceSchemas.inSchema(ecf, serviceName)   // fail-loud per tool
                 } catch (Exception e) {
                     // a seeded tool whose service was removed should not break the whole catalog at boot;
                     // log and skip (the authoring gate validates at write time — this is a defensive read).

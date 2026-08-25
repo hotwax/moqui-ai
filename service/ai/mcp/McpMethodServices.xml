@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP method services: one ordinary Moqui service per MCP method, reached ONLY through
+         ai.mcp.McpServices.dispatch#Request by naming convention (noun/verb -> verb#Noun).
+         This namespace is the exposure gate: only services defined in this file are reachable
+         from the /mcp endpoint. Each service takes the request's params Map and returns a plain
+         result Map; the engine owns the JSON-RPC envelope and the resultType default. -->
+
+    <service verb="discover" noun="Server" authenticate="anonymous-view">
+        <description>MCP server/discover: protocol versions and capabilities (MCP revision
+            2026-07-28 requires every server to implement this). ttlMs/cacheScope are required
+            fields of DiscoverResult; cacheScope is public because the answer is the same for
+            every caller.</description>
+        <in-parameters><parameter name="params" type="Map"/></in-parameters>
+        <out-parameters><parameter name="result" type="Map"/></out-parameters>
+        <actions>
+            <set field="result" from="[
+                    supportedVersions: ['2026-07-28'],
+                    capabilities: [tools: [listChanged: false]],
+                    ttlMs: 300000, cacheScope: 'public']"/>
+        </actions>
+    </service>
+
+    <service verb="initialize" noun="Server" authenticate="anonymous-view">
+        <description>Legacy-era MCP initialize (pre-2026 stateful protocol), served for
+            backward compatibility under the 2026-07-28 spec's MAY clause for headerless
+            clients — the claude CLI still leads with this handshake. Echoes the client's
+            requested protocolVersion (tools/list and tools/call are wire-compatible);
+            mints no session (sessions were optional in the legacy revisions) and offers
+            no SSE stream (GET on the endpoint returns 405, also legal then).</description>
+        <in-parameters><parameter name="params" type="Map"/></in-parameters>
+        <out-parameters><parameter name="result" type="Map"/></out-parameters>
+        <actions><script><![CDATA[
+            String compVersion = 'unknown'
+            try { compVersion = ec.factory.componentInfoMap?.get('moqui-ai')?.version ?: 'unknown' } catch (Throwable t) {}
+            result = [protocolVersion: (params?.get('protocolVersion') ?: '2025-06-18'),
+                      capabilities: [tools: [listChanged: false]],
+                      serverInfo: [name: 'moqui-ai', version: compVersion]]
+        ]]></script></actions>
+    </service>
+
+    <service verb="list" noun="Tools" authenticate="anonymous-view">
+        <description>MCP tools/list: the catalog in wire form. Deterministic order (sorted by
+            name) so clients and model prompt caches can rely on it. ttlMs/cacheScope are
+            required fields of ListToolsResult; cacheScope is public because the list is not
+            filtered by caller (design decision 9). Internal catalog fields (serviceName,
+            fixedParameters) never reach the wire.</description>
+        <in-parameters><parameter name="params" type="Map"/></in-parameters>
+        <out-parameters><parameter name="result" type="Map"/></out-parameters>
+        <actions>
+            <service-call name="ai.mcp.McpServices.get#ToolCatalog" out-map="catOut"/>
+            <script><![CDATA[
+                List wire = []
+                for (Map t in (List<Map>) catOut.toolList) {
+                    Map w = [name: t.name, description: t.description,
+                             inputSchema: t.inputSchema, outputSchema: t.outputSchema]
+                    if (t.annotations) w.annotations = t.annotations
+                    if (t.title) w.title = t.title
+                    wire.add(w)
+                }
+                result = [tools: wire, ttlMs: 300000, cacheScope: 'public']
+            ]]></script>
+        </actions>
+    </service>
+    <service verb="call" noun="Tools" authenticate="anonymous-view">
+        <description>MCP tools/call: resolve the named tool in the catalog and execute it.
+            An unknown tool name is a protocol error (-32602, returned via the error
+            out-parameter for the engine to envelope); a tool that runs but fails reports
+            inside the result with isError:true, per the MCP error split.</description>
+        <in-parameters><parameter name="params" type="Map"/></in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+            <parameter name="error" type="Map"/>
+        </out-parameters>
+        <actions>
+            <service-call name="ai.mcp.McpServices.get#ToolCatalog" out-map="catOut"/>
+            <script><![CDATA[
+                String toolName = params?.name
+                toolDef = (Map) ((List<Map>) catOut.toolList).find { it.name == toolName }
+                if (toolDef == null) error = [code: -32602, message: "Unknown tool: ${toolName}".toString()]
+            ]]></script>
+            <if condition="error == null">
+                <service-call name="ai.mcp.McpServices.exec#Tool" out-map="context"
+                        in-map="[toolDef: toolDef, arguments: params?.arguments]"/>
+            </if>
+        </actions>
+    </service>
+</services>

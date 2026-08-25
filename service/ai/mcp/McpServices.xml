@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP support services (spec: docs/specs/2026-08-23-mcp-server-design.md). These are
+         logic-heavy, so per house style each contract here points at its implementation
+         under script/ai/mcp/ (services that fit XML actions stay pure XML, as in
+         McpMethodServices.xml). -->
+
+    <!-- The engine: conformance gates, the method allowlist map, the JSON-RPC envelope.
+         The map keys are the entire reachable surface; nothing outside
+         ai.mcp.McpMethodServices is ever callable from the endpoint. -->
+    <service verb="dispatch" noun="Request" authenticate="anonymous-view" type="script"
+            location="component://moqui-ai/script/ai/mcp/DispatchRequest.groovy">
+        <description>Dispatch one MCP JSON-RPC request through the conformance gates, resolve
+            the method via the allowlist map, and wrap the outcome in the JSON-RPC envelope.
+            The screen passes the transport facts (headers, parse state) as plain parameters,
+            which is what keeps every gate testable at the service level; httpStatus is
+            returned for tests and applied to the real response by the transport screen.
+            Anonymous callers reach discover/list only; exec#Tool gates actual tool runs on a
+            real user until the OAuth resource-server step.</description>
+        <in-parameters>
+            <parameter name="jsonrpc"/>
+            <parameter name="method"/>
+            <parameter name="id" type="Object"><description>JSON-RPC id, echoed verbatim (string or number, so Object). Absent means the message is a notification.</description></parameter>
+            <parameter name="params" type="Map"/>
+            <parameter name="protocolVersionHeader"><description>MCP-Protocol-Version HTTP header.</description></parameter>
+            <parameter name="mcpMethodHeader"><description>Mcp-Method HTTP header.</description></parameter>
+            <parameter name="mcpNameHeader"><description>Mcp-Name HTTP header (tools/call).</description></parameter>
+            <parameter name="parseError"><description>Body JSON parse error text, when parsing failed.</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="response" type="Map"><description>The JSON-RPC response body; null for a notification (202, no body).</description></parameter>
+            <parameter name="httpStatus" type="Integer"/>
+        </out-parameters>
+    </service>
+
+    <!-- The tool catalog, mirroring RestApi's layering (framework RestApi.groovy:50):
+         get#ToolCatalog is the FIXED scan source plus cache, the loadRootResourceNode
+         analog; build#ToolCatalog is the pure per-file transformer holding all the scan
+         rules, the per-node-construction analog, and the unit the rule tests exercise. -->
+    <service verb="get" noun="ToolCatalog" authenticate="anonymous-view" type="script"
+            location="component://moqui-ai/script/ai/mcp/GetToolCatalog.groovy">
+        <description>The MCP tool catalog: scan every component's service directory for
+            *.mcp.xml files (the source is fixed, exactly like RestApi's *.rest.xml scan; no
+            in-parameters, so nothing a caller sends can point it at a file) and cache the
+            result. The ai.mcp.tool.catalog cache is declared in MoquiConf.xml with no
+            expiry; a rebuild happens on any cache miss.</description>
+        <out-parameters><parameter name="toolList" type="List"><description>Sorted by tool name.
+            Each: name, title, description, serviceName, inputSchema, outputSchema,
+            fixedParameters, annotations. NOTE: callers share the cached object graph — read
+            only, never mutate.</description></parameter></out-parameters>
+    </service>
+
+    <service verb="build" noun="ToolCatalog" authenticate="anonymous-view" type="script"
+            location="component://moqui-ai/script/ai/mcp/BuildToolCatalog.groovy">
+        <description>Pure transformer: parse the given *.mcp.xml file locations and apply the
+            scan rules (documented in BuildToolCatalog.groovy). No cache, no default source.
+            Separate from get#ToolCatalog so the rules are testable against fixture files
+            without giving the cached endpoint path any way to name a file.</description>
+        <in-parameters><parameter name="locationList" type="List" required="true"/></in-parameters>
+        <out-parameters><parameter name="toolList" type="List"/></out-parameters>
+    </service>
+
+    <service verb="exec" noun="Tool" authenticate="anonymous-view" type="script"
+            location="component://moqui-ai/script/ai/mcp/ExecTool.groovy">
+        <description>Execute a resolved catalog tool definition with the given arguments and
+            return the MCP CallToolResult body (content, structuredContent, isError).
+            Internal: called by call#Tools with a catalog entry, and by tests with a
+            build#ToolCatalog entry. Requires a real (non-anonymous) user and runs as them;
+            the backing service's own authenticate and authz decide what they may do.
+            Failures become isError:true text, never an exception on the wire.</description>
+        <in-parameters>
+            <parameter name="toolDef" type="Map" required="true"/>
+            <parameter name="arguments" type="Map"/>
+        </in-parameters>
+        <out-parameters><parameter name="result" type="Map"/></out-parameters>
+    </service>
+</services>

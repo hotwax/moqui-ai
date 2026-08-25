@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MCP tool declarations for the moqui-ai component itself (spec:
+     docs/specs/2026-08-23-mcp-server-design.md, "The *.mcp.xml format"). The component
+     dogfoods its own mechanism: two real, read-only operational tools. -->
+<mcp xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="component://moqui-ai/xsd/mcp-api-1.xsd"
+     name="ai" display-name="Moqui AI" version="1.0.0"
+     description="Operational insight into the AI agent framework: available models and AI spend.">
+
+    <tool name="get_ai_spend" title="Get AI Spend" effect="read"
+          description="Total LLM cost, tokens and run count, optionally filtered by agent name, user or date range, and optionally grouped by agent or user.">
+        <service name="ai.CostServices.get#AiSpend"/>
+    </tool>
+
+    <tool name="list_ai_models" title="List AI Models" effect="read"
+          description="The LLM providers and models this system can use, with the configured defaults.">
+        <service name="ai.AgentServices.list#Model"/>
+    </tool>
+</mcp>

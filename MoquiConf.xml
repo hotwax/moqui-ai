@@ -12,6 +12,11 @@
     <default-property name="ai_default_provider" value="openai"/>
     <default-property name="ai_default_model" value="gpt-4o-mini"/>
     <default-property name="ai_knowledge_max_chars" value="24000"/>
+    <!-- MCP tool catalog cache: declared like the framework's service.rest.api cache (no expire
+         attributes = no expiry); rebuilt on any cache miss by ai.mcp.McpServices.get#ToolCatalog -->
+    <cache-list>
+        <cache name="ai.mcp.tool.catalog" value-type="java.util.List"/>
+    </cache-list>
     <tools>
         <tool-factory class="org.moqui.ai.AiToolFactory" init-priority="30" disabled="false"/>
     </tools>
@@ -21,6 +26,11 @@
     <screen-facade>
         <screen location="component://webroot/screen/webroot/apps.xml">
             <subscreens-item name="AiOps" menu-title="AI Ops" menu-index="97" location="component://moqui-ai/screen/AiOps.xml"/>
+        </screen>
+        <!-- MCP endpoint at /mcp/json — mounted on webroot itself (like /rest and /rpc), not under
+             an app. Transport screen only; behavior is in ai.mcp.McpServices.dispatch#Request. -->
+        <screen location="component://webroot/screen/webroot.xml">
+            <subscreens-item name="mcp" location="component://moqui-ai/screen/Mcp.xml"/>
         </screen>
     </screen-facade>
 </moqui-conf>
