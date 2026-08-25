@@ -11,7 +11,7 @@ class McpConformanceTests extends Specification {
     @Shared ExecutionContext ec
     static final String VER = '2026-07-28'
 
-    def setupSpec() { ec = Moqui.getExecutionContext() }
+    def setupSpec() { System.setProperty('mcp_enabled', 'Y'); ec = Moqui.getExecutionContext() }
     def cleanupSpec() { if (ec != null) ec.destroy() }
     def setup() { ec.message.clearErrors() }
 

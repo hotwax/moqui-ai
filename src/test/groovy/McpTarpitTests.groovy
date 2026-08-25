@@ -12,6 +12,7 @@ class McpTarpitTests extends Specification {
     @Shared ExecutionContext ec
 
     def setupSpec() {
+        System.setProperty('mcp_enabled', 'Y')   // the endpoint ships dark (default N)
         ec = Moqui.getExecutionContext()
         ec.artifactExecution.disableAuthz()
         ec.transaction.runRequireNew(30, "mcp tarpit test setup", {

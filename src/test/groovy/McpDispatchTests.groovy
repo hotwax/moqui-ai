@@ -9,7 +9,7 @@ import org.moqui.Moqui
 class McpDispatchTests extends Specification {
     @Shared ExecutionContext ec
 
-    def setupSpec() { ec = Moqui.getExecutionContext() }
+    def setupSpec() { System.setProperty('mcp_enabled', 'Y'); ec = Moqui.getExecutionContext() }
     def cleanupSpec() { if (ec != null) ec.destroy() }
     def setup() { ec.message.clearErrors() }
 
@@ -17,6 +17,22 @@ class McpDispatchTests extends Specification {
         return [jsonrpc: '2.0', method: method, id: id,
                 params: [_meta: ['io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': [:]]] + extraParams,
                 protocolVersionHeader: '2026-07-28', mcpMethodHeader: method]
+    }
+
+    def "with the endpoint disabled every request is a dark 404"() {
+        given:
+        System.setProperty('mcp_enabled', 'N')
+
+        when:
+        Map out = ec.service.sync().name("ai.mcp.McpServices.dispatch#Request")
+                .parameters(headered('server/discover', [:], 'dark-1')).call()
+
+        then:
+        out.httpStatus == 404
+        out.response == null
+
+        cleanup:
+        System.setProperty('mcp_enabled', 'Y')
     }
 
     def "server/discover returns the discovery result in a JSON-RPC envelope"() {

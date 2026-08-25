@@ -10,6 +10,12 @@
         require-authentication="false" track-artifact-hit="false" default-menu-include="false">
     <transition name="json" method="post" require-session-token="false">
         <actions>
+            <!-- this fork's UserFacadeImpl speculatively HMAC-validates ANY Bearer header at
+                 request init (the ofbiz-JWT patch); a token it cannot validate leaves error
+                 messages which would stop the service-call below ("Found error(s) before
+                 service"). Those speculative failures are noise here. A fork-JWT that
+                 SUCCEEDS has already logged the user in and is honored by tools/call. -->
+            <script>ec.message.clearErrors()</script>
             <service-call name="ai.mcp.McpServices.dispatch#Request" out-map="context"
                     in-map="[jsonrpc: ec.web.requestParameters.jsonrpc,
                              method: ec.web.requestParameters.method,

@@ -4,6 +4,13 @@
  * Runs the conformance gates, resolves the method through the literal allowlist map,
  * calls the method service, wraps the outcome in the JSON-RPC envelope. */
 
+// the endpoint ships dark: any deployment must turn it on deliberately. Early return is
+// safe here: out-parameters are set and the transport screen applies httpStatus itself.
+if (org.moqui.util.SystemBinding.getPropOrEnv('mcp_enabled') != 'Y') {
+    httpStatus = 404; response = null
+    return null
+}
+
 // request visibility: which protocol revision and headers real clients actually send
 ec.logger.info("MCP request method=${method} id=${id} paramsKeys=${params?.keySet()} protoHeader=${protocolVersionHeader} mcpMethodHeader=${mcpMethodHeader}")
 

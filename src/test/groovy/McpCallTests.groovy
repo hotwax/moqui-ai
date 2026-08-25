@@ -14,6 +14,7 @@ class McpCallTests extends Specification {
     static final String FIX = "component://moqui-ai/src/test/resources/mcp/aitest.mcp.xml"
 
     def setupSpec() {
+        System.setProperty('mcp_enabled', 'Y')   // the endpoint ships dark (default N)
         ec = Moqui.getExecutionContext()
         ec.artifactExecution.disableAuthz()
         ec.transaction.runRequireNew(30, "mcp call test setup", {

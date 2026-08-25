@@ -15,6 +15,7 @@ class McpToolsTests extends Specification {
     static final String FIX_DUP = "component://moqui-ai/src/test/resources/mcp/aitest-dup.mcp.xml"
 
     def setupSpec() {
+        System.setProperty('mcp_enabled', 'Y')   // the endpoint ships dark (default N)
         ec = Moqui.getExecutionContext()
         // the denylist rows the operator-floor test relies on (idempotent; other specs load it too)
         ec.artifactExecution.disableAuthz()
