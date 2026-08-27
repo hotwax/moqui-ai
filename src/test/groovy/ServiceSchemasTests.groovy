@@ -41,4 +41,47 @@ class ServiceSchemasTests extends Specification {
         then:
         thrown(IllegalArgumentException)
     }
+
+    // Entity-auto services (implicit create#/update#/delete#/store# on an entity) have no
+    // ServiceDefinition; their schema comes from the entity definition instead. Ported from
+    // PR #61's ToolSchemaBuilder change after that class was replaced by this one.
+
+    def "entity-auto create schema comes from the entity fields, nothing required"() {
+        when:
+        Map schema = ServiceSchemas.inSchema(ec.factory, "create#moqui.basic.Enumeration")
+        Map props = (Map) schema.get('properties')
+
+        then:
+        schema.get('type') == 'object'
+        ((Map) props.get('enumId')).get('type') == 'string'
+        ((Map) props.get('sequenceNum')).get('type') == 'number'
+        ((Map) props.get('sequenceNum')).get('format') == 'int64'
+        !props.containsKey('_entity')
+        schema.get('required') == null
+    }
+
+    def "entity-auto update requires the primary key"() {
+        when:
+        Map schema = ServiceSchemas.inSchema(ec.factory, "update#moqui.basic.Enumeration")
+
+        then:
+        ((List) schema.get('required')).contains('enumId')
+    }
+
+    def "entity-auto create out-schema is the primary key"() {
+        when:
+        Map schema = ServiceSchemas.outSchema(ec.factory, "create#moqui.basic.Enumeration")
+        Map props = (Map) schema.get('properties')
+
+        then:
+        props.keySet() == ['enumId'] as Set
+    }
+
+    def "an entity-auto name for an unknown entity fails loud"() {
+        when:
+        ServiceSchemas.inSchema(ec.factory, "create#no.such.Entity")
+
+        then:
+        thrown(IllegalArgumentException)
+    }
 }
