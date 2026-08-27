@@ -60,4 +60,30 @@
         artifactName="org\.apache\.ofbiz\.order\..*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
     <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_DATA_READ_ALL" userGroupId="ALL_USERS"
         artifactGroupId="AI_OPS_DATA_READ" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_VIEW"/>
+
+    <!-- DataDocument services/entities used by report-builder style AI tools. Mutating tools are still gated by
+         AiTool.requiresApproval; this grant only lets approved tool calls reach the backing existing services. -->
+    <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_DATA_DOCUMENT_RW" description="DataDocument services and entities exposed to AI Ops report-builder tools"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="co.hotwax.util.UtilityServices.get#DataDocuments" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="co.hotwax.util.UtilityServices.get#DataDocumentData" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="co.hotwax.util.UtilityServices.queue#DocumentDataToExport" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="org.moqui.impl.SystemMessageServices.queue#SystemMessage" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="org.moqui.impl.EntityServices.create#DataDocument" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="org.moqui.impl.EntityServices.create#DataDocumentField" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="create#moqui.entity.document.DataDocumentField" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="create#moqui.entity.document.DataDocumentCondition" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="moqui.entity.document.*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
+        artifactName="co.hotwax.util.DataDocumentAndFeed" artifactTypeEnumId="AT_ENTITY"/>
+    <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_DATA_DOCUMENT_RW_ALL" userGroupId="ALL_USERS"
+        artifactGroupId="AI_OPS_DATA_DOCUMENT_RW" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
 </entity-facade-xml>
