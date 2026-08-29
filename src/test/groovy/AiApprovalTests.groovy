@@ -9,15 +9,11 @@ class AiApprovalTests extends Specification {
     @Shared ExecutionContext ec
     @Shared AiToolFactory ai
 
-    // The active Shiro realm (co.hotwax.auth.OfbizShiroRealm) authenticates against the OFBiz UserLogin
-    // model, not moqui.security.UserAccount, so the test user needs Party/Person/UserLogin rows for
-    // internalLoginUser("AiTestUser") to succeed. Must be called inside a committed (runRequireNew) tx.
+    // The active realm (shiro.ini: org.moqui.impl.util.MoquiShiroRealm) authenticates against
+    // moqui.security.UserAccount, so a UserAccount row alone makes internalLoginUser("AiTestUser") succeed. Must be called inside a committed (runRequireNew) tx.
     private void ensureTestUser() { ensureUser("AiTestUser") }
-    // Generic Party/Person/UserLogin/UserAccount so internalLoginUser(id) succeeds against the OFBiz realm.
+    // A UserAccount row is all internalLoginUser(id) needs (realm: org.moqui.impl.util.MoquiShiroRealm).
     private void ensureUser(String id) {
-        ec.entity.makeValue("org.apache.ofbiz.party.party.Party").setAll([partyId: id, partyTypeId: "PERSON"]).createOrUpdate()
-        ec.entity.makeValue("org.apache.ofbiz.party.party.Person").setAll([partyId: id, firstName: id, lastName: "User"]).createOrUpdate()
-        ec.entity.makeValue("org.apache.ofbiz.security.login.UserLogin").setAll([userLoginId: id, partyId: id, enabled: "Y"]).createOrUpdate()
         ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: id, username: id, userFullName: id]).createOrUpdate()
     }
     // A user in the AI_OPERATOR group, the role that may drive/decide ANY user's AI conversation. fromDate is

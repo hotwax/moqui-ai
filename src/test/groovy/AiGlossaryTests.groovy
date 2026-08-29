@@ -11,17 +11,14 @@ import org.moqui.entity.EntityCondition
  *  list#DomainTerm + propose#Naming snapping, the curation services, and the full learning loop.
  *
  *  Harness: setup-data writes wrapped in ec.transaction.runRequireNew(...) + ensureTestUser() (the active
- *  Shiro realm authenticates against the OFBiz UserLogin model, so internalLoginUser needs Party/UserLogin
- *  rows, written in a committed tx). Fixed-PK test rows are delete-before-create so the suite is rerun-safe
+ *  Shiro realm (org.moqui.impl.util.MoquiShiroRealm) authenticates against UserAccount, so a UserAccount
+ *  row, written in a committed tx, is enough). Fixed-PK test rows are delete-before-create so the suite is rerun-safe
  *  on the persistent DB. cleanupSpec removes every glossary row this class may create so it leaves the DB
  *  as it found it (the Composer suite, which runs first, asserts an empty-glossary "catalog" source). */
 class AiGlossaryTests extends Specification {
     @Shared ExecutionContext ec
 
     private void ensureTestUser() {
-        ec.entity.makeValue("org.apache.ofbiz.party.party.Party").setAll([partyId: "AiTestUser", partyTypeId: "PERSON"]).createOrUpdate()
-        ec.entity.makeValue("org.apache.ofbiz.party.party.Person").setAll([partyId: "AiTestUser", firstName: "AI", lastName: "Test User"]).createOrUpdate()
-        ec.entity.makeValue("org.apache.ofbiz.security.login.UserLogin").setAll([userLoginId: "AiTestUser", partyId: "AiTestUser", enabled: "Y"]).createOrUpdate()
         ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "AiTestUser", username: "AiTestUser", userFullName: "AI Test User"]).createOrUpdate()
     }
 
