@@ -13,7 +13,7 @@
     <!-- Build/refresh the starting glossary from the live model + service catalog. SEEDED + APPROVED.
          Idempotent: a term already present (any status) is left untouched. Re-runnable to absorb new
          entities/services. Intended to be called once at install (ext data service-call) and on demand. -->
-    <service verb="seed" noun="DomainGlossary" authenticate="true">
+    <service verb="seed" noun="DomainGlossary" authenticate="anonymous-all">
         <in-parameters>
             <parameter name="ownerScope"/><!-- null = global (v1) -->
         </in-parameters>
