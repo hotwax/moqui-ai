@@ -14,7 +14,7 @@
     <default-property name="ai_knowledge_max_chars" value="24000"/>
     <!-- MCP endpoint: dark by default — serving MCP is a deliberate, per-deployment decision.
          Until a deployment sets mcp_enabled=Y the endpoint answers 404 to everything. -->
-    <default-property name="mcp_enabled" value="Y"/>
+    <default-property name="mcp_enabled" value="N"/>
     <!-- MCP tool catalog cache: declared like the framework's service.rest.api cache (no expire
          attributes = no expiry); rebuilt on any cache miss by ai.mcp.McpServices.get#ToolCatalog -->
     <cache-list>
