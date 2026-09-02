@@ -4,7 +4,7 @@
      must reach existing envs). The deepest dogfood: the builder is configured THROUGH the registry it manages.
      Reconciled to the shipped keystone: AiTool carries effectEnumId (not "effect"); the authoring meta-tools
      point at the keystone service names (ai.AgentServices.store#AiAgent; entity-auto store#moqui.ai.AiAgentTool). -->
-<entity-facade-xml type="ext-seed">
+<entity-facade-xml type="ext-seed" sequence="2">
 
     <!-- ===== meta-tool catalog rows (stable ids) ===== -->
     <moqui.ai.AiTool toolId="AICMP_FIND_CAP"   toolName="find_capability"     verb="find"     noun="capability"
