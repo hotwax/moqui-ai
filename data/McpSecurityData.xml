@@ -7,7 +7,7 @@
      (no userId), which only ever carries discover/list traffic.
      Limit: 120 hits per 60s per caller, locked out for 60s (429 with Retry-After via
      MoquiServlet). Override per deployment by loading a row with different numbers. -->
-<entity-facade-xml type="ext-seed">
+<entity-facade-xml type="ext-seed" sequence="6">
     <moqui.security.ArtifactGroup artifactGroupId="MCP_DISPATCH" description="MCP endpoint dispatch service (rate limiting)"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="MCP_DISPATCH" artifactTypeEnumId="AT_SERVICE"
             artifactName="ai.mcp.McpServices.dispatch#Request" nameIsPattern="N" inheritAuthz="Y"/>

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<entity-facade-xml type="ext-seed">
+<entity-facade-xml type="ext-seed" sequence="1">
     <moqui.basic.StatusType statusTypeId="AiAgentRunStatus" description="AI Agent Run Status"/>
     <moqui.basic.StatusType statusTypeId="AiAgentStatus" description="AI Agent Status"/>
+    <moqui.basic.StatusType statusTypeId="AiKnowledgeStatus" description="AI Knowledge Topic Status"/>
 
     <moqui.basic.StatusItem statusId="AI_RUN_RUNNING"   statusTypeId="AiAgentRunStatus" sequenceNum="1" description="Running"/>
     <moqui.basic.StatusItem statusId="AI_RUN_COMPLETED" statusTypeId="AiAgentRunStatus" sequenceNum="2" description="Completed"/>
@@ -12,6 +13,12 @@
     <moqui.basic.StatusItem statusId="AI_AGENT_DRAFT"    statusTypeId="AiAgentStatus" sequenceNum="0" description="Draft"/>
     <moqui.basic.StatusItem statusId="AI_AGENT_ACTIVE"   statusTypeId="AiAgentStatus" sequenceNum="1" description="Active"/>
     <moqui.basic.StatusItem statusId="AI_AGENT_DISABLED" statusTypeId="AiAgentStatus" sequenceNum="2" description="Disabled"/>
+
+    <moqui.basic.StatusItem statusTypeId="AiKnowledgeStatus" statusId="AI_KNOW_DRAFT" statusCode="DRAFT" description="Draft" sequenceNum="1"/>
+    <moqui.basic.StatusItem statusTypeId="AiKnowledgeStatus" statusId="AI_KNOW_APPROVED" statusCode="APPROVED" description="Approved" sequenceNum="2"/>
+    <moqui.basic.StatusItem statusTypeId="AiKnowledgeStatus" statusId="AI_KNOW_ARCHIVED" statusCode="ARCHIVED" description="Archived" sequenceNum="3"/>
+
+    <moqui.basic.StatusFlow statusFlowId="AiKnowledgeFlow" statusTypeId="AiKnowledgeStatus" description="AI Knowledge Topic Flow"/>
 
     <moqui.basic.StatusFlow statusFlowId="AiAgentRunFlow" statusTypeId="AiAgentRunStatus" description="AI agent run lifecycle"/>
     <moqui.basic.StatusFlow statusFlowId="AiAgentFlow"    statusTypeId="AiAgentStatus"    description="AI agent enable/disable"/>
@@ -63,6 +70,10 @@
     <moqui.basic.StatusFlow statusFlowId="AiCapReqFlow" statusTypeId="AiCapReqStatus" description="Capability request lifecycle"/>
     <moqui.basic.StatusFlowTransition statusFlowId="AiCapReqFlow" statusId="AI_CAPREQ_OPEN" toStatusId="AI_CAPREQ_DONE"      transitionSequence="1" transitionName="Fulfill"/>
     <moqui.basic.StatusFlowTransition statusFlowId="AiCapReqFlow" statusId="AI_CAPREQ_OPEN" toStatusId="AI_CAPREQ_DISMISSED" transitionSequence="2" transitionName="Dismiss"/>
+
+    <moqui.basic.StatusFlowTransition statusFlowId="AiKnowledgeFlow" statusId="AI_KNOW_DRAFT" toStatusId="AI_KNOW_APPROVED"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiKnowledgeFlow" statusId="AI_KNOW_APPROVED" toStatusId="AI_KNOW_ARCHIVED"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiKnowledgeFlow" statusId="AI_KNOW_ARCHIVED" toStatusId="AI_KNOW_APPROVED"/>
 
     <!-- Denylist floor: admin/security/internal service patterns (spec §4.4/§6.3). Non-overridable. -->
     <moqui.basic.EnumerationType description="AI Tool Call Source" enumTypeId="AiToolCallSource"/>
