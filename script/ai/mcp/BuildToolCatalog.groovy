@@ -73,6 +73,7 @@ for (String loc in locationList) {
         Map annotations = toolNode.attribute("effect") == 'read' ? [readOnlyHint: true] : null
         byName.put(toolName, [name: toolName, title: toolNode.attribute("title"),
                 description: toolNode.attribute("description"), serviceName: serviceName,
+                scope: toolNode.attribute("scope"),
                 inputSchema: inputSchema, outputSchema: outputSchema,
                 fixedParameters: fixedParameters, annotations: annotations])
         nameOwner.put(toolName, loc)
