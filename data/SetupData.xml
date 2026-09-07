@@ -46,8 +46,8 @@
          inheritAuthz column, so authz does NOT auto-cascade to nested artifacts — each entity/service the
          screens touch must be listed as a group member above (moqui.ai.*, ai.*, moqui.basic.Status.*,
          moqui.screen.form.*, notnaked.OmsAiServices.*). -->
-    <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_ALL_USERS" userGroupId="ALL_USERS"
-        artifactGroupId="AI_OPS_SCREENS" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+    <!-- <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_ALL_USERS" userGroupId="ALL_USERS"
+        artifactGroupId="AI_OPS_SCREENS" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/> -->
 
     <!-- Read-only access to the business data the seeded agent tools summarize. A SEPARATE, VIEW-only group
          so it does NOT inherit the all-actions grant above. An agent runs AS the signed-in user, so that
@@ -55,15 +55,15 @@
          tool (notnaked.OmsAiServices.get#OrderSummaryList) reads org.apache.ofbiz.order.*.
          NOTE: v1 grants ALL_USERS for the demo; a real deployment should scope this to an operator group
          that legitimately sees order data. -->
-    <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_DATA_READ" description="Read-only business data the AI Ops agent tools summarize (orders, etc.)"/>
+    <!-- <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_DATA_READ" description="Read-only business data the AI Ops agent tools summarize (orders, etc.)"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_READ"
         artifactName="org\.apache\.ofbiz\.order\..*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
     <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_DATA_READ_ALL" userGroupId="ALL_USERS"
-        artifactGroupId="AI_OPS_DATA_READ" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_VIEW"/>
+        artifactGroupId="AI_OPS_DATA_READ" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_VIEW"/> -->
 
     <!-- DataDocument services/entities used by report-builder style AI tools. Mutating tools are still gated by
          AiTool.requiresApproval; this grant only lets approved tool calls reach the backing existing services. -->
-    <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_DATA_DOCUMENT_RW" description="DataDocument services and entities exposed to AI Ops report-builder tools"/>
+    <!-- <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_DATA_DOCUMENT_RW" description="DataDocument services and entities exposed to AI Ops report-builder tools"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
         artifactName="co.hotwax.util.UtilityServices.get#DataDocuments" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
@@ -85,5 +85,5 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
         artifactName="co.hotwax.util.DataDocumentAndFeed" artifactTypeEnumId="AT_ENTITY"/>
     <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_DATA_DOCUMENT_RW_ALL" userGroupId="ALL_USERS"
-        artifactGroupId="AI_OPS_DATA_DOCUMENT_RW" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+        artifactGroupId="AI_OPS_DATA_DOCUMENT_RW" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/> -->
 </entity-facade-xml>
