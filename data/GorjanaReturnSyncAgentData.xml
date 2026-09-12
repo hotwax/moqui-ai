@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="ext-seed">
+
+    <moqui.ai.AiTool toolId="GOR_RTN_DIAG" toolName="get_return_sync_diagnostic"
+        verb="get" noun="return_sync_diagnostic"
+        serviceName="co.hotwax.gorjana.netsuite.return.ReturnDiagnosticServices.get#NetSuiteReturnSyncDiagnostic"
+        effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N"
+        sourceComponent="gorjana-maarg" statusId="AI_TOOL_ACTIVE"
+        description="Get one evidence-backed OMS and NetSuite return lifecycle snapshot. Use this first when explaining why a return is waiting, partial, failed, or marked synced."/>
+
+    <moqui.ai.AiTool toolId="GOR_RTN_GQL" toolName="query_oms_return_graph"
+        verb="query" noun="oms_return_graph" serviceName="gql.QueryServices.execute#Query"
+        effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N"
+        sourceComponent="moqui-gql" statusId="AI_TOOL_ACTIVE"
+        description="Run a read-only GraphQL query against the OMS return graph for additional item, adjustment, response, receipt, payment, order, and identification evidence."/>
+
+    <moqui.ai.AiTool toolId="GOR_RTN_GQL_SDL" toolName="get_oms_graphql_schema"
+        verb="get" noun="oms_graphql_schema" serviceName="gql.QueryServices.get#Sdl"
+        effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N"
+        sourceComponent="moqui-gql" statusId="AI_TOOL_ACTIVE"
+        description="Read the current OMS GraphQL schema before composing a query when the return graph shape is uncertain."/>
+
+    <moqui.ai.AiTool toolId="GOR_RTN_NS_SQL" toolName="query_return_netsuite_suiteql"
+        verb="query" noun="return_netsuite_suiteql"
+        serviceName="co.hotwax.netsuite.NetSuiteSuiteQlServices.execute#SuiteQl"
+        effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N"
+        sourceComponent="mantle-netsuite-connector" statusId="AI_TOOL_ACTIVE"
+        description="Verify return-related NetSuite records with read-only SuiteQL. Use bound params for caller-supplied values and only after OMS evidence identifies the record or mismatch to verify."/>
+
+    <moqui.ai.AiAgent agentId="GOR_RTN_AGENT" agentName="gorjana-return-sync-diagnostics"
+        providerName="openai" modelName="gpt-4o-mini" maxIterations="12" maxToolCallsPerTurn="12"
+        contextStrategy="window" contextWindowMessages="20" contextWindowChars="48000"
+        knowledgeMaxChars="42000" statusId="AI_AGENT_ACTIVE"
+        description="Explains Shopify, AfterShip, OMS, and NetSuite return synchronization using business rules and live read-only evidence."
+        systemPrompt="You are the Return Sync Diagnostics agent. Explain return behavior in clear business language for operations and client-facing teams. Start with get_return_sync_diagnostic whenever an OMS return ID is available. Use the OMS return graph for missing local evidence and SuiteQL only to verify a specific NetSuite question. Never mutate data or trigger synchronization. Treat client-confirmed business decisions as intended behavior, but use current code and live evidence to explain actual behavior. Keep unresolved Slack questions separate from approved requirements. Distinguish an expected waiting state from a defect. Never claim that a NetSuite record exists without a stored record ID or live verification. State the evidence IDs, the one primary blocker, and the smallest safe next check. Do not expose credentials or secrets. If evidence is incomplete, say exactly what is missing instead of guessing."/>
+
+    <moqui.ai.AiAgentTool agentId="GOR_RTN_AGENT" toolId="GOR_RTN_DIAG"/>
+    <moqui.ai.AiAgentTool agentId="GOR_RTN_AGENT" toolId="GOR_RTN_GQL"/>
+    <moqui.ai.AiAgentTool agentId="GOR_RTN_AGENT" toolId="GOR_RTN_GQL_SDL"/>
+    <moqui.ai.AiAgentTool agentId="GOR_RTN_AGENT" toolId="GOR_RTN_NS_SQL"/>
+
+    <moqui.ai.AiKnowledgeTopic topicId="GOR_RTN_LIFECYCLE" topicName="Gorjana Return Sync Lifecycle"
+        description="System ownership, document lifecycle, state meanings, and diagnostic principles for return synchronization."
+        contentLocation="component://moqui-ai/knowledge/gorjana-return-lifecycle.md" statusId="AI_KNOW_APPROVED" ownerScope="GORJANA"/>
+    <moqui.ai.AiKnowledgeTopic topicId="GOR_RTN_SCENARIOS" topicName="Gorjana Return Sync Business Scenarios"
+        description="Business behavior for Shopify, AfterShip, warranties, Happiness Guarantee, sellable returns, and appeasements."
+        contentLocation="component://moqui-ai/knowledge/gorjana-return-scenarios.md" statusId="AI_KNOW_APPROVED" ownerScope="GORJANA"/>
+    <moqui.ai.AiKnowledgeTopic topicId="GOR_RTN_SETTLEMENT" topicName="Gorjana Return Settlement Rules"
+        description="Payment outcome, completion, customer, posting-date, and mixed-settlement rules."
+        contentLocation="component://moqui-ai/knowledge/gorjana-return-settlement.md" statusId="AI_KNOW_APPROVED" ownerScope="GORJANA"/>
+    <moqui.ai.AiKnowledgeTopic topicId="GOR_RTN_INVENTORY" topicName="Gorjana Return Inventory and Item Receipt Rules"
+        description="Return location, damage routing, warehouse, store, kit, and Item Receipt back-sync behavior."
+        contentLocation="component://moqui-ai/knowledge/gorjana-return-inventory.md" statusId="AI_KNOW_APPROVED" ownerScope="GORJANA"/>
+    <moqui.ai.AiKnowledgeTopic topicId="GOR_RTN_PLAYBOOK" topicName="Gorjana Return Sync Diagnostic Playbook"
+        description="Evidence order, waiting states, defect indicators, and response standards for return investigations."
+        contentLocation="component://moqui-ai/knowledge/gorjana-return-diagnostics.md" statusId="AI_KNOW_APPROVED" ownerScope="GORJANA"/>
+    <moqui.ai.AiKnowledgeTopic topicId="GOR_RTN_CLIENT" topicName="Gorjana Client Return Decisions"
+        description="Dated client-confirmed return, inventory, settlement, reconciliation, and cancellation decisions from Slack discussions."
+        contentLocation="component://moqui-ai/knowledge/gorjana-return-client-decisions.md" statusId="AI_KNOW_APPROVED" ownerScope="GORJANA"/>
+
+    <moqui.ai.AiAgentKnowledge agentId="GOR_RTN_AGENT" topicId="GOR_RTN_LIFECYCLE"/>
+    <moqui.ai.AiAgentKnowledge agentId="GOR_RTN_AGENT" topicId="GOR_RTN_SCENARIOS"/>
+    <moqui.ai.AiAgentKnowledge agentId="GOR_RTN_AGENT" topicId="GOR_RTN_SETTLEMENT"/>
+    <moqui.ai.AiAgentKnowledge agentId="GOR_RTN_AGENT" topicId="GOR_RTN_INVENTORY"/>
+    <moqui.ai.AiAgentKnowledge agentId="GOR_RTN_AGENT" topicId="GOR_RTN_PLAYBOOK"/>
+    <moqui.ai.AiAgentKnowledge agentId="GOR_RTN_AGENT" topicId="GOR_RTN_CLIENT"/>
+
+</entity-facade-xml>
