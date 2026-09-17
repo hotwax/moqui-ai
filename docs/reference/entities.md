@@ -45,7 +45,7 @@ change over time; a fixed, code-referenced classification with no lifecycle is a
 | `AiToolStatus` | StatusItem | `AI_TOOL_ACTIVE`, `AI_TOOL_DISABLED` | `AiTool.statusId` |
 | `AiToolEffect` | Enumeration | `AI_TOOL_READ_ONLY`, `AI_TOOL_MUTATING` | `AiTool.effectEnumId` |
 | `AiAgentRunStatus` | StatusItem | `AI_RUN_RUNNING`, `AI_RUN_COMPLETED`, `AI_RUN_FAILED`, `AI_RUN_TRUNCATED`, `AI_RUN_ABORTED`, `AI_RUN_SUSPENDED` | `AiAgentRun.statusId` |
-| `AiToolCallRequestStatus` | StatusItem | `AI_TCREQ_PENDING`, `AI_TCREQ_APPROVED`, `AI_TCREQ_REJECTED` | `AiToolCallRequest.statusId` |
+| `AiToolCallReqStatus` | StatusItem | `AI_TCREQ_PENDING`, `AI_TCREQ_APPROVED`, `AI_TCREQ_REJECTED` | `AiToolCallRequest.statusId` |
 | `AiConversationStatus` | StatusItem | `AI_CONV_ACTIVE`, `AI_CONV_CLOSED` | `AiConversation.statusId` |
 | `AiCapReqStatus` | StatusItem | `AI_CAPREQ_OPEN`, `AI_CAPREQ_DONE`, `AI_CAPREQ_DISMISSED` | `AiCapabilityRequest.statusId` |
 | `AiDomainTermStatus` | StatusItem | `AI_TERM_SUGGESTED`, `AI_TERM_APPROVED`, `AI_TERM_REJECTED` | `AiDomainTerm.statusId`, `AiTermSynonym.statusId` |
@@ -401,7 +401,7 @@ in a suspended turn. The human-approval gate's queue.
 | `toolName` | `text-medium` | The tool's wire name. |
 | `serviceName` | `text-medium` | The backing service. |
 | `arguments` | `text-very-long` | JSON of the proposed call args. |
-| `statusId` | `id` | → `AiToolCallRequestStatus`: `AI_TCREQ_PENDING | AI_TCREQ_APPROVED | AI_TCREQ_REJECTED`. |
+| `statusId` | `id` | → `AiToolCallReqStatus`: `AI_TCREQ_PENDING | AI_TCREQ_APPROVED | AI_TCREQ_REJECTED`. |
 | `requestedByUserId` | `id` | Who triggered the run. |
 | `requestedDate` | `date-time` | When the approval was raised. |
 | `decidedByUserId` | `id` | Who decided. |

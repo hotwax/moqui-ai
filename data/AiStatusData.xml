@@ -41,13 +41,13 @@
     <moqui.basic.StatusFlowTransition statusFlowId="AiAgentRunFlow" statusId="AI_RUN_SUSPENDED" toStatusId="AI_RUN_RUNNING"   transitionSequence="51" transitionName="Resume"/>
 
     <!-- approval: PENDING -> APPROVED | REJECTED -->
-    <moqui.basic.StatusType statusTypeId="AiToolCallRequestStatus" description="AI Tool Call Request Status"/>
-    <moqui.basic.StatusItem statusId="AI_TCREQ_PENDING"  statusTypeId="AiToolCallRequestStatus" sequenceNum="1" description="Pending"/>
-    <moqui.basic.StatusItem statusId="AI_TCREQ_APPROVED" statusTypeId="AiToolCallRequestStatus" sequenceNum="2" description="Approved"/>
-    <moqui.basic.StatusItem statusId="AI_TCREQ_REJECTED" statusTypeId="AiToolCallRequestStatus" sequenceNum="3" description="Rejected"/>
-    <moqui.basic.StatusFlow statusFlowId="AiToolCallRequestFlow" statusTypeId="AiToolCallRequestStatus" description="Approval decision"/>
-    <moqui.basic.StatusFlowTransition statusFlowId="AiToolCallRequestFlow" statusId="AI_TCREQ_PENDING" toStatusId="AI_TCREQ_APPROVED" transitionSequence="1" transitionName="Approve"/>
-    <moqui.basic.StatusFlowTransition statusFlowId="AiToolCallRequestFlow" statusId="AI_TCREQ_PENDING" toStatusId="AI_TCREQ_REJECTED" transitionSequence="2" transitionName="Reject"/>
+    <moqui.basic.StatusType statusTypeId="AiToolCallReqStatus" description="AI Tool Call Request Status"/>
+    <moqui.basic.StatusItem statusId="AI_TCREQ_PENDING"  statusTypeId="AiToolCallReqStatus" sequenceNum="1" description="Pending"/>
+    <moqui.basic.StatusItem statusId="AI_TCREQ_APPROVED" statusTypeId="AiToolCallReqStatus" sequenceNum="2" description="Approved"/>
+    <moqui.basic.StatusItem statusId="AI_TCREQ_REJECTED" statusTypeId="AiToolCallReqStatus" sequenceNum="3" description="Rejected"/>
+    <moqui.basic.StatusFlow statusFlowId="AiToolCallReqFlow" statusTypeId="AiToolCallReqStatus" description="Approval decision"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiToolCallReqFlow" statusId="AI_TCREQ_PENDING" toStatusId="AI_TCREQ_APPROVED" transitionSequence="1" transitionName="Approve"/>
+    <moqui.basic.StatusFlowTransition statusFlowId="AiToolCallReqFlow" statusId="AI_TCREQ_PENDING" toStatusId="AI_TCREQ_REJECTED" transitionSequence="2" transitionName="Reject"/>
 
     <!-- AiTool effect (Enumeration: fixed, code-referenced type, no lifecycle) -->
     <moqui.basic.EnumerationType enumTypeId="AiToolEffect" description="AI Tool Effect"/>
