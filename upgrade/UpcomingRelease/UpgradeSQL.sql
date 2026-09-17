@@ -11,6 +11,7 @@
         SOURCE_COMPONENT varchar(255),
         CREATED_BY_USER_ID varchar(40),
         STATUS_ID varchar(40),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (TOOL_ID),
         UNIQUE KEY AI_TOOL_NAME (TOOL_NAME),
@@ -22,6 +23,7 @@
     CREATE TABLE AI_TOOL_DENYLIST (
         SERVICE_PATTERN varchar(255),
         REASON varchar(255),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (SERVICE_PATTERN)
     );
@@ -44,6 +46,7 @@
         MAX_COST decimal(26,6) DEFAULT NULL,
         MAX_TOOL_CALLS_PER_TURN decimal(20,0) DEFAULT NULL,
         STATUS_ID varchar(40),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (AGENT_ID),
         UNIQUE KEY AI_AGENT_NAME (AGENT_NAME),
@@ -55,6 +58,7 @@
         AGENT_ID varchar(40),
         TOOL_ID varchar(40),
         REQUIRES_APPROVAL_OVERRIDE char(1),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (AGENT_ID,TOOL_ID),
         KEY IDXAiAgentToolAiAgent (AGENT_ID),
@@ -66,6 +70,7 @@
         PRIORITY decimal(20,0) NOT NULL,
         PROVIDER_NAME varchar(63),
         MODEL_NAME varchar(255),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (AGENT_ID,PRIORITY)
         );
@@ -92,6 +97,7 @@
         PENDING_STATE longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
         CONVERSATION_ID varchar(40),
         IS_PREVIEW char(1),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (AGENT_RUN_ID),
         KEY IDXAiAgentRunStatusItem (STATUS_ID)
@@ -105,6 +111,7 @@
         TOKENS_OUT decimal(20,0) DEFAULT NULL,
         FINISH_REASON varchar(63),
         SUCCESS char(1),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (AGENT_RUN_ID,STEP_SEQ_ID),
         KEY IDXAiAgentRunStepAiAgentRun (AGENT_RUN_ID),
@@ -126,6 +133,7 @@
         SUCCESS char(1),
         ERROR_TEXT longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
         DURATION_MS decimal(20,0) DEFAULT NULL,
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (TOOL_CALL_ID),
         KEY AI_TOOL_CALL_RUN (AGENT_RUN_ID),
@@ -147,6 +155,7 @@
         DECIDED_BY_USER_ID varchar(40),
         DECIDED_DATE datetime(3) DEFAULT NULL,
         DECISION_NOTE varchar(4095),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (TOOL_CALL_REQUEST_ID),
         KEY IDXAiToolCallRequestStatusItem (STATUS_ID)
@@ -161,6 +170,7 @@
         SUMMARY_TEXT longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
         SUMMARY_THRU_MESSAGE_SEQ_ID varchar(40),
         STATUS_ID varchar(40),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (CONVERSATION_ID),
         KEY IDXAiConversationStatusItem (STATUS_ID)
@@ -175,6 +185,7 @@
         TOOL_CALL_ID varchar(255),
         AGENT_RUN_ID varchar(40),
         CREATED_DATE datetime(3) DEFAULT NULL,
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (CONVERSATION_ID,MESSAGE_SEQ_ID),
         KEY IDXAiConversationMessageAiConversation (CONVERSATION_ID),
@@ -187,6 +198,7 @@
         FACT_VALUE longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
         AGENT_RUN_ID varchar(40),
         CREATED_DATE datetime(3) DEFAULT NULL,
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (CONVERSATION_ID,FACT_KEY)
     );
@@ -199,6 +211,7 @@
         INPUT_PRICE_PER_MILLION decimal(25,5) DEFAULT NULL,
         OUTPUT_PRICE_PER_MILLION decimal(25,5) DEFAULT NULL,
         CURRENCY_UOM_ID varchar(40),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (PROVIDER_NAME,MODEL_NAME,FROM_DATE)
     );
@@ -212,6 +225,7 @@
         STATUS_ID varchar(40),
         USAGE_COUNT decimal(20,0) DEFAULT NULL,
         OWNER_SCOPE varchar(40),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (TERM_ID),
         UNIQUE KEY AI_TERM_UNIQUE (TERM,TERM_KIND,OWNER_SCOPE),
@@ -223,6 +237,7 @@
         SYNONYM varchar(63),
         SOURCE_TYPE varchar(40),
         STATUS_ID varchar(40),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (TERM_ID,SYNONYM),
         KEY IDXAiTermSynonymAiDomainTer (TERM_ID),
@@ -239,6 +254,7 @@
         WAS_OVERRIDDEN char(1),
         USER_ID varchar(40),
         CREATED_DATE datetime(3) DEFAULT NULL,
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (SIGNAL_ID)
     );
@@ -253,6 +269,7 @@
         THRU_DATE datetime(3) DEFAULT NULL,
         OWNER_SCOPE varchar(40),
         CREATED_BY_USER_ID varchar(40),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (TOPIC_ID),
         UNIQUE KEY AI_KNOW_TOPIC_NAME (TOPIC_NAME),
@@ -262,6 +279,7 @@
     CREATE TABLE AI_AGENT_KNOWLEDGE (
         AGENT_ID varchar(40),
         TOPIC_ID varchar(40),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (AGENT_ID,TOPIC_ID),
         KEY IDXAiAgentKnowledgeAiAgent (AGENT_ID),
@@ -283,6 +301,7 @@
         RESOLVED_DATE datetime(3) DEFAULT NULL,
         RESOLUTION_NOTE varchar(4095),
         FULFILLED_TOOL_ID varchar(40),
+        CREATED_STAMP datetime(3) DEFAULT NULL,
         LAST_UPDATED_STAMP datetime(3) DEFAULT NULL,
         PRIMARY KEY (CAPABILITY_REQUEST_ID),
         KEY IDXAiCapabilityRequestStatusItem (STATUS_ID)
