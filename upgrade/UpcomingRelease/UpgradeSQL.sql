@@ -286,24 +286,6 @@
         CONSTRAINT ai_agent_knowledge_ibfk_1 FOREIGN KEY (AGENT_ID) REFERENCES AI_AGENT (AGENT_ID)
     );
 
-    -- Retire the old AiToolCallRequestStatus/AiToolCallRequestFlow names, renamed to
-    -- AiToolCallReqStatus/AiToolCallReqFlow (see data/AiStatusData.xml) to keep every
-    -- statusTypeId/statusFlowId at or under 19 characters. An ext-seed load never deletes rows
-    -- it no longer lists, so any environment that already loaded AiStatusData.xml under the old
-    -- names (dev/staging instances that ran an earlier UpcomingRelease) is left with orphaned
-    -- STATUS_TYPE and STATUS_FLOW/STATUS_FLOW_TRANSITION rows under the old ids once the seed
-    -- data is reloaded with the new ones. The AI_TCREQ_PENDING/APPROVED/REJECTED STATUS_ITEM rows
-    -- are NOT deleted here - their statusId (PK) is unchanged, only their statusTypeId column
-    -- value changes, and the ext-seed reload upserts that column in place.
-    --
-    -- Run these AFTER deploying this release and reloading ext-seed data (so STATUS_ITEM rows
-    -- already point at the new AiToolCallReqStatus before the old STATUS_TYPE row is removed).
-    -- Child-to-parent order; run individually, not as a pipe. Skip on a fresh install, which
-    -- never had the old names.
-    DELETE FROM STATUS_FLOW_TRANSITION WHERE STATUS_FLOW_ID = 'AiToolCallRequestFlow';
-    DELETE FROM STATUS_FLOW WHERE STATUS_FLOW_ID = 'AiToolCallRequestFlow';
-    DELETE FROM STATUS_TYPE WHERE STATUS_TYPE_ID = 'AiToolCallRequestStatus';
-
     CREATE TABLE AI_CAPABILITY_REQUEST (
         CAPABILITY_REQUEST_ID varchar(40),
         INTENT varchar(4095),
@@ -324,3 +306,7 @@
         PRIMARY KEY (CAPABILITY_REQUEST_ID),
         KEY IDXAiCapabilityRequestStatusItem (STATUS_ID)
     );
+
+    DELETE FROM STATUS_FLOW_TRANSITION WHERE STATUS_FLOW_ID = 'AiToolCallRequestFlow';
+    DELETE FROM STATUS_FLOW WHERE STATUS_FLOW_ID = 'AiToolCallRequestFlow';
+    DELETE FROM STATUS_TYPE WHERE STATUS_TYPE_ID = 'AiToolCallRequestStatus';
