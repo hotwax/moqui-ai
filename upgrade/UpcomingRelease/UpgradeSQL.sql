@@ -307,6 +307,9 @@
         KEY IDXAiCapabilityRequestStatusItem (STATUS_ID)
     );
 
+    UPDATE STATUS_ITEM SET STATUS_TYPE_ID = 'AiToolCallReqStatus' WHERE STATUS_TYPE_ID = 'AiToolCallRequestStatus';
+    UPDATE STATUS_FLOW SET STATUS_TYPE_ID = 'AiToolCallReqStatus' WHERE STATUS_TYPE_ID = 'AiToolCallRequestStatus';
+
     DELETE FROM STATUS_FLOW_TRANSITION WHERE STATUS_FLOW_ID = 'AiToolCallRequestFlow';
     DELETE FROM STATUS_FLOW WHERE STATUS_FLOW_ID = 'AiToolCallRequestFlow';
     DELETE FROM STATUS_TYPE WHERE STATUS_TYPE_ID = 'AiToolCallRequestStatus';
