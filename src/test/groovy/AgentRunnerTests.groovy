@@ -33,6 +33,8 @@ class AgentRunnerTests extends Specification {
                 maxToolCallsPerTurn: 10, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
             ec.entity.makeValue("moqui.ai.AiAgentTool")
                 .setAll([agentId: "AG_ECHO", toolId: "TL_ECHO"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentTool")
+                .setAll([agentId: "AG_ECHO", toolId: "TL_CRED_ECHO"]).createOrUpdate()
         })
         ec.factory.getTool("AI", AiToolFactory.class).refreshCatalog()
         ec.artifactExecution.enableAuthz()
@@ -231,6 +233,32 @@ class AgentRunnerTests extends Specification {
         ec.entity.find("moqui.ai.AiAgentModel").condition("agentId", "StickyAgent").deleteAll()
         ec.entity.find("moqui.ai.AiAgent").condition("agentId", "StickyAgent").deleteAll()
         ec.artifactExecution.enableAuthz()
+    }
+
+    def "an agent tool call's audit row masks secret-named arguments and result fields; the model still gets the real result"() {
+        given: "a fake credential, unique to this run; get_credential_echo hands it back under secret-named keys"
+        String fake = "fake-secret-" + System.nanoTime()
+        MockProvider.enqueue([toolCalls: [[id: "c1",
+            name: "get_credential_echo", arguments: [text: "hi", clientSecret: fake]]], finishReason: "tool_use"])
+        MockProvider.enqueue([assistantText: "done", finishReason: "stop"])
+        when:
+        def out = runner().run("AG_ECHO", "echo my secret")
+        def call = ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).list()[0]
+        Map auditArgs = (Map) new groovy.json.JsonSlurper().parseText(call.arguments as String)
+        Map auditResult = (Map) new groovy.json.JsonSlurper().parseText(call.result as String)
+        String toolMessage = ((List<Map>) MockProvider.LAST_REQUEST.messages).find { it.role == "tool" }?.content as String
+        then:
+        call.toolName == "get_credential_echo"
+        call.success == "Y"
+        !(call.arguments as String).contains(fake)
+        !(call.result as String).contains(fake)
+        auditArgs.clientSecret == "***redacted***"
+        auditArgs.text == "hi"
+        auditResult.accessToken == "***redacted***"
+        ((Map) auditResult.connection).secretAccessKey == "***redacted***"
+        auditResult.echoed == "hi"
+        // the service ran with the real value and the model got the real result: only the row is masked
+        toolMessage.contains(fake)
     }
 
     def "a throwing tool feeds the error back instead of aborting the run"() {

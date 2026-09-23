@@ -244,8 +244,8 @@ context operation, or failed provider call.
 | `toolId` | `id` | The tool that was called (id). `toolName`/`serviceName` are display/dispatch **snapshots**. |
 | `toolName` | `text-medium` | Snapshot of the tool's wire name at call time. |
 | `serviceName` | `text-medium` | Snapshot of the dispatched service FQN. |
-| `arguments` | `text-very-long` | JSON of the call arguments. |
-| `result` | `text-very-long` | JSON of the call result. |
+| `arguments` | `text-very-long` | JSON of the arguments the service ran with (MCP: filtered to the exposed schema, fixed parameters applied). Secret-named values are stored as `***redacted***` (`AuditRedactor`; see `ai_audit_redact_pattern` in configuration). |
+| `result` | `text-very-long` | JSON of the call result, secret-named values masked the same way. |
 | `success` | `text-indicator` | `Y/N`. |
 | `errorText` | `text-very-long` | Error detail on failure. |
 | `durationMs` | `number-integer` | Call duration in milliseconds. |
@@ -400,7 +400,7 @@ in a suspended turn. The human-approval gate's queue.
 | `toolCallId` | `id` | The proposed call's id. |
 | `toolName` | `text-medium` | The tool's wire name. |
 | `serviceName` | `text-medium` | The backing service. |
-| `arguments` | `text-very-long` | JSON of the proposed call args. |
+| `arguments` | `text-very-long` | JSON of the proposed call args, for the approver to read; secret-named values stored as `***redacted***`. Resume dispatches from `AiAgentRun.pendingState`, not from this field. |
 | `statusId` | `id` | → `AiToolCallReqStatus`: `AI_TCREQ_PENDING | AI_TCREQ_APPROVED | AI_TCREQ_REJECTED`. |
 | `requestedByUserId` | `id` | Who triggered the run. |
 | `requestedDate` | `date-time` | When the approval was raised. |
