@@ -229,6 +229,79 @@ class AiApprovalTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
+    /** Suspends a run of a fresh agent whose only grant is get_credential_echo, gated by a grant
+     *  override, on a call carrying the given fake credential. Returns the run#Agent result. */
+    private Map suspendCredentialCall(String agentId, String fake, String afterDecision) {
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeDataLoader().location("component://moqui-ai/data/AiTestToolData.xml").load()
+            ensureTestUser()
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: agentId, agentName: agentId, providerName: "mock",
+                modelName: "mock-1", systemPrompt: "x", maxIterations: 5, statusId: "AI_AGENT_ACTIVE"]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiAgentTool").setAll([agentId: agentId, toolId: "TL_CRED_ECHO",
+                requiresApprovalOverride: "Y"]).createOrUpdate()
+        })
+        ai.refreshCatalog()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+        ec.message.clearErrors()
+        MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "c1", name: "get_credential_echo", arguments: [text: "hi", clientSecret: fake]]], tokensIn: 1L, tokensOut: 1L])
+        MockProvider.enqueue([assistantText: afterDecision, finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        return ec.service.sync().name("ai.AgentServices.run#Agent").parameters([agentId: agentId, userMessage: "go"]).call()
+    }
+    private void removeAgent(String agentId, String agentRunId) {
+        if (agentRunId) ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", agentRunId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgentTool").condition("agentId", agentId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentId", agentId).deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
+    def "a gated call's approval request masks secret-named arguments; approving still runs the call with the real value"() {
+        given: "a fake credential, unique to this run, on a gated call"
+        String fake = "fake-secret-" + System.nanoTime()
+        Map out = suspendCredentialCall("RedactApprAgent", fake, "done after approval")
+        EntityValue req = ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).one()
+        Map reqArgs = (Map) new groovy.json.JsonSlurper().parseText(req.arguments as String)
+        when: "approved and resumed"
+        ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).updateAll([statusId: "AI_TCREQ_APPROVED", decidedByUserId: "AiTestUser"])
+        Map r = new org.moqui.ai.AgentRunner(ec).resume(out.agentRunId as String)
+        EntityValue call = ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c1").one()
+        String toolMessage = ((List<Map>) MockProvider.LAST_REQUEST.messages).find { it.role == "tool" }?.content as String
+        then: "the approval request never held the value; the approver still sees the other arguments"
+        out.statusId == "AI_RUN_SUSPENDED"
+        !(req.arguments as String).contains(fake)
+        reqArgs.clientSecret == "***redacted***"
+        reqArgs.text == "hi"
+        and: "the approved call ran with the real value (resume dispatches from pendingState), and its audit row is masked"
+        r.statusId == "AI_RUN_COMPLETED"
+        call.success == "Y"
+        !(call.arguments as String).contains(fake)
+        !(call.result as String).contains(fake)
+        toolMessage.contains(fake)
+        cleanup:
+        removeAgent("RedactApprAgent", out?.agentRunId as String)
+    }
+
+    def "a rejected call's audit row masks its secret-named arguments"() {
+        given:
+        String fake = "fake-secret-" + System.nanoTime()
+        Map out = suspendCredentialCall("RedactRejAgent", fake, "ok, skipped that")
+        String toolCallRequestId = ec.entity.find("moqui.ai.AiToolCallRequest").condition("agentRunId", out.agentRunId).list()[0].toolCallRequestId
+        when:
+        Map dec = ec.service.sync().name("ai.ToolCallRequestServices.reject#ToolCallRequest")
+            .parameters([toolCallRequestId: toolCallRequestId, decisionNote: "not allowed"]).call()
+        EntityValue tc = ec.entity.find("moqui.ai.AiToolCall").condition("agentRunId", out.agentRunId).condition("providerCallId", "c1").one()
+        then:
+        dec.runStatusId == "AI_RUN_COMPLETED"
+        tc.success == "N"
+        !(tc.arguments as String).contains(fake)
+        ((Map) new groovy.json.JsonSlurper().parseText(tc.arguments as String)).clientSecret == "***redacted***"
+        ((Map) new groovy.json.JsonSlurper().parseText(tc.arguments as String)).text == "hi"
+        cleanup:
+        removeAgent("RedactRejAgent", out?.agentRunId as String)
+    }
+
     def "a mixed turn (one gated + one non-gated call) suspends the WHOLE turn; approving runs both"() {
         given:
         ec.artifactExecution.disableAuthz()

@@ -50,4 +50,26 @@
             <if condition="repeat"><set field="echoed" value="${echoed * repeat}"/></if>
         </actions>
     </service>
+
+    <!-- A credential-shaped echo for the audit-redaction tests: takes a secret-named argument and
+         hands it back under secret-named result keys, at the top level and nested in a Map and a List,
+         next to plain fields that must survive. The caller gets the real values back; the AiToolCall
+         row must carry the redaction marker in their place. -->
+    <service verb="get" noun="CredentialEcho">
+        <in-parameters>
+            <parameter name="text" type="String" required="true"><description>Text to echo back.</description></parameter>
+            <parameter name="clientSecret" type="String"><description>A credential-shaped argument, handed back in the result.</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="echoed" type="String"/>
+            <parameter name="accessToken" type="String"/>
+            <parameter name="connection" type="Map"/>
+        </out-parameters>
+        <actions>
+            <set field="echoed" from="text"/>
+            <set field="accessToken" from="clientSecret"/>
+            <set field="connection" from="[host: 'queue.example.test', secretAccessKey: clientSecret,
+                    queues: [[name: 'orders', apiKey: clientSecret]]]"/>
+        </actions>
+    </service>
 </services>
