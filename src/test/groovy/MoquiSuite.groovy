@@ -11,7 +11,7 @@ import org.moqui.Moqui
         AiContextTests.class, AiApprovalTests.class, AiReasoningTests.class,
         AiRegistryTests.class, NotNakedSeedTests.class, AiComposerTests.class,
         AiGlossaryTests.class, AiKnowledgeTests.class, AiCapabilityTests.class,
-        AiPwaApiTests.class, McpDispatchTests.class, McpToolsTests.class, McpCallTests.class, McpConformanceTests.class, McpTarpitTests.class ])
+        AiPwaApiTests.class, McpDispatchTests.class, McpToolsTests.class, McpCallTests.class, McpConformanceTests.class, McpOAuthTests.class, McpTarpitTests.class ])
 class MoquiSuite {
     @AfterAll
     static void destroyMoqui() { Moqui.destroyActiveExecutionContextFactory() }

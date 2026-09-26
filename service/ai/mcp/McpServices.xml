@@ -28,10 +28,12 @@
             <parameter name="mcpMethodHeader"><description>Mcp-Method HTTP header.</description></parameter>
             <parameter name="mcpNameHeader"><description>Mcp-Name HTTP header (tools/call).</description></parameter>
             <parameter name="parseError"><description>Body JSON parse error text, when parsing failed.</description></parameter>
+            <parameter name="authorizationHeader"><description>Authorization HTTP header; a Bearer token is validated against the trusted moqui-sso AuthFlow when mcp_auth_flow_id is configured.</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="response" type="Map"><description>The JSON-RPC response body; null for a notification (202, no body).</description></parameter>
             <parameter name="httpStatus" type="Integer"/>
+            <parameter name="wwwAuthenticate"><description>WWW-Authenticate header value for 401/403 responses, applied by the transport screen.</description></parameter>
         </out-parameters>
     </service>
 

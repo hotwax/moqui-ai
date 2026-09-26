@@ -11,10 +11,11 @@
     <transition name="json" method="post" require-session-token="false">
         <actions>
             <!-- this fork's UserFacadeImpl speculatively HMAC-validates ANY Bearer header at
-                 request init (the ofbiz-JWT patch); a token it cannot validate leaves error
-                 messages which would stop the service-call below ("Found error(s) before
-                 service"). Those speculative failures are noise here. A fork-JWT that
-                 SUCCEEDS has already logged the user in and is honored by tools/call. -->
+                 request init (the ofbiz-JWT patch); an RS256 IdP token fails that and leaves
+                 error messages which would stop the service-call below ("Found error(s) before
+                 service"). Those speculative failures are noise here: the engine does its own
+                 OAuth validation. A fork-JWT that SUCCEEDS has already logged the user in and
+                 is honored by the engine's fallback path. -->
             <script>ec.message.clearErrors()</script>
             <service-call name="ai.mcp.McpServices.dispatch#Request" out-map="context"
                     in-map="[jsonrpc: ec.web.requestParameters.jsonrpc,
@@ -24,13 +25,15 @@
                              protocolVersionHeader: ec.web.request.getHeader('MCP-Protocol-Version'),
                              mcpMethodHeader: ec.web.request.getHeader('Mcp-Method'),
                              mcpNameHeader: ec.web.request.getHeader('Mcp-Name'),
-                             parseError: ec.web.requestParameters._requestBodyJsonParseError]"/>
+                             parseError: ec.web.requestParameters._requestBodyJsonParseError,
+                             authorizationHeader: ec.web.request.getHeader('Authorization')]"/>
             <!-- Write directly: status must be set BEFORE the body is written (the response
                  commits on flush), and ec.web.sendJsonResponse would overwrite any status with
                  200 (WebFacadeImpl.sendJsonResponseInternal:714). A null response body is a
                  notification: 202, no body. -->
             <script><![CDATA[
                 def resp = ec.web.response
+                if (wwwAuthenticate) resp.setHeader('WWW-Authenticate', (String) wwwAuthenticate)
                 resp.setStatus((int) httpStatus)
                 if (response != null) {
                     String jsonStr = groovy.json.JsonOutput.toJson(response)

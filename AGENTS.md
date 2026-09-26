@@ -44,7 +44,7 @@ Create or extend `<yourcomponent>/service/<yourcomponent>.mcp.xml`:
      xsi:noNamespaceSchemaLocation="component://moqui-ai/xsd/mcp-api-1.xsd"
      name="yourcomponent" version="1.0.0" description="One line on this tool group.">
 
-    <tool name="get_sales_orders" title="Get Sales Orders" effect="read"
+    <tool name="get_sales_orders" title="Get Sales Orders" effect="read" scope="mcp:orders"
           description="Recent sales orders, newest first: orderId, status, date, total.
               Optionally filter by statusId (e.g. ORDER_APPROVED); cap with maxOrders (default 20).">
         <service name="yourcomponent.OrderServices.get#OrderSummaryList"/>
@@ -61,7 +61,7 @@ The rules that govern this file:
 | No `<parameter>` children | Every in-parameter of the service is exposed. |
 | Listed `<parameter name="..."/>` children | ONLY the listed ones are exposed. Use this to narrow a wide service. |
 | `<parameter name="x" fixed="value"/>` | Injected server-side on every call; never visible to and never overridable by the caller. Use for tenant/store ids. Supports `${property}` expansion. |
-| `scope="..."` | Reserved for the OAuth layer (a follow-up PR): the scope a Bearer token must carry to call this tool. Inert until that layer lands. |
+| `scope="..."` | The OAuth scope a Bearer token must carry to call this tool. Callers using Moqui web auth (no token) are not scope-checked. |
 | Tool names | `verb_noun` snake_case, unique across the WHOLE server, not just your file. A duplicate is rejected at scan with a log line naming both files. |
 | `AiToolDenylist` | The operator's veto. Patterns (seeded: all `delete#` services, `org.moqui.impl.*`, anything with "password", `UserAccount`, `ArtifactAuthz`) drop your tool at scan time regardless of the file. |
 | description | Written for the model, not for people browsing code. Say what it returns, what filters mean, and when to use it. |
@@ -104,8 +104,13 @@ the service first.
 
 ## Environment facts your agent session needs
 
-- The endpoint ships DARK. Dev server needs `-Dmcp_enabled=Y`. Tool calls authenticate
-  with Moqui web auth (HTTP Basic in dev). OAuth for external MCP clients is a follow-up PR.
+- The endpoint ships DARK. Dev server needs `-Dmcp_enabled=Y`. Without OAuth config
+  (`mcp_auth_flow_id` empty) tool calls authenticate with Moqui web auth (HTTP Basic).
+- Three auth doors for `tools/call`, all verified live: HTTP Basic (dev), the fork's
+  internal HMAC JWT (HS512, key `runtime/conf/jwtKey.txt`, issuer `ofbiz.instance.name`,
+  claim `userLoginId` — first-party apps), and an OAuth Bearer token from the configured
+  IdP (external MCP clients). Per-tool `scope` is checked ONLY on IdP tokens; Basic and
+  internal-JWT callers are first-party and skip it.
 - `tools/list` and `server/discover` are public by design; `tools/call` requires a real
   user. The anonymous login is never enough to run a tool.
 - The test suite and the dev server CANNOT run at the same time (shared transaction
@@ -123,6 +128,6 @@ the service first.
 - TDD is the norm here: every MCP behavior rule has a test that was written first.
   New engine rules go in `McpConformanceTests`, scan rules in `McpToolsTests` (fixtures
   under `src/test/resources/mcp/`, passed to `build#ToolCatalog` explicitly), call
-  behavior in `McpCallTests`.
+  behavior in `McpCallTests`, OAuth in `McpOAuthTests`.
 - In Spock assertions use `.get('properties')` on Maps — Groovy 5 resolves `.properties`
   to the bean getter and Spock 2.4 mis-rewrites the subscript form.

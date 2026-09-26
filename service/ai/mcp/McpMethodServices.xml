@@ -69,7 +69,12 @@
             An unknown tool name is a protocol error (-32602, returned via the error
             out-parameter for the engine to envelope); a tool that runs but fails reports
             inside the result with isError:true, per the MCP error split.</description>
-        <in-parameters><parameter name="params" type="Map"/></in-parameters>
+        <in-parameters>
+            <parameter name="params" type="Map"/>
+            <parameter name="grantedScopes" type="List"><description>OAuth scopes from the validated
+                Bearer token; null when the caller authenticated another way (Moqui web auth has
+                no scopes and is not narrowed by them).</description></parameter>
+        </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
             <parameter name="error" type="Map"/>
@@ -79,7 +84,15 @@
             <script><![CDATA[
                 String toolName = params?.name
                 toolDef = (Map) ((List<Map>) catOut.toolList).find { it.name == toolName }
-                if (toolDef == null) error = [code: -32602, message: "Unknown tool: ${toolName}".toString()]
+                if (toolDef == null) {
+                    error = [code: -32602, message: "Unknown tool: ${toolName}".toString()]
+                } else if (toolDef.scope && grantedScopes != null && !grantedScopes.contains(toolDef.scope)) {
+                    // spec: 403 insufficient_scope naming the scope the operation needs; the
+                    // engine lifts httpStatus/wwwAuthenticate out of this map for the transport
+                    error = [code: 403, message: "insufficient_scope: this tool requires '${toolDef.scope}'".toString(),
+                             httpStatus: 403,
+                             wwwAuthenticate: 'Bearer error="insufficient_scope", scope="' + toolDef.scope + '"']
+                }
             ]]></script>
             <if condition="error == null">
                 <service-call name="ai.mcp.McpServices.exec#Tool" out-map="context"

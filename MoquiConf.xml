@@ -12,14 +12,31 @@
     <default-property name="ai_default_provider" value="openai"/>
     <default-property name="ai_default_model" value="gpt-4o-mini"/>
     <default-property name="ai_knowledge_max_chars" value="24000"/>
-    <!-- MCP endpoint: dark by default — serving MCP is a deliberate, per-deployment decision.
-         Until a deployment sets mcp_enabled=Y the endpoint answers 404 to everything. -->
+    <!-- MCP endpoint (design step 6): dark by default — serving MCP is a deliberate,
+         per-deployment decision. mcp_auth_flow_id names the moqui-sso AuthFlow whose OIDC
+         discovery provides issuer + JWKS; mcp_audience is what tokens must be issued FOR
+         (normally the canonical URI). Without mcp_auth_flow_id, tool calls fall back to
+         Moqui web auth only (interim mode). -->
     <default-property name="mcp_enabled" value="N"/>
+    <default-property name="mcp_auth_flow_id" value=""/>
+    <default-property name="mcp_audience" value=""/>
+    <default-property name="mcp_canonical_uri" value=""/>
     <!-- MCP tool catalog cache: declared like the framework's service.rest.api cache (no expire
          attributes = no expiry); rebuilt on any cache miss by ai.mcp.McpServices.get#ToolCatalog -->
     <cache-list>
         <cache name="ai.mcp.tool.catalog" value-type="java.util.List"/>
+        <!-- issuer metadata (issuer + JWKS JSON) per trusted AuthFlow, from OIDC discovery -->
+        <cache name="ai.mcp.oauth.meta" value-type="java.util.Map"/>
     </cache-list>
+    <!-- RFC 9728 Protected Resource Metadata: /.well-known cannot be a screen path
+         (screen names are [a-zA-Z][_a-zA-Z0-9]*), so this one path is a servlet -->
+    <webapp-list>
+        <webapp name="webroot">
+            <servlet name="McpMetadataServlet" class="org.moqui.ai.McpMetadataServlet" load-on-startup="5">
+                <url-pattern>/.well-known/oauth-protected-resource</url-pattern>
+            </servlet>
+        </webapp>
+    </webapp-list>
     <tools>
         <tool-factory class="org.moqui.ai.AiToolFactory" init-priority="30" disabled="false"/>
     </tools>
