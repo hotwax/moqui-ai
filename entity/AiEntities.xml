@@ -177,7 +177,7 @@
         <field name="toolName" type="text-medium"/>
         <field name="serviceName" type="text-medium"/>
         <field name="arguments" type="text-very-long"><description>JSON of the proposed call args</description></field>
-        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiToolCallRequestStatus: AI_TCREQ_PENDING|AI_TCREQ_APPROVED|AI_TCREQ_REJECTED</description></field>
+        <field name="statusId" type="id"><description>StatusItem statusTypeId=AiToolCallReqStatus: AI_TCREQ_PENDING|AI_TCREQ_APPROVED|AI_TCREQ_REJECTED</description></field>
         <field name="requestedByUserId" type="id"/>
         <field name="requestedDate" type="date-time"/>
         <field name="decidedByUserId" type="id"/>
