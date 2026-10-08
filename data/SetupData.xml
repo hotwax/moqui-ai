@@ -10,80 +10,9 @@
      the 2026-06-11 product decision. The AI_OPERATOR group below is declared so deployments can grant it; no
      members are seeded here (deployment-specific — grant it to the staff who run the cross-user Ai Ops queue). -->
 <entity-facade-xml type="ext-seed">
-    <!-- Dedicated operator role for cross-user AI actions (owner-OR-operator gate). Declared, not populated:
-         grant membership per deployment via moqui.security.UserGroupMember. ADMIN is also honored by the gate. -->
-    <moqui.security.UserGroup userGroupId="AI_OPERATOR" description="AI Operator (may drive/approve any user's AI conversation)"/>
-
-    <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_SCREENS" description="AI Ops console screens + transitions"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
-        artifactName="component://moqui-ai/screen/.*" artifactTypeEnumId="AT_XML_SCREEN" nameIsPattern="Y"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
-        artifactName="component://moqui-ai/screen/.*" artifactTypeEnumId="AT_XML_SCREEN_TRANS" nameIsPattern="Y"/>
-    <!-- entity reads/writes used by the screens + the agent loop (moqui.ai.*) -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
-        artifactName="moqui\.ai\..*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
-    <!-- status lifecycle reads: entity-auto update# of any AI entity with a statusId change validates the
-         transition by reading moqui.basic.StatusFlowTransition / StatusItem (EntityAutoServiceRunner.checkStatus).
-         AI status changes happen via authenticate services (run#Agent suspend/complete, activate#Agent draft->active),
-         so a logged-in operator needs read access to these or the transition check is denied. -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
-        artifactName="moqui\.basic\.Status.*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
-    <!-- form-list rendering reads per-user column config (moqui.screen.form.FormConfigUser, FormConfig, ...).
-         Without this member a non-admin operator hits "not authorized for View on Entity FormConfigUser"
-         and EVERY form-list on the AI Ops screens (including the Composer conversation) fails to render. -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
-        artifactName="moqui\.screen\.form\..*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
-    <!-- AI services invoked from the screens (run#Agent, approvals, cost) + the NotNaked OMS tool/runner -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
-        artifactName="ai\..*" artifactTypeEnumId="AT_SERVICE" nameIsPattern="Y"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
-        artifactName="notnaked\.OmsAiServices\..*" artifactTypeEnumId="AT_SERVICE" nameIsPattern="Y"/>
-    <!-- Service REST facade (service/ai.rest.xml): the /ai root resource itself must be authorized
-         for the path check in RestApi.run; the services/entities it calls are members above. -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_SCREENS"
-        artifactName="/ai" artifactTypeEnumId="AT_REST_PATH" inheritAuthz="Y"/>
-    <!-- ALLOW all actions to every authenticated user. NOTE: in this framework version ArtifactAuthz has no
-         inheritAuthz column, so authz does NOT auto-cascade to nested artifacts — each entity/service the
-         screens touch must be listed as a group member above (moqui.ai.*, ai.*, moqui.basic.Status.*,
-         moqui.screen.form.*, notnaked.OmsAiServices.*). -->
-    <!-- <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_ALL_USERS" userGroupId="ALL_USERS"
-        artifactGroupId="AI_OPS_SCREENS" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/> -->
-
-    <!-- Read-only access to the business data the seeded agent tools summarize. A SEPARATE, VIEW-only group
-         so it does NOT inherit the all-actions grant above. An agent runs AS the signed-in user, so that
-         user needs read access to what its tools read, or the tool is denied — e.g. the NotNaked order
-         tool (notnaked.OmsAiServices.get#OrderSummaryList) reads org.apache.ofbiz.order.*.
-         NOTE: v1 grants ALL_USERS for the demo; a real deployment should scope this to an operator group
-         that legitimately sees order data. -->
-    <!-- <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_DATA_READ" description="Read-only business data the AI Ops agent tools summarize (orders, etc.)"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_READ"
-        artifactName="org\.apache\.ofbiz\.order\..*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
-    <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_DATA_READ_ALL" userGroupId="ALL_USERS"
-        artifactGroupId="AI_OPS_DATA_READ" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_VIEW"/> -->
-
-    <!-- DataDocument services/entities used by report-builder style AI tools. Mutating tools are still gated by
-         AiTool.requiresApproval; this grant only lets approved tool calls reach the backing existing services. -->
-    <!-- <moqui.security.ArtifactGroup artifactGroupId="AI_OPS_DATA_DOCUMENT_RW" description="DataDocument services and entities exposed to AI Ops report-builder tools"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="co.hotwax.util.UtilityServices.get#DataDocuments" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="co.hotwax.util.UtilityServices.get#DataDocumentData" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="co.hotwax.util.UtilityServices.queue#DocumentDataToExport" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="org.moqui.impl.SystemMessageServices.queue#SystemMessage" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="org.moqui.impl.EntityServices.create#DataDocument" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="org.moqui.impl.EntityServices.create#DataDocumentField" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="create#moqui.entity.document.DataDocumentField" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="create#moqui.entity.document.DataDocumentCondition" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="moqui.entity.document.*" artifactTypeEnumId="AT_ENTITY" nameIsPattern="Y"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="AI_OPS_DATA_DOCUMENT_RW"
-        artifactName="co.hotwax.util.DataDocumentAndFeed" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactAuthz artifactAuthzId="AI_OPS_DATA_DOCUMENT_RW_ALL" userGroupId="ALL_USERS"
-        artifactGroupId="AI_OPS_DATA_DOCUMENT_RW" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/> -->
+    <moqui.security.ArtifactGroup artifactGroupId="MCP_DISPATCH" description="MCP endpoint dispatch service (rate limiting)"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="MCP_DISPATCH" artifactTypeEnumId="AT_SERVICE"
+                                        artifactName="ai.mcp.McpServices.dispatch#Request" nameIsPattern="N" inheritAuthz="Y"/>
+    <!-- Added so an ADMIN-group MCP caller isn't blocked by a narrowly-authorized nested artifact (e.g. SystemMessageServices.queue#SystemMessage); TODO: define ArtifactAuthz per artifact exposed via an MCP tool instead of this group-level allow. -->
+    <moqui.security.ArtifactAuthz artifactAuthzId="McpServicesADMIN" userGroupId="ADMIN" artifactGroupId="MCP_DISPATCH" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/>
 </entity-facade-xml>
