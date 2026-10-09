@@ -156,8 +156,8 @@
         <field name="toolId" type="id"><description>The tool that was called (id); toolName/serviceName are display/dispatch snapshots.</description></field>
         <field name="toolName" type="text-medium"/>
         <field name="serviceName" type="text-medium"/>
-        <field name="arguments" type="text-very-long"/>
-        <field name="result" type="text-very-long"/>
+        <field name="arguments" type="text-very-long"><description>JSON of the arguments the service ran with (for MCP: filtered to the exposed schema, fixed parameters applied). Values under secret-named keys are stored as ***redacted*** (org.moqui.ai.AuditRedactor).</description></field>
+        <field name="result" type="text-very-long"><description>JSON of the service result, secret-named values masked the same way. Null for a refused MCP call.</description></field>
         <field name="success" type="text-indicator"/>
         <field name="errorText" type="text-very-long"/>
         <field name="durationMs" type="number-integer"/>
@@ -176,7 +176,7 @@
         <field name="toolCallId" type="id"/>
         <field name="toolName" type="text-medium"/>
         <field name="serviceName" type="text-medium"/>
-        <field name="arguments" type="text-very-long"><description>JSON of the proposed call args</description></field>
+        <field name="arguments" type="text-very-long"><description>JSON of the proposed call args, for the approver to read; secret-named values stored as ***redacted***. Resume dispatches from AiAgentRun.pendingState, not from this field.</description></field>
         <field name="statusId" type="id"><description>StatusItem statusTypeId=AiToolCallReqStatus: AI_TCREQ_PENDING|AI_TCREQ_APPROVED|AI_TCREQ_REJECTED</description></field>
         <field name="requestedByUserId" type="id"/>
         <field name="requestedDate" type="date-time"/>

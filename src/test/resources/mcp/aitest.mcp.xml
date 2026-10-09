@@ -41,4 +41,10 @@
     <tool name="echo_mutating" description="Write-verb echo; the author declared it, so it loads.">
         <service name="moqui.ai.test.TestServices.set#Echo"/>
     </tool>
+
+    <!-- credential-shaped argument in, credential-shaped result fields out: the call tests prove
+         the audit row masks both while the caller still gets the real values -->
+    <tool name="echo_credential" description="Echo that takes a clientSecret and returns it under secret-named keys.">
+        <service name="moqui.ai.test.TestServices.get#CredentialEcho"/>
+    </tool>
 </mcp>

@@ -15,6 +15,12 @@
     <!-- MCP endpoint: dark by default — serving MCP is a deliberate, per-deployment decision.
          Until a deployment sets mcp_enabled=Y the endpoint answers 404 to everything. -->
     <default-property name="mcp_enabled" value="N"/>
+    <!-- Tool-call audit redaction: AiToolCall.arguments/result and AiToolCallRequest.arguments are
+         plain text, so values under secret-named keys are stored as ***redacted***. The built-in names
+         (org.moqui.ai.AuditRedactor.BUILT_IN_PATTERN: password, passwd, passphrase, pwd, secret, token,
+         api/private/access key, credential, authorization) always apply. This property adds more, as a
+         case-insensitive regex found anywhere in the key, e.g. consumerKey|signingKey; it can only add. -->
+    <default-property name="ai_audit_redact_pattern" value=""/>
     <!-- MCP tool catalog cache: declared like the framework's service.rest.api cache (no expire
          attributes = no expiry); rebuilt on any cache miss by ai.mcp.McpServices.get#ToolCatalog -->
     <cache-list>

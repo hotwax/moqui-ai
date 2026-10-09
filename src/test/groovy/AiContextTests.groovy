@@ -191,6 +191,43 @@ class AiContextTests extends Specification {
         ec.artifactExecution.enableAuthz()
     }
 
+    def "a remember call's audit row masks a secret-named argument the model added"() {
+        given: "the model sends an extra, secret-named key alongside factKey/factValue; the audit records every key it sent"
+        ec.artifactExecution.disableAuthz()
+        org.moqui.ai.provider.MockProvider.reset()
+        String fake = "fake-secret-" + System.nanoTime()
+        String convId = ec.entity.sequencedIdPrimary("moqui.ai.AiConversation", null, null)
+        ec.transaction.runRequireNew(30, "ai test setup", {
+            ec.entity.makeValue("moqui.ai.AiAgent").setAll([agentId: "MemRedactAgent", agentName: "MemRedactAgent", providerName: "mock",
+                modelName: "mock-1", systemPrompt: "x", maxIterations: 4, statusId: "AI_AGENT_ACTIVE",
+                contextStrategy: "window", contextWindowMessages: 20, contextWindowChars: 1000000]).createOrUpdate()
+            ec.entity.makeValue("moqui.ai.AiConversation").setAll([conversationId: convId, agentId: "MemRedactAgent",
+                userId: "AiTestUser", createdDate: ec.user.nowTimestamp, statusId: "AI_CONV_ACTIVE", title: "redact test"]).createOrUpdate()
+        })
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: null, finishReason: "tool_use",
+            toolCalls: [[id: "r1", name: "remember", arguments: [factKey: "shop_domain", factValue: "demo.example.test", apiToken: fake]]],
+            tokensIn: 1L, tokensOut: 1L])
+        org.moqui.ai.provider.MockProvider.enqueue([assistantText: "noted", finishReason: "stop", toolCalls: [], tokensIn: 1L, tokensOut: 1L])
+        when:
+        Map out = new org.moqui.ai.AgentRunner(ec).run("MemRedactAgent", "remember the shop", convId)
+        EntityValue call = ec.entity.find("moqui.ai.AiToolCall")
+            .condition("agentRunId", out.agentRunId).condition("providerCallId", "r1").one()
+        Map auditArgs = (Map) new groovy.json.JsonSlurper().parseText(call.arguments as String)
+        then:
+        out.statusId == "AI_RUN_COMPLETED"
+        call.success == "Y"
+        !(call.arguments as String).contains(fake)
+        auditArgs.apiToken == "***redacted***"
+        auditArgs.factKey == "shop_domain"
+        auditArgs.factValue == "demo.example.test"
+        cleanup:
+        ec.entity.find("moqui.ai.AiConversationFact").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversationMessage").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiConversation").condition("conversationId", convId).deleteAll()
+        ec.entity.find("moqui.ai.AiAgent").condition("agentName", "MemRedactAgent").deleteAll()
+        ec.artifactExecution.enableAuthz()
+    }
+
     def "remembering the same factKey supersedes the value and preserves createdDate"() {
         given:
         ec.artifactExecution.disableAuthz()

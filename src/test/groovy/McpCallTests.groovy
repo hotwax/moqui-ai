@@ -7,8 +7,10 @@ import org.moqui.Moqui
  *  exec#Tool runs it: arguments are filtered to the exposed inputSchema, fixed parameters are
  *  injected server-side and always win, the backing service runs in its own transaction, and
  *  failures become isError:true text (message facade left clean) — never an exception or a
- *  stack trace on the wire. Fixture-based cases go through exec#Tool with a toolDef built by
- *  build#ToolCatalog, so nothing test-only enters the production catalog. */
+ *  stack trace on the wire. The AiToolCall audit row records the arguments the service ran
+ *  with, and masks every value under a secret-named key in both arguments and result.
+ *  Fixture-based cases go through exec#Tool with a toolDef built by build#ToolCatalog, so
+ *  nothing test-only enters the production catalog. */
 class McpCallTests extends Specification {
     @Shared ExecutionContext ec
     static final String FIX = "component://moqui-ai/src/test/resources/mcp/aitest.mcp.xml"
@@ -136,6 +138,75 @@ class McpCallTests extends Specification {
         row != null
         row.success == "N"
         ((String) row.errorText).contains('repeat must be')
+    }
+
+    def "the audit row masks secret-named arguments and result fields; the caller still gets the real values"() {
+        given: "a fake credential, unique to this run, sent as clientSecret; echo_credential hands it back under secret-named keys"
+        String fake = "fake-secret-" + System.nanoTime()
+
+        when:
+        Map result = exec(fixtureTool('echo_credential'), [text: 'hello', clientSecret: fake])
+        def row = newestMcpRow('echo_credential')
+        Map auditArgs = (Map) new groovy.json.JsonSlurper().parseText((String) row.arguments)
+        Map auditResult = (Map) new groovy.json.JsonSlurper().parseText((String) row.result)
+        Map connection = (Map) auditResult.connection
+
+        then: "the wire result is untouched: redaction applies to the stored row only"
+        result.isError == false
+        ((Map) result.structuredContent).accessToken == fake
+
+        and: "no stored field carries the value"
+        !((String) row.arguments).contains(fake)
+        !((String) row.result).contains(fake)
+
+        and: "every secret-named value is the marker, at the top level and nested in maps and lists"
+        auditArgs.clientSecret == '***redacted***'
+        auditResult.accessToken == '***redacted***'
+        connection.secretAccessKey == '***redacted***'
+        ((Map) ((List) connection.queues)[0]).apiKey == '***redacted***'
+
+        and: "the rest of the row is intact"
+        auditArgs.text == 'hello'
+        auditResult.echoed == 'hello'
+        connection.host == 'queue.example.test'
+        ((Map) ((List) connection.queues)[0]).name == 'orders'
+        row.success == 'Y'
+        row.userId == 'AiTestUser'
+    }
+
+    def "a refused call is audited with its secret-named arguments masked: who tried is kept, the value is not"() {
+        given: "no real user, and a fake credential in the arguments"
+        String fake = "fake-secret-" + System.nanoTime()
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).logoutUser()
+
+        when:
+        Map result = exec(fixtureTool('echo_credential'), [text: 'refused', clientSecret: fake])
+        def row = newestMcpRow('echo_credential')
+
+        then:
+        result.isError == true
+        row.success == 'N'
+        !((String) row.arguments).contains(fake)
+        ((Map) new groovy.json.JsonSlurper().parseText((String) row.arguments)).clientSecret == '***redacted***'
+        ((Map) new groovy.json.JsonSlurper().parseText((String) row.arguments)).text == 'refused'
+
+        cleanup:
+        ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser("AiTestUser")
+    }
+
+    def "the audit row records the arguments the service ran with: out-of-schema keys dropped, fixed values applied"() {
+        when: "echo_fixed exposes text and fixes repeat=2; the client also tries an override and an unknown key"
+        exec(fixtureTool('echo_fixed'), [text: 'ab', repeat: 5, notInSchema: 'zzz'])
+        def row = newestMcpRow('echo_fixed')
+
+        then:
+        new groovy.json.JsonSlurper().parseText((String) row.arguments) == [text: 'ab', repeat: '2']
+    }
+
+    private def newestMcpRow(String toolName) {
+        return ec.entity.find("moqui.ai.AiToolCall")
+                .condition("toolName", toolName).condition("sourceEnumId", "AI_TCS_MCP")
+                .orderBy("-toolCallId").list()[0]
     }
 
     def "a service error returns isError true with the message text, and leaves no residue"() {

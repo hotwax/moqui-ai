@@ -35,6 +35,7 @@ config, so no webroot or framework file is touched.
 | `ai_timeout_seconds` | `60` | — | HTTP timeout (seconds) applied to both real providers. |
 | `ai_default_provider` | `openai` | — | Provider stamped on a **newly drafted** agent when none is supplied. |
 | `ai_default_model` | `gpt-4o-mini` | — | Model stamped on a **newly drafted** agent when none is supplied. |
+| `ai_audit_redact_pattern` | *(empty)* | — | Extra key names (a regex) to mask in the tool-call audit, on top of the built-in ones (below). |
 
 **`ai_default_provider` / `ai_default_model`** are the defaults the Composer's `draft_agent`
 path (`ai.AgentServices.store#AiAgent` on create) applies: the user describes *what* an agent
@@ -45,6 +46,26 @@ agent is always created.)
 The two key properties carry `is-secret="true"`. Their default `value` is the empty string,
 which is what makes provider registration conditional: a provider is only wired up when its key
 resolves to a non-empty value.
+
+**`ai_audit_redact_pattern`** adds key names to the tool-call audit masking. Before
+`AiToolCall.arguments`/`result` (MCP and agent calls) and `AiToolCallRequest.arguments` are
+written, `org.moqui.ai.AuditRedactor` replaces with `***redacted***` the value under every JSON
+key, at any depth, whose name matches the built-in list (case-insensitive, anywhere in the key),
+and the `value` of a `{name|key: <matching name>, value: …}` pair. Everything else is stored as is,
+and the service, the MCP client and the model still get the real values. The built-in list
+(`AuditRedactor.BUILT_IN_PATTERN`) always applies:
+
+```
+pass(?:word|wd|phrase)|pwd|secret|token(?-i:(?!s))|api[-_]?key|private[-_]?key|access[-_]?key|credential|authorization
+```
+
+`token(?-i:(?!s))` skips only the lowercase plural, so LLM usage counts (`tokensIn`,
+`totalTokensOut`, `maxTokens`) stay readable while `accessToken`, `shopAccessToken` and `tokenId`
+are masked. The property is a regex for any further names a deployment needs, for example
+`consumerKey|signingKey`; it is added to the built-in list, never substituted for it. A blank value,
+a regex that does not compile (logged as an error) or one that matches nothing leaves the built-in
+list in force, so no value of the property switches masking off. What masking does not cover is
+listed in the security model, §6.
 
 ### Tool-factory registration
 
