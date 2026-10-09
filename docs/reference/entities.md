@@ -8,21 +8,28 @@
 
 ## Overview
 
-The moqui-ai data model is split across eight entity files, all in package
-`moqui.ai`, plus the EECA file that backstops naming-signal capture:
+The whole moqui-ai data model is one entity file, `entity/AiEntities.xml` (package
+`moqui.ai`), grouped into numbered subsystem sections. The EECAs that backstop
+naming-signal capture live separately in `entity/AiGlossaryEcas.eecas.xml`, because
+ECAs cannot live inside an `<entities>` document.
 
-| File | Entities |
-|---|---|
-| `entity/AiEntities.xml` | `AiAgent`, `AiTool`, `AiAgentTool`, `AiAgentModel`, `AiAgentRun`, `AiAgentRunStep`, `AiToolCall` |
-| `entity/AiToolEntities.xml` | `AiToolDenylist` |
-| `entity/AiComposerEntities.xml` | `AiCapabilityRequest` |
-| `entity/AiConversationEntities.xml` | `AiConversation`, `AiConversationMessage`, `AiConversationFact` |
-| `entity/AiApprovalEntities.xml` | `AiToolCallRequest` |
-| `entity/AiPriceEntities.xml` | `AiModelPrice` |
-| `entity/AiGlossaryEntities.xml` | `AiDomainTerm`, `AiTermSynonym`, `AiNamingSignal` |
-| `entity/AiGlossaryEcas.eecas.xml` | EECAs `AiToolNamingSignal`, `AiAgentNamingSignal` (no entities) |
+| Section of `entity/AiEntities.xml` | Entities | View-entities |
+|---|---|---|
+| 1. Registry (the keystone) | `AiAgent`, `AiTool`, `AiToolDenylist`, `AiAgentTool`, `AiAgentModel` | — |
+| 2. Execution & observability | `AiAgentRun`, `AiAgentRunStep`, `AiToolCall` | — |
+| 3. Human-approval gate | `AiToolCallRequest` | `AiToolCallRequestActivity` |
+| 4. Conversation & context | `AiConversation`, `AiConversationMessage`, `AiConversationFact` | `AiConversationActivity` |
+| 5. Cost | `AiModelPrice` | `AiAgentRunSpend` |
+| 6. Builder Knowledgebase / domain glossary | `AiDomainTerm`, `AiTermSynonym`, `AiNamingSignal` | — |
+| 7. Knowledge base | `AiKnowledgeTopic`, `AiAgentKnowledge` | `AiAgentKnowledgeTopicDetail` |
+| 8. Composer | `AiCapabilityRequest` | — |
 
-Seventeen entities in total.
+`entity/AiGlossaryEcas.eecas.xml` holds the EECAs `AiToolNamingSignal` and
+`AiAgentNamingSignal`, and no entities.
+
+The file defines nineteen entities and four view-entities. The definitions below cover
+seventeen of the entities; `AiKnowledgeTopic`, `AiAgentKnowledge` and the view-entities
+have no section of their own.
 
 ### Status & enumeration model
 
@@ -45,6 +52,7 @@ change over time; a fixed, code-referenced classification with no lifecycle is a
 | `AiToolStatus` | StatusItem | `AI_TOOL_ACTIVE`, `AI_TOOL_DISABLED` | `AiTool.statusId` |
 | `AiToolEffect` | Enumeration | `AI_TOOL_READ_ONLY`, `AI_TOOL_MUTATING` | `AiTool.effectEnumId` |
 | `AiAgentRunStatus` | StatusItem | `AI_RUN_RUNNING`, `AI_RUN_COMPLETED`, `AI_RUN_FAILED`, `AI_RUN_TRUNCATED`, `AI_RUN_ABORTED`, `AI_RUN_SUSPENDED` | `AiAgentRun.statusId` |
+| `AiToolCallSource` | Enumeration | `AI_TCS_AGENT`, `AI_TCS_MCP` | `AiToolCall.sourceEnumId` |
 | `AiToolCallReqStatus` | StatusItem | `AI_TCREQ_PENDING`, `AI_TCREQ_APPROVED`, `AI_TCREQ_REJECTED` | `AiToolCallRequest.statusId` |
 | `AiConversationStatus` | StatusItem | `AI_CONV_ACTIVE`, `AI_CONV_CLOSED` | `AiConversation.statusId` |
 | `AiCapReqStatus` | StatusItem | `AI_CAPREQ_OPEN`, `AI_CAPREQ_DONE`, `AI_CAPREQ_DISMISSED` | `AiCapabilityRequest.statusId` |
@@ -83,9 +91,10 @@ behavioral knobs that govern its run loop.
 | `modelName` | `text-medium` | Configured primary model. |
 | `systemPrompt` | `text-very-long` | System prompt for the agent. |
 | `responseSchema` | `text-very-long` | Optional JSON Schema (as text). When set, `run#Agent` returns a typed `structuredResult` Map; adapters translate it to the provider's native structured-output mechanism. |
-| `contextStrategy` | `text-short` | Conversation-context handling. The code (`AgentRunner.groovy`) recognizes three values: **`off`** (default), **`window`** (bound replayed history + offer the `remember` tool + inject pinned facts — ADR 0001 Phase 1), and **`summarize`** (window behavior plus rolling compaction of overflow — ADR 0001 Phase 2). *(The field's own description comment lists only `off | window`; the code is authoritative and treats `summarize` as a valid third value.)* |
+| `contextStrategy` | `text-short` | Conversation-context handling, one of three values: **`off`** (default), **`window`** (bound replayed history + offer the `remember` tool + inject pinned facts — ADR 0001 Phase 1), and **`summarize`** (window behavior, but overflow is compacted into a running summary instead of dropped — ADR 0001 Phase 2). |
 | `contextWindowMessages` | `number-integer` | When strategy is `window`/`summarize`: max replayed prior-turn messages to keep (current turn always kept). Defaults to 20 when unset. |
 | `contextWindowChars` | `number-integer` | When strategy is `window`/`summarize`: char-estimate guard (~chars/4 tokens) for the assembled view. Defaults to 48000 when unset. |
+| `knowledgeMaxChars` | `number-integer` | Optional per-agent override of the injected-knowledge char cap. Null = use the `ai_knowledge_max_chars` config default (24000). |
 | `reasoningEffort` | `text-short` | `none` (default/unset) `| low | medium | high`. Provider-agnostic reasoning depth. OpenAI → `reasoning_effort` (reasoning-capable models only). Anthropic → extended-thinking budget; **v1 applies it only to agents WITHOUT tool grants** (reasoning + tools on Anthropic is deferred). No effect on models that don't support reasoning. |
 | `maxIterations` | `number-integer` | Agentic-loop cap (defaults to 5 on create). |
 | `maxTokens` | `number-integer` | Per-call max output tokens. |
@@ -93,7 +102,8 @@ behavioral knobs that govern its run loop.
 | `maxToolCallsPerTurn` | `number-integer` | Cap on tool calls dispatched within a single turn. |
 | `statusId` | `id` | → `AiAgentStatus`: `AI_AGENT_DRAFT | AI_AGENT_ACTIVE | AI_AGENT_DISABLED`. |
 
-- **Relationships:** `status` → `moqui.basic.StatusItem`.
+- **Relationships:** `status` → `moqui.basic.StatusItem`; `grants` →
+  `moqui.ai.AiAgentTool` (`many`, key-map `agentId`).
 
 ---
 
@@ -138,7 +148,7 @@ through the explicit, exposable-gated `store#AiAgentTool` service wrapper.
 |---|---|---|
 | `agentId` | `id` (PK) | The agent being granted. |
 | `toolId` | `id` (PK) | The granted tool. |
-| `requiresApprovalOverride` | `text-indicator` | Optional `Y/N`. Lets one agent be **stricter** than the tool's default `requiresApproval` — never looser; the tool default is a floor. |
+| `requiresApprovalOverride` | `text-indicator` | Optional `Y/N`. Overrides the tool's default `requiresApproval` in **either direction** (stricter or looser). Preview runs still force-gate mutating tools regardless. |
 
 - **Relationships:** `agent` → `moqui.ai.AiAgent`; `tool` → `moqui.ai.AiTool`
   (**`one-nofk`** — the tool may be a seeded/user row, so the grant stays resilient
@@ -199,7 +209,8 @@ invocation. Append-only audit.
 
 - **Relationships:** `agent` → `moqui.ai.AiAgent` (**`one-nofk`** — append-only audit,
   must not block the agent lifecycle); `conversation` → `moqui.ai.AiConversation`
-  (`one-nofk`); `status` → `moqui.basic.StatusItem`.
+  (`one-nofk`); `status` → `moqui.basic.StatusItem`; `toolCallRequests` →
+  `moqui.ai.AiToolCallRequest` (`many`, key-map `agentRunId`).
 
 > **`userMessage`/`assistantMessage` overlap `AiConversationMessage` rows by design — not duplicate
 > data.** The run header is the immutable, self-contained audit (and the *only* record for a
@@ -211,8 +222,8 @@ invocation. Append-only audit.
 
 ### AiAgentRunStep
 
-`entity/AiEntities.xml`. One step within a run — each LLM round-trip, tool batch,
-context operation, or failed provider call.
+`entity/AiEntities.xml`. One step within a run — each LLM call (including a failed
+provider attempt) or context operation (trim or compaction); see `stepType`.
 
 - **PK:** `agentRunId` + `stepSeqId` (composite).
 
@@ -223,8 +234,8 @@ context operation, or failed provider call.
 | `stepType` | `text-short` | The kind of step: `llm_call | context_trim | compaction`. (Outcome lives in `success`; a failed llm call is `stepType=llm_call`, `success=N`.) |
 | `tokensIn` | `number-integer` | Step input tokens. |
 | `tokensOut` | `number-integer` | Step output tokens. |
-| `success` | `text-indicator` | `Y/N` outcome of an `llm_call` step (a failed failover attempt = `N`). Null/Y for non-call steps. |
 | `finishReason` | `text-short` | Provider finish reason for the step. |
+| `success` | `text-indicator` | `Y/N` outcome of an `llm_call` step (a failed failover attempt = `N`). Null/Y for non-call steps. |
 
 - **Relationships:** `run` → `moqui.ai.AiAgentRun`.
 
@@ -232,15 +243,22 @@ context operation, or failed provider call.
 
 ### AiToolCall
 
-`entity/AiEntities.xml`. One executed tool call inside a step — the dispatch audit.
+`entity/AiEntities.xml`. One executed (or refused) tool call, whoever made it: an agent
+run or an external MCP client. Design decision 12 makes a tool call one concept, so this
+one table answers "who called what, when, with what arguments, and what happened". See
+[specs/2026-08-23-mcp-server-design.md → Data model change](../specs/2026-08-23-mcp-server-design.md#data-model-change-implemented-step-7).
 
-- **PK:** `agentRunId` + `stepSeqId` + `toolCallId` (composite).
+- **PK:** `toolCallId` (`id`) — sequenced, the sole PK (design decision 12).
+- **Index:** `AI_TOOL_CALL_RUN` on `agentRunId` (non-unique).
 
 | Field | Type | Purpose |
 |---|---|---|
-| `agentRunId` | `id` (PK) | Owning run. |
-| `stepSeqId` | `id` (PK) | Owning step. |
-| `toolCallId` | `id` (PK) | Tool-call identity within the step. |
+| `toolCallId` | `id` (PK) | Sequenced sole PK. |
+| `sourceEnumId` | `id` | → `AiToolCallSource`: `AI_TCS_AGENT \| AI_TCS_MCP`. |
+| `userId` | `id` | The calling user (audit: who). |
+| `agentRunId` | `id` | Owning run; null for MCP-originated calls. |
+| `stepSeqId` | `id` | Owning step; null for MCP-originated calls. |
+| `providerCallId` | `text-short` | The LLM provider's tool-call id within its turn (this was the `toolCallId` before decision 12); null for MCP calls. |
 | `toolId` | `id` | The tool that was called (id). `toolName`/`serviceName` are display/dispatch **snapshots**. |
 | `toolName` | `text-medium` | Snapshot of the tool's wire name at call time. |
 | `serviceName` | `text-medium` | Snapshot of the dispatched service FQN. |
@@ -250,13 +268,14 @@ context operation, or failed provider call.
 | `errorText` | `text-very-long` | Error detail on failure. |
 | `durationMs` | `number-integer` | Call duration in milliseconds. |
 
-- **Relationships:** none declared (PK ties it to the run/step).
+- **Relationships:** `run` → `moqui.ai.AiAgentRun` (`one-nofk`); `source` →
+  `moqui.basic.Enumeration` (title `AiToolCallSource`, key-map `sourceEnumId` → `enumId`).
 
 ---
 
 ### AiToolDenylist
 
-`entity/AiToolEntities.xml`. The **non-overridable safety floor**: service-name
+`entity/AiEntities.xml`. The **non-overridable safety floor**: service-name
 regex patterns that may never become tools. Checked by `store#AiTool`; a match
 forces `exposable=N` and refuses any override.
 
@@ -266,6 +285,8 @@ forces `exposable=N` and refuses any override.
 |---|---|---|
 | `servicePattern` | `text-medium` (PK) | Regex of service names that may never be exposed as a tool. |
 | `reason` | `text-medium` | Why — shown to the Curator. |
+
+- **Relationships:** none declared.
 
 Seeded patterns (`data/AiStatusData.xml`):
 
@@ -281,7 +302,7 @@ Seeded patterns (`data/AiStatusData.xml`):
 
 ### AiCapabilityRequest
 
-`entity/AiComposerEntities.xml`. A gap the Composer Assistant found but cannot fill
+`entity/AiEntities.xml`. A gap the Composer Assistant found but cannot fill
 (only the Curator may create tools). The Curator works this queue from the **Capability
 Requests** console — dismiss, fulfill (link a tool), or provision (create a tool inline).
 
@@ -312,7 +333,7 @@ Requests** console — dismiss, fulfill (link a tool), or provision (create a to
 
 ### AiConversation
 
-`entity/AiConversationEntities.xml`. A multi-turn conversation with an agent.
+`entity/AiEntities.xml`. A multi-turn conversation with an agent.
 Carries the **rolling-summary** (compaction) state.
 
 - **PK:** `conversationId` (`id`).
@@ -329,7 +350,9 @@ Carries the **rolling-summary** (compaction) state.
 | `statusId` | `id` | → `AiConversationStatus`: `AI_CONV_ACTIVE | AI_CONV_CLOSED`. |
 
 - **Relationships:** `agent` → `moqui.ai.AiAgent` (`one-nofk`); `status` →
-  `moqui.basic.StatusItem`.
+  `moqui.basic.StatusItem`; `messages` → `moqui.ai.AiConversationMessage` (`many`,
+  key-map `conversationId`); `runs` → `moqui.ai.AiAgentRun` (`many`, key-map
+  `conversationId`).
 
 > **Last activity is derived, not stored.** The former `lastActivityDate` column was dropped
 > (*derive, don't denormalize*): the `AiConversationActivity` view-entity exposes
@@ -339,7 +362,7 @@ Carries the **rolling-summary** (compaction) state.
 
 ### AiConversationMessage
 
-`entity/AiConversationEntities.xml`. One persisted message per turn-part, in order,
+`entity/AiEntities.xml`. One persisted message per turn-part, in order,
 replayed on the next call.
 
 - **PK:** `conversationId` + `messageSeqId` (composite).
@@ -366,7 +389,7 @@ replayed on the next call.
 
 ### AiConversationFact
 
-`entity/AiConversationEntities.xml`. **Pinned facts** (ADR 0001 fidelity guarantee):
+`entity/AiEntities.xml`. **Pinned facts** (ADR 0001 fidelity guarantee):
 durable confirmed business values an agent records via the server-injected
 `remember` tool. Conversation-scoped, keyed, store-or-update (a new value supersedes
 the old). Injected into every call's system context; never compressed or dropped.
@@ -381,13 +404,15 @@ the old). Injected into every call's system context; never compressed or dropped
 | `agentRunId` | `id` | The run that last recorded this fact. |
 | `createdDate` | `date-time` | When first created. |
 
+- **Relationships:** none declared.
+
 > Moqui auto-adds `lastUpdatedStamp` = when the fact was last set (supersession time).
 
 ---
 
 ### AiToolCallRequest
 
-`entity/AiApprovalEntities.xml`. One pending decision per approval-required tool call
+`entity/AiEntities.xml`. One pending decision per approval-required tool call
 in a suspended turn. The human-approval gate's queue.
 
 - **PK:** `toolCallRequestId` (`id`).
@@ -415,7 +440,7 @@ in a suspended turn. The human-approval gate's queue.
 
 ### AiModelPrice
 
-`entity/AiPriceEntities.xml`. Effective-dated price per (provider, model). A model's
+`entity/AiEntities.xml`. Effective-dated price per (provider, model). A model's
 price changes over time; old runs keep the price current at run time.
 
 - **PK:** `providerName` + `modelName` + `fromDate` (composite).
@@ -436,7 +461,7 @@ price changes over time; old runs keep the price current at run time.
 
 ### AiDomainTerm
 
-`entity/AiGlossaryEntities.xml`. The **glossary**: curated domain nouns + capability
+`entity/AiEntities.xml`. The **glossary**: curated domain nouns + capability
 verbs, typed, provenanced, and status-gated. Used to ground tool/agent naming.
 
 - **PK:** `termId` (`id`).
@@ -455,7 +480,7 @@ verbs, typed, provenanced, and status-gated. Used to ground tool/agent naming.
 
 - **Relationships:** `status` → `moqui.basic.StatusItem`; `kindEnum` →
   `moqui.basic.Enumeration` (`one-nofk`, title `AiTermKind`, key-map `termKind` →
-  `enumId`).
+  `enumId`); `synonyms` → `moqui.ai.AiTermSynonym` (`many`, key-map `termId`).
 
 > **Term status flow** (`data/AiGlossaryData.xml`): `SUGGESTED → APPROVED`,
 > `SUGGESTED → REJECTED`, and `APPROVED → REJECTED` ("Retire").
@@ -464,7 +489,7 @@ verbs, typed, provenanced, and status-gated. Used to ground tool/agent naming.
 
 ### AiTermSynonym
 
-`entity/AiGlossaryEntities.xml`. The **dialect**: aliases that map to a canonical
+`entity/AiEntities.xml`. The **dialect**: aliases that map to a canonical
 term (e.g. `rma` → `return`).
 
 - **PK:** `termId` + `synonym` (composite).
@@ -483,7 +508,7 @@ term (e.g. `rma` → `return`).
 
 ### AiNamingSignal
 
-`entity/AiGlossaryEntities.xml`. The **learning log**: what the Composer proposed vs.
+`entity/AiEntities.xml`. The **learning log**: what the Composer proposed vs.
 what the human kept, per authoring event. Feeds the promote-terms-from-signals loop.
 
 - **PK:** `signalId` (`id`).
@@ -536,7 +561,7 @@ double-record.
 - **Run-time snapshots.** Audit entities denormalize the label/name/service at the
   moment of execution (`AiAgentRun.agentName`, `AiToolCall.toolName`/`serviceName`) so
   history reads correctly after later renames.
-- **`one-nofk` for audit/config children.** Audit (`AiAgentRun`, `AiToolCallRequest`) and
+- **`one-nofk` for audit/config children.** Audit (`AiAgentRun`, `AiToolCall`, `AiToolCallRequest`) and
   config-child (`AiAgentModel`) relationships, and the grant→tool link, use `one-nofk`
   so they never block the agent/conversation/run lifecycle or resist catalog edits.
 - **Status vs. enumeration.** Lifecycle fields are `StatusItem` with
