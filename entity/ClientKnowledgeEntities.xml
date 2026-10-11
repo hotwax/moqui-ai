@@ -1,0 +1,58 @@
+<?xml version='1.0' encoding='utf-8'?>
+<entities>
+  <entity entity-name="AiClientSpace" package="moqui.ai">
+    <description>Client knowledge boundary; GLOBAL is shared product documentation.</description>
+    <field name="clientId" type="id" is-pk="true" />
+    <field name="clientName" type="text-medium" />
+  </entity>
+  <entity entity-name="AiClientMember" package="moqui.ai">
+    <description>Explicit per-user membership. Curators can ingest and review evidence.</description>
+    <field name="clientId" type="id" is-pk="true" />
+    <field name="userId" type="id" is-pk="true" />
+    <field name="canCurate" type="text-indicator" />
+  </entity>
+  <entity entity-name="AiClientEvidence" package="moqui.ai">
+    <description>Versioned source evidence. Observations are never automatically confirmed policy.</description>
+    <field name="evidenceId" type="id-long" is-pk="true" />
+    <field name="clientId" type="id" />
+    <field name="sourceKey" type="text-long" />
+    <field name="sourceUrl" type="text-long" />
+    <field name="sourceType" type="text-short" />
+    <field name="title" type="text-medium" />
+    <field name="body" type="text-very-long" />
+    <field name="searchText" type="text-very-long" />
+    <field name="contentHash" type="text-medium" />
+    <field name="sourceDate" type="date-time" />
+    <field name="observedAt" type="date-time" />
+    <field name="createdByUserId" type="id" />
+    <field name="isCurrent" type="text-indicator" />
+    <field name="trustLevel" type="text-short" />
+    <field name="reviewNote" type="text-long" />
+    <field name="reviewedByUserId" type="id" />
+    <field name="reviewedAt" type="date-time" />
+    <index name="AI_CEV_SCOPE">
+      <index-field name="clientId" />
+      <index-field name="isCurrent" />
+      <index-field name="sourceDate" />
+    </index>
+    <index name="AI_CEV_KEY">
+      <index-field name="clientId" />
+      <index-field name="contentHash" />
+    </index>
+  </entity>
+  <entity entity-name="AiClientQuestion" package="moqui.ai">
+    <description>Client questions and cited draft answers; an interaction does not establish a fact.</description>
+    <field name="questionId" type="id-long" is-pk="true" />
+    <field name="clientId" type="id" />
+    <field name="question" type="text-long" />
+    <field name="answer" type="text-very-long" />
+    <field name="evidenceIds" type="text-long" />
+    <field name="resolution" type="text-short" />
+    <field name="createdDate" type="date-time" />
+    <field name="createdByUserId" type="id" />
+    <index name="AI_CQ_SCOPE">
+      <index-field name="clientId" />
+      <index-field name="createdDate" />
+    </index>
+  </entity>
+</entities>
