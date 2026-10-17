@@ -17,9 +17,6 @@ class McpTarpitTests extends Specification {
         ec.artifactExecution.disableAuthz()
         ec.transaction.runRequireNew(30, "mcp tarpit test setup", {
             ec.entity.makeDataLoader().location("component://moqui-ai/data/McpSecurityData.xml").load()
-            ec.entity.makeValue("org.apache.ofbiz.party.party.Party").setAll([partyId: "McpTarpitUser", partyTypeId: "PERSON"]).createOrUpdate()
-            ec.entity.makeValue("org.apache.ofbiz.party.party.Person").setAll([partyId: "McpTarpitUser", firstName: "Tarpit", lastName: "Test User"]).createOrUpdate()
-            ec.entity.makeValue("org.apache.ofbiz.security.login.UserLogin").setAll([userLoginId: "McpTarpitUser", partyId: "McpTarpitUser", enabled: "Y"]).createOrUpdate()
             ec.entity.makeValue("moqui.security.UserAccount").setAll([userId: "McpTarpitUser", username: "McpTarpitUser", userFullName: "Tarpit Test User"]).createOrUpdate()
             // the tarpit lock is DB-persisted (moqui.security.ArtifactTarpitLock) and survives
             // across JVM runs: a suite rerun within tarpitDuration would start locked out and
