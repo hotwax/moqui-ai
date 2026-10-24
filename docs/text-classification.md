@@ -1,0 +1,40 @@
+# Audited text classification
+
+`ai.DecisionServices.classify#Text` accepts `text`, a unique nonblank `labels` list
+and a required `cacheScope`. It returns a permitted `label` (null for no match),
+`agentRunId`, `statusId`, `errorType` and `cacheHit`.
+
+The service uses the existing configured OpenAI provider's dedicated Decisions
+operation with model `gpt-6-luna`. It does not run an agent, tools, knowledge,
+conversation context or model failover. Each miss makes exactly one HTTP request.
+The one-second full-response deadline cancels the underlying asynchronous HTTP
+exchange on expiry; existing chat/agent transports and their timeout configuration
+remain unchanged. The JDK transport is needed because the current framework
+RestClient clamps timeouts to a minimum of two seconds.
+
+The existing AiAgentRun/AiAgentRunStep tables retain completed and failed attempt
+audits. Agent ID is null; agentName identifies the classification scope. Usage,
+provider ID and request duration are retained when available. Audit writes are
+required before a provider call and preserved on completion/failure; a database
+failure is not silently converted into an optional provider failure.
+
+Validated answers, including null/no-match, are cached for one hour in the native
+Moqui `ai.classification.results` cache. Transient failures use
+`ai.classification.failures` for 30 seconds. Both are bounded to 10,000 entries.
+The SHA-256 key includes normalized text, exact sorted labels, scope, model and
+request version. Result reuse returns the original audit ID without another
+provider call. Atomic read-through loading in the tool factory coalesces concurrent
+misses per key; the temporary loading map is cleared after each load. Retention
+and eviction stay with the Moqui caches. Caches/loading are per process.
+
+OpenAI prompt caching is separate from result reuse. The Decisions API requires a
+reusable shared-input prefix of at least 1,024 tokens; these short classification
+requests do not depend on that discount. No key, customer record or caller context
+is added to a request by this service.
+
+Regression and real-HTTP timeout tests live in hotwax/oms-test under
+`co.hotwax.omstest.spock.aiclassification`. They use actual Moqui audit/cache
+behavior and replace only the external provider response. The connector's live
+HC Sandbox acceptance harness exercises the actual OpenAI Decisions endpoint.
+
+API contract: https://developers.openai.com/api/docs/guides/decisions

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+    <service verb="classify" noun="Text" transaction="ignore">
+        <description>Classify text against permitted labels using one audited OpenAI Decisions request. Reuses scoped cached decisions; no agent, tools, knowledge, history or model failover.</description>
+        <in-parameters>
+            <parameter name="text" required="true"/>
+            <parameter name="labels" type="List" required="true"/>
+            <parameter name="cacheScope" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="label"/><parameter name="agentRunId"/><parameter name="statusId"/>
+            <parameter name="errorType"/><parameter name="cacheHit" type="Boolean"/>
+        </out-parameters>
+        <actions><script location="component://moqui-ai/script/ai/classifyText.groovy"/></actions>
+    </service>
+    <service verb="request" noun="TextClassification" transaction="ignore">
+        <description>Recheck the cache, preserve audit, and make one one-second provider request. Invoked by the atomic cache loader.</description>
+        <in-parameters>
+            <parameter name="classificationKey" required="true"/>
+            <parameter name="text" required="true"/><parameter name="labels" type="List" required="true"/>
+            <parameter name="cacheScope" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="label"/><parameter name="agentRunId"/><parameter name="statusId"/>
+            <parameter name="errorType"/><parameter name="cacheHit" type="Boolean"/>
+        </out-parameters>
+        <actions><script location="component://moqui-ai/script/ai/requestTextClassification.groovy"/></actions>
+    </service>
+</services>
