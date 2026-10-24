@@ -15,6 +15,17 @@ class OpenAiProvider extends AbstractLlmProvider {
             .version(java.net.http.HttpClient.Version.HTTP_1_1)
             .connectTimeout(java.time.Duration.ofSeconds(1)).followRedirects(java.net.http.HttpClient.Redirect.NEVER).build()
 
+    /** One non-inference startup request on the classification pool. Never wait for it on the order path. */
+    java.util.concurrent.CompletableFuture<Integer> warmClassificationConnection() {
+        def request=java.net.http.HttpRequest.newBuilder(java.net.URI.create(baseUrl.replaceAll('/+$','')+'/models'))
+                .timeout(java.time.Duration.ofSeconds(5)).header('Authorization','Bearer '+apiKey)
+                .method('HEAD',java.net.http.HttpRequest.BodyPublishers.noBody()).build()
+        def exchange=decisionClient.sendAsync(request,java.net.http.HttpResponse.BodyHandlers.discarding())
+        def status=exchange.thenApply { response -> response.statusCode() }.orTimeout(5,java.util.concurrent.TimeUnit.SECONDS)
+        status.whenComplete { ignored, failure -> if(failure!=null) exchange.cancel(true) }
+        return status
+    }
+
     /** OpenAI Decisions: one request, no retries, no tools, and a one-second full-response deadline. */
     Map classify(Map request) {
         List<String> labels=request.labels as List<String>

@@ -13,13 +13,23 @@ helper contains only the provider call and exception classification; atomic cach
 loading and HTTP transport stay in the tool factory/provider classes.
 The one-second full-response deadline cancels the underlying asynchronous HTTP
 exchange on expiry; existing chat/agent transports and their timeout configuration
-remain unchanged. The JDK transport is needed because the current framework
-RestClient clamps timeouts to a minimum of two seconds.
+remain unchanged. The JDK asynchronous transport enforces this full-response deadline directly.
+(The framework synchronous RestClient clamps its timeout to two seconds; its
+asynchronous path is a separate API.)
 
 Classification uses HTTP/1.1 so cancelling a timed-out request closes its affected
 connection instead of retaining a stalled HTTP/2 connection for subsequent calls.
 Healthy connections are still pooled. The one-second deadline and no-retry policy
 remain fixed; this changes recovery, not the speed of an upstream response.
+
+At startup, a configured OpenAI provider sends one asynchronous, authenticated
+`HEAD /models` on the same HTTP client. This performs no inference and consumes no
+model tokens. Its separate five-second bound allows connection setup without
+blocking startup. A failed warm-up is logged using only HTTP status or exception
+class; it neither disables the provider nor retries. Constructors and order calls
+do not warm up. Orders do not wait for warm-up: immediate orders can race it, and
+idle/closed connections can become cold again. The classification deadline stays
+one second, including any connection setup it needs.
 
 One existing AiAgentRun row retains each completed or failed attempt; no step audit
 or additional provider interface is used. Agent ID is null; agentName identifies
