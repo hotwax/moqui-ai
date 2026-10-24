@@ -11,7 +11,30 @@
             <parameter name="label"/><parameter name="agentRunId"/><parameter name="statusId"/>
             <parameter name="errorType"/><parameter name="cacheHit" type="Boolean"/>
         </out-parameters>
-        <actions><script location="component://moqui-ai/script/ai/classifyText.groovy"/></actions>
+        <actions>
+            <set field="choices" from="labels.findAll { it instanceof String &amp;&amp; !it.trim().isEmpty() }.unique().sort()"/>
+            <if condition="choices.size() != labels.size() || choices.isEmpty()">
+                <return error="true" message="Classification labels must be unique nonblank strings"/>
+            </if>
+            <set field="normalized" from="text.toString().trim().toLowerCase(java.util.Locale.ROOT)"/>
+            <set field="keyInput" from="groovy.json.JsonOutput.toJson(['v1','gpt-6-luna',cacheScope,normalized,choices])"/>
+            <set field="classificationKey" from="java.security.MessageDigest.getInstance('SHA-256').digest(keyInput.getBytes('UTF-8')).encodeHex().toString()"/>
+            <set field="results" from="ec.cache.getCache('ai.classification.results')"/>
+            <set field="failures" from="ec.cache.getCache('ai.classification.failures')"/>
+            <set field="classification" from="results.get(classificationKey) ?: failures.get(classificationKey)"/>
+            <if condition="classification != null">
+                <set field="cacheHit" from="true"/>
+                <else>
+                    <!-- The factory supplies only the atomic callback boundary; the loader service below owns its workflow. -->
+                    <set field="classification" from="ec.factory.getTool('AI', Object.class).coalesceClassification(classificationKey, [classificationKey:classificationKey,text:normalized,labels:choices,cacheScope:cacheScope])"/>
+                    <set field="cacheHit" from="classification?.cacheHit == true"/>
+                </else>
+            </if>
+            <set field="label" from="classification?.label"/>
+            <set field="agentRunId" from="classification?.agentRunId"/>
+            <set field="statusId" from="classification?.statusId"/>
+            <set field="errorType" from="classification?.errorType"/>
+        </actions>
     </service>
     <service verb="request" noun="TextClassification" transaction="ignore">
         <description>Recheck the cache, preserve audit, and make one one-second provider request. Invoked by the atomic cache loader.</description>
@@ -24,6 +47,44 @@
             <parameter name="label"/><parameter name="agentRunId"/><parameter name="statusId"/>
             <parameter name="errorType"/><parameter name="cacheHit" type="Boolean"/>
         </out-parameters>
-        <actions><script location="component://moqui-ai/script/ai/requestTextClassification.groovy"/></actions>
+        <actions>
+            <set field="results" from="ec.cache.getCache('ai.classification.results')"/>
+            <set field="failures" from="ec.cache.getCache('ai.classification.failures')"/>
+            <set field="cached" from="results.get(classificationKey) ?: failures.get(classificationKey)"/>
+            <if condition="cached != null">
+                <set field="label" from="cached.label"/>
+                <set field="agentRunId" from="cached.agentRunId"/>
+                <set field="statusId" from="cached.statusId"/>
+                <set field="errorType" from="cached.errorType"/>
+                <set field="cacheHit" from="true"/>
+                <return/>
+            </if>
+            <set field="label" from="null"/>
+            <set field="errorType" from="null"/>
+            <set field="cacheHit" from="false"/>
+            <set field="statusId" value="AI_RUN_FAILED"/>
+            <!-- Entity-auto allocates the audit ID. A failed audit write stops before any provider request. -->
+            <service-call name="create#moqui.ai.AiAgentRun" transaction="force-new" out-map="run"
+                          in-map="[agentName:('Text classification '+cacheScope).take(63),userId:ec.user.userId,startedDate:ec.user.nowTimestamp,statusId:'AI_RUN_RUNNING',providerName:'openai',modelName:'gpt-6-luna',userMessage:groovy.json.JsonOutput.toJson([text:text,labels:labels])]"/>
+            <set field="agentRunId" from="run.agentRunId"/>
+            <script location="component://moqui-ai/script/ai/invokeTextClassification.groovy"/>
+            <if condition="classificationFailureType == null &amp;&amp; classificationResponse.containsKey('label') &amp;&amp; (classificationResponse.label == null || (classificationResponse.label instanceof String &amp;&amp; labels.contains(classificationResponse.label)))">
+                <set field="label" from="classificationResponse.label"/>
+                <set field="statusId" value="AI_RUN_COMPLETED"/>
+                <else>
+                    <set field="errorType" from="classificationFailureType ?: 'PROVIDER_ERROR'"/>
+                    <log level="warn" message="Optional OpenAI classification unavailable: ${errorType}"/>
+                </else>
+            </if>
+            <!-- Audit writes have independent transactions; provider failures cannot erase them. -->
+            <service-call name="create#moqui.ai.AiAgentRunStep" transaction="force-new"
+                          in-map="[agentRunId:agentRunId,stepSeqId:'1',stepType:'llm_call',success:statusId == 'AI_RUN_COMPLETED' ? 'Y' : 'N',tokensIn:classificationResponse.tokensIn ?: 0L,tokensOut:classificationResponse.tokensOut ?: 0L,finishReason:errorType ?: 'choice']"/>
+            <service-call name="update#moqui.ai.AiAgentRun" transaction="force-new"
+                          in-map="[agentRunId:agentRunId,endedDate:ec.user.nowTimestamp,statusId:statusId,assistantMessage:statusId == 'AI_RUN_COMPLETED' ? groovy.json.JsonOutput.toJson(classificationResponse) : null,iterations:1,tokensIn:classificationResponse.tokensIn ?: 0L,tokensOut:classificationResponse.tokensOut ?: 0L,servedByModelId:'gpt-6-luna',providerRunId:classificationResponse.providerRunId,errorText:errorType]"/>
+            <!-- Cache only after every required audit write succeeds. -->
+            <set field="outcome" from="[label:label,agentRunId:agentRunId,statusId:statusId,errorType:errorType,cacheHit:false]"/>
+            <set field="targetCache" from="statusId == 'AI_RUN_COMPLETED' ? results : failures"/>
+            <set field="previousCached" from="targetCache.put(classificationKey, outcome)"/>
+        </actions>
     </service>
 </services>

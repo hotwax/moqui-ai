@@ -7,6 +7,10 @@ and a required `cacheScope`. It returns a permitted `label` (null for no match),
 The service uses the existing configured OpenAI provider's dedicated Decisions
 operation with model `gpt-6-luna`. It does not run an agent, tools, knowledge,
 conversation context or model failover. Each miss makes exactly one HTTP request.
+Validation, cache lookup/result handling and audit orchestration use XML actions
+in `service/ai/DecisionServices.xml`. The small `invokeTextClassification.groovy`
+helper contains only the provider call and exception classification; atomic cache
+loading and HTTP transport stay in the tool factory/provider classes.
 The one-second full-response deadline cancels the underlying asynchronous HTTP
 exchange on expiry; existing chat/agent transports and their timeout configuration
 remain unchanged. The JDK transport is needed because the current framework

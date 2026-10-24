@@ -24,11 +24,16 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
     // Atomic read-through loading coalesces identical misses within this factory. Retention
     // and bounds belong to Moqui's expiring caches, not to this temporary loading map.
     private final java.util.concurrent.ConcurrentHashMap<String,Map> classificationLoads = new java.util.concurrent.ConcurrentHashMap<>()
-    Map coalesceClassification(String key, Closure<Map> loader) {
+    Map coalesceClassification(String key, Map parameters) {
         Map loaded = null
+        boolean loadedHere = false
         try {
-            loaded = classificationLoads.computeIfAbsent(key, { String ignored -> loader.call() } as java.util.function.Function<String,Map>)
-            return loaded
+            loaded = classificationLoads.computeIfAbsent(key, { String ignored ->
+                loadedHere = true
+                ecf.executionContext.service.sync().name('ai.DecisionServices.request#TextClassification')
+                        .parameters(parameters).call()
+            } as java.util.function.Function<String,Map>)
+            return loaded && !loadedHere ? loaded + [cacheHit:true] : loaded
         } finally {
             if (loaded != null) classificationLoads.remove(key, loaded)
         }
