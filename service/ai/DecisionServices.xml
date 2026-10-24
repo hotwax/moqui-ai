@@ -76,9 +76,7 @@
                     <log level="warn" message="Optional OpenAI classification unavailable: ${errorType}"/>
                 </else>
             </if>
-            <!-- Audit writes have independent transactions; provider failures cannot erase them. -->
-            <service-call name="create#moqui.ai.AiAgentRunStep" transaction="force-new"
-                          in-map="[agentRunId:agentRunId,stepSeqId:'1',stepType:'llm_call',success:statusId == 'AI_RUN_COMPLETED' ? 'Y' : 'N',tokensIn:classificationResponse.tokensIn ?: 0L,tokensOut:classificationResponse.tokensOut ?: 0L,finishReason:errorType ?: 'choice']"/>
+            <!-- The single run-level audit survives the caller's transaction; no step row is needed. -->
             <service-call name="update#moqui.ai.AiAgentRun" transaction="force-new"
                           in-map="[agentRunId:agentRunId,endedDate:ec.user.nowTimestamp,statusId:statusId,assistantMessage:statusId == 'AI_RUN_COMPLETED' ? groovy.json.JsonOutput.toJson(classificationResponse) : null,iterations:1,tokensIn:classificationResponse.tokensIn ?: 0L,tokensOut:classificationResponse.tokensOut ?: 0L,servedByModelId:'gpt-6-luna',providerRunId:classificationResponse.providerRunId,errorText:errorType]"/>
             <!-- Cache only after every required audit write succeeds. -->

@@ -5,7 +5,7 @@ import groovy.json.JsonSlurper
 
 /** OpenAI Chat Completions adapter. Maps the normalized request/response Maps to/from
  *  OpenAI's messages + function tool-calls wire format. */
-class OpenAiProvider extends AbstractLlmProvider implements org.moqui.ai.ClassificationProvider {
+class OpenAiProvider extends AbstractLlmProvider {
     OpenAiProvider(String apiKey, String baseUrl, int timeoutSeconds) {
         super(apiKey, baseUrl, timeoutSeconds)
     }
@@ -14,7 +14,6 @@ class OpenAiProvider extends AbstractLlmProvider implements org.moqui.ai.Classif
             .connectTimeout(java.time.Duration.ofSeconds(1)).followRedirects(java.net.http.HttpClient.Redirect.NEVER).build()
 
     /** OpenAI Decisions: one request, no retries, no tools, and a one-second full-response deadline. */
-    @Override
     Map classify(Map request) {
         List<String> labels=request.labels as List<String>
         List choices=labels.withIndex().collect { String label,int index -> [value:index.toString(),description:label] }

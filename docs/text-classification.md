@@ -16,8 +16,9 @@ exchange on expiry; existing chat/agent transports and their timeout configurati
 remain unchanged. The JDK transport is needed because the current framework
 RestClient clamps timeouts to a minimum of two seconds.
 
-The existing AiAgentRun/AiAgentRunStep tables retain completed and failed attempt
-audits. Agent ID is null; agentName identifies the classification scope. Usage,
+One existing AiAgentRun row retains each completed or failed attempt; no step audit
+or additional provider interface is used. Agent ID is null; agentName identifies
+the classification scope. Usage,
 provider ID and request duration are retained when available. Audit writes are
 required before a provider call and preserved on completion/failure; a database
 failure is not silently converted into an optional provider failure.
