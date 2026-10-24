@@ -78,7 +78,7 @@
             </if>
             <!-- The single run-level audit survives the caller's transaction; no step row is needed. -->
             <service-call name="update#moqui.ai.AiAgentRun" transaction="force-new"
-                          in-map="[agentRunId:agentRunId,endedDate:ec.user.nowTimestamp,statusId:statusId,assistantMessage:statusId == 'AI_RUN_COMPLETED' ? groovy.json.JsonOutput.toJson(classificationResponse) : null,iterations:1,tokensIn:classificationResponse.tokensIn ?: 0L,tokensOut:classificationResponse.tokensOut ?: 0L,servedByModelId:'gpt-6-luna',providerRunId:classificationResponse.providerRunId,errorText:errorType]"/>
+                          in-map="[agentRunId:agentRunId,endedDate:ec.user.nowTimestamp,statusId:statusId,assistantMessage:statusId == 'AI_RUN_COMPLETED' ? groovy.json.JsonOutput.toJson(classificationResponse) : null,iterations:1,tokensIn:classificationResponse.tokensIn ?: 0L,tokensOut:classificationResponse.tokensOut ?: 0L,servedByModelId:'gpt-6-luna',providerRunId:classificationResponse.providerRunId,errorText:errorType ? errorType + ': ' + (classificationFailureDetails ?: 'Invalid classification result') : null]"/>
             <!-- Cache only after every required audit write succeeds. -->
             <set field="outcome" from="[label:label,agentRunId:agentRunId,statusId:statusId,errorType:errorType,cacheHit:false]"/>
             <set field="targetCache" from="statusId == 'AI_RUN_COMPLETED' ? results : failures"/>

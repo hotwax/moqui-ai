@@ -16,12 +16,22 @@ exchange on expiry; existing chat/agent transports and their timeout configurati
 remain unchanged. The JDK transport is needed because the current framework
 RestClient clamps timeouts to a minimum of two seconds.
 
+Classification uses HTTP/1.1 so cancelling a timed-out request closes its affected
+connection instead of retaining a stalled HTTP/2 connection for subsequent calls.
+Healthy connections are still pooled. The one-second deadline and no-retry policy
+remain fixed; this changes recovery, not the speed of an upstream response.
+
 One existing AiAgentRun row retains each completed or failed attempt; no step audit
 or additional provider interface is used. Agent ID is null; agentName identifies
 the classification scope. Usage,
 provider ID and request duration are retained when available. Audit writes are
 required before a provider call and preserved on completion/failure; a database
 failure is not silently converted into an optional provider failure.
+The run ID is sent as `X-Client-Request-Id`; the provider response's `x-request-id`
+is retained when the response has no JSON ID. Successful run details include the
+reported `openai-processing-ms` alongside measured request time. Failure audit
+retains exception class names (without remote exception text), and recognizes a
+timeout anywhere in a wrapped cause chain.
 
 Validated answers, including null/no-match, are cached for one hour in the native
 Moqui `ai.classification.results` cache. Transient failures use
@@ -41,5 +51,8 @@ Regression and real-HTTP timeout tests live in hotwax/oms-test under
 `co.hotwax.omstest.spock.aiclassification`. They use actual Moqui audit/cache
 behavior and replace only the external provider response. The connector's live
 HC Sandbox acceptance harness exercises the actual OpenAI Decisions endpoint.
+The opt-in `verifyOpenAiConnectionRecovery.py` TLS fault regression demonstrates
+recovery after an established connection stops responding, against an HTTP/2
+control. See oms-test's connection-recovery documentation for the command.
 
 API contract: https://developers.openai.com/api/docs/guides/decisions
