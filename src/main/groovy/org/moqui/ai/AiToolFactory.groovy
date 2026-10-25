@@ -63,17 +63,10 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
         try {
             String openaiKey = prop("ai_openai_key")
             if (openaiKey) {
-                def openai = new org.moqui.ai.provider.OpenAiProvider(openaiKey,
+                registerProvider(new org.moqui.ai.provider.OpenAiProvider(openaiKey,
                     prop("ai_openai_base_url") ?: "https://api.openai.com/v1",
-                    (prop("ai_timeout_seconds") ?: "60") as int)
-                registerProvider(openai)
+                    (prop("ai_timeout_seconds") ?: "60") as int))
                 logger.info("AI: registered OpenAI provider")
-                // sendAsync uses the provider's HTTP executor; no ExecutionContext or startup wait is needed.
-                openai.warmClassificationConnection().whenComplete { Integer status, Throwable failure ->
-                    if (failure != null) logger.warn("AI: OpenAI connection warm-up failed ({})", failure.getClass().getSimpleName())
-                    else if (status != 200) logger.warn("AI: OpenAI connection warm-up HTTP {}", status)
-                    else logger.info("AI: OpenAI classification connection warmed")
-                }
             }
         } catch (Throwable t) { logger.warn("AI: skipped OpenAI provider init: ${t.message}") }
         // Catalog is built from AiTool rows on first access (no ExecutionContext exists at
