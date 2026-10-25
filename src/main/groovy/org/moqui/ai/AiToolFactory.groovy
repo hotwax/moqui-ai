@@ -3,6 +3,8 @@ package org.moqui.ai
 import groovy.transform.CompileStatic
 import org.moqui.context.ExecutionContextFactory
 import org.moqui.context.ToolFactory
+import org.moqui.entity.EntityException
+import java.util.concurrent.CompletableFuture
 import org.moqui.ai.provider.MockProvider
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -23,19 +25,25 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
 
     // Atomic read-through loading coalesces identical misses within this factory. Retention
     // and bounds belong to Moqui's expiring caches, not to this temporary loading map.
-    private final java.util.concurrent.ConcurrentHashMap<String,Map> classificationLoads = new java.util.concurrent.ConcurrentHashMap<>()
+    private final java.util.concurrent.ConcurrentHashMap<String,CompletableFuture<Map>> classificationLoads = new java.util.concurrent.ConcurrentHashMap<>()
     Map coalesceClassification(String key, Map parameters) {
-        Map loaded = null
-        boolean loadedHere = false
+        CompletableFuture<Map> loading = new CompletableFuture<>()
+        CompletableFuture<Map> existing = classificationLoads.putIfAbsent(key, loading)
+        if (existing != null) return existing.join() + [cacheHit:true]
         try {
-            loaded = classificationLoads.computeIfAbsent(key, { String ignored ->
-                loadedHere = true
-                ecf.executionContext.service.sync().name('ai.DecisionServices.request#TextClassification')
-                        .parameters(parameters).call()
-            } as java.util.function.Function<String,Map>)
-            return loaded && !loadedHere ? loaded + [cacheHit:true] : loaded
+            def worker = ecf.executionContext
+            Map outcome = worker.service.sync().name('ai.DecisionServices.request#TextClassification')
+                    .parameters(parameters).call()
+            // Moqui can return partial output with errors on this thread. Never publish that as a usable result.
+            if (worker.message.hasError() || outcome == null)
+                throw new EntityException('Required text classification service failed')
+            loading.complete(outcome)
+            return outcome
+        } catch (Throwable failure) {
+            loading.completeExceptionally(failure)
+            throw failure
         } finally {
-            if (loaded != null) classificationLoads.remove(key, loaded)
+            classificationLoads.remove(key, loading)
         }
     }
 

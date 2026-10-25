@@ -44,7 +44,11 @@ Moqui `ai.classification.results` cache. Transient failures use
 The SHA-256 key includes normalized text, exact sorted labels, scope, model and
 request version. Result reuse returns the original audit ID without another
 provider call. Atomic read-through loading in the tool factory coalesces concurrent
-misses per key; the temporary loading map is cleared after each load. Retention
+misses per key using one shared completion. A loader service error completes that
+load exceptionally, so waiting callers also stop instead of receiving partial
+output from another thread. A later independent call can try again; audit failures
+are not retained in either result cache. The temporary loading map is cleared after
+each load. Retention
 and eviction stay with the Moqui caches. Caches/loading are per process.
 
 OpenAI prompt caching is separate from result reuse. The Decisions API requires a
