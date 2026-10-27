@@ -67,6 +67,20 @@ computer, web, app/plugin, memory, image/file-view, and multi-agent features.
 Only the restricted bridge is configured. The prepared command has a transient
 working directory; use the harness to create a fresh directory for the actual run.
 
+The stable `code_mode_host` stays enabled because current models dispatch MCP
+through its isolated JavaScript orchestration host. The optional `code_mode`
+feature stays off. A read-only live probe reported `require`, `process`, `fetch`,
+`Deno`, `Bun`, `WebSocket`, and `fs` as undefined; no Node or direct filesystem/
+network API is supplied by this configuration. CLI JSON events expose nested MCP
+calls rather than an outer JavaScript execution item, so the audit still accepts
+only the configured document MCP calls and does not broadly allow arbitrary exec.
+This probe is a capability check, not an exhaustive sandbox security assessment.
+
+Client result representations vary: use `structuredContent`, client-normalized
+`structured_content`, or parse the JSON text in `content[0].text`. A missing field
+must not be interpreted as empty business data. Native document DTOs are unwrapped;
+template rows use `templates[].documentTemplateId`.
+
 Private output includes the prompt, launch configuration, JSON transcript, stderr,
 bridge metadata audit, and a transcript tool check. The check rejects command/file/
 web/foreign-MCP calls and unknown tool event types. Configuration and pure tests do

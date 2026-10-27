@@ -18,7 +18,7 @@ from document_mcp_bridge import ACTOR_TOOLS, ATTACHMENT_TOOL, load_attachments
 DISABLED_FEATURES = ('shell_tool', 'unified_exec', 'shell_snapshot', 'apps', 'plugins', 'remote_plugin',
                      'hooks', 'browser_use', 'browser_use_external', 'browser_use_full_cdp_access',
                      'computer_use', 'in_app_browser', 'image_generation', 'view_image', 'code_mode',
-                     'code_mode_host', 'multi_agent', 'multi_agent_v2', 'goals', 'memories', 'chronicle',
+                     'multi_agent', 'multi_agent_v2', 'goals', 'memories', 'chronicle',
                      'workspace_dependencies', 'tool_suggest')
 
 
@@ -26,7 +26,9 @@ def build_command(bridge, login_env, manifest, audit_log, actor_cwd, model=None)
     command = ['codex', '--ask-for-approval', 'never', 'exec', '--ignore-user-config', '--ephemeral', '--json',
                '--skip-git-repo-check', '--sandbox', 'read-only', '--cd', str(actor_cwd)]
     values = [f'features.{feature}=false' for feature in DISABLED_FEATURES]
-    values += ['web_search="disabled"', 'tools.web_search=false', 'tools.view_image=false', 'project_doc_max_bytes=0',
+    # Current Codex models dispatch MCP through the isolated V8 host even with the
+    # optional Code Mode feature off. The host itself exposes no shell or Node API.
+    values += ['features.code_mode_host=true', 'web_search="disabled"', 'tools.web_search=false', 'tools.view_image=false', 'project_doc_max_bytes=0',
                'mcp_servers.document_local.command=' + json.dumps(sys.executable),
                'mcp_servers.document_local.args=' + json.dumps([str(bridge), '--login-env', str(login_env),
                    '--attachment-manifest', str(manifest), '--audit-log', str(audit_log)]),
@@ -90,6 +92,11 @@ def main():
             '\nUse only the document_local MCP tools/resources. Forward supplied bytes only with '
             'forward_document_attachment; never generate base64 or request a path/URL. Do not use shell, '
             'filesystem, SQL, generic service/entity execution, browsing, other agents, source edits or restarts. '
+            'Use the isolated functions.exec host only to orchestrate these MCP tools. '
+            'MCP results contain an unwrapped document DTO: read structuredContent or client-normalized '
+            'structured_content when available, otherwise parse the JSON text in content[0].text. '
+            'Do not interpret a missing wrapper/property as empty business data; inspect the actual result shape. '
+            'Template rows are in templates and their identifier is documentTemplateId. '
             'Report a concrete tool capability gap if blocked. Keep private record content out of the final summary.\n')
         bridge = Path(__file__).with_name('document_mcp_bridge.py').resolve()
         audit_path = args.output_dir.resolve() / 'bridge-audit.jsonl'

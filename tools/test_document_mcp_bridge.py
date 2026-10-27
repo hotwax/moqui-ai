@@ -207,7 +207,7 @@ class BridgeTests(unittest.TestCase):
         joined = '\n'.join(command)
         for value in ['--ignore-user-config', '--ephemeral', '--json', 'features.shell_tool=false',
                       'features.unified_exec=false', 'features.plugins=false', 'features.apps=false',
-                      'web_search="disabled"', 'tools.view_image=false']:
+                      'web_search="disabled"', 'tools.view_image=false', 'features.code_mode_host=true']:
             self.assertIn(value, command)
         self.assertNotIn('CODEX_HOME=', joined)
         self.assertNotIn('auth.json', joined)
@@ -235,6 +235,18 @@ class BridgeTests(unittest.TestCase):
                     event('mcp_tool_call', server='other', tool='get_document_template')]:
             self.assertFalse(check_events(good + [bad])['passed'])
         self.assertFalse(check_events(good + [{'type': 'invalid_json_event'}])['passed'])
+
+    def test_actual_cli_nested_mcp_event_shape_keeps_strict_tool_audit(self):
+        event = {'type': 'item.completed', 'item': {
+            'id': 'item_1', 'type': 'mcp_tool_call', 'server': 'document_local',
+            'tool': 'list_document_templates', 'arguments': {}, 'status': 'completed', 'error': None,
+            'result': {'content': [{'type': 'text', 'text': '{"ok":true,"templates":[]}'}],
+                       'structured_content': {'ok': True, 'templates': []}, '_meta': {}}}}
+        audit = check_events([event, {'type': 'turn.completed'}])
+        self.assertTrue(audit['passed'])
+        self.assertEqual(audit['mcpCalls'], [{'server': 'document_local', 'tool': 'list_document_templates'}])
+        unknown_exec = {'type': 'item.completed', 'item': {'type': 'code_mode_execution', 'code': 'arbitrary()'}}
+        self.assertFalse(check_events([event, unknown_exec, {'type': 'turn.completed'}])['passed'])
 
 
 if __name__ == '__main__':
