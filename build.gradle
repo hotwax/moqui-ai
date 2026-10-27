@@ -36,6 +36,18 @@ test {
     classpath += files(projectDir.absolutePath)
     classpath = classpath.filter { it.exists() }
 }
+
+// Pure document transport checks: no MoquiSuite, execution context, or database bootstrap.
+tasks.register('documentTransportTest', Test) {
+    useJUnitPlatform()
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    include '**/McpDocumentTransportTests.class'
+    workingDir = projectDir
+    systemProperty 'moqui.runtime', layout.buildDirectory.dir('document-transport-runtime').get().asFile.absolutePath
+    maxParallelForks = 1
+    testLogging { events 'passed', 'skipped', 'failed' }
+}
 // Log4J has annotation processors, disable to avoid warning
 tasks.withType(JavaCompile).configureEach { options.compilerArgs << "-proc:none" }
 tasks.withType(GroovyCompile).configureEach { options.compilerArgs << "-proc:none" }

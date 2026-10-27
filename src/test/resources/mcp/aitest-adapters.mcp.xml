@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Semantic validation fixtures: declarations cannot request arbitrary adapters or apply
+     document media/audit policy to an untrusted backing service. Not production catalog. -->
+<mcp name="adapter-test">
+    <tool name="bad_adapter" description="Unknown adapter must be skipped." result-adapter="passthrough">
+        <service name="moqui.ai.test.TestServices.get#Echo"/>
+    </tool>
+    <tool name="untrusted_adapter" description="Document adapter requires a trusted document service."
+          result-adapter="document" audit-profile="document-metadata">
+        <service name="moqui.ai.test.TestServices.get#Echo"/>
+    </tool>
+    <tool name="bad_audit" description="Unknown audit profile must be skipped." audit-profile="all-content">
+        <service name="moqui.ai.test.TestServices.get#Echo"/>
+    </tool>
+</mcp>

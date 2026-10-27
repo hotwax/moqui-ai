@@ -38,6 +38,7 @@ class McpConformanceTests extends Specification {
         then:
         out.httpStatus == 200
         result.resultType == 'complete'
+        result.capabilities.resources == [listChanged: false, subscribe: false]
         ((Map) ((Map) result.get('_meta')).get('io.modelcontextprotocol/serverInfo')).name == 'moqui-ai'
     }
 
@@ -162,6 +163,7 @@ class McpConformanceTests extends Specification {
         out.httpStatus == 200
         result.protocolVersion == '2025-06-18'
         ((Map) ((Map) result.capabilities).tools).listChanged == false
+        result.capabilities.resources == [listChanged: false, subscribe: false]
         ((Map) result.serverInfo).name == 'moqui-ai'
     }
 

@@ -18,7 +18,7 @@
         <actions>
             <set field="result" from="[
                     supportedVersions: ['2026-07-28'],
-                    capabilities: [tools: [listChanged: false]],
+                    capabilities: [tools: [listChanged: false], resources: [listChanged: false, subscribe: false]],
                     ttlMs: 300000, cacheScope: 'public']"/>
         </actions>
     </service>
@@ -36,7 +36,7 @@
             String compVersion = 'unknown'
             try { compVersion = ec.factory.componentInfoMap?.get('moqui-ai')?.version ?: 'unknown' } catch (Throwable t) {}
             result = [protocolVersion: (params?.get('protocolVersion') ?: '2025-06-18'),
-                      capabilities: [tools: [listChanged: false]],
+                      capabilities: [tools: [listChanged: false], resources: [listChanged: false, subscribe: false]],
                       serverInfo: [name: 'moqui-ai', version: compVersion]]
         ]]></script></actions>
     </service>
@@ -86,5 +86,35 @@
                         in-map="[toolDef: toolDef, arguments: params?.arguments]"/>
             </if>
         </actions>
+    </service>
+    <service verb="read" noun="Resource" authenticate="anonymous-view" type="script"
+            location="component://moqui-ai/script/ai/mcp/DocumentResources.groovy">
+        <description>Read an authenticated private document artifact. A real caller is required
+            inside the handler; Poorti rechecks source permissions, expiry and hashes.</description>
+        <in-parameters>
+            <parameter name="params" type="Map"/>
+            <parameter name="operation" default-value="read"><description>Internal fixed method operation.</description></parameter>
+        </in-parameters>
+        <out-parameters><parameter name="result" type="Map"/><parameter name="error" type="Map"/></out-parameters>
+    </service>
+    <service verb="list" noun="Resources" authenticate="anonymous-view" type="script"
+            location="component://moqui-ai/script/ai/mcp/DocumentResources.groovy">
+        <description>List only currently authorized unexpired document artifacts under the
+            calling Moqui user. Results have private zero-TTL cache policy.</description>
+        <in-parameters>
+            <parameter name="params" type="Map"/>
+            <parameter name="operation" default-value="list"><description>Internal fixed method operation.</description></parameter>
+        </in-parameters>
+        <out-parameters><parameter name="result" type="Map"/><parameter name="error" type="Map"/></out-parameters>
+    </service>
+    <service verb="list" noun="ResourceTemplates" authenticate="anonymous-view" type="script"
+            location="component://moqui-ai/script/ai/mcp/DocumentResources.groovy">
+        <description>Describe the two authenticated document preview URI templates. The handler
+            requires a real caller and advertises no subscriptions.</description>
+        <in-parameters>
+            <parameter name="params" type="Map"/>
+            <parameter name="operation" default-value="templates"><description>Internal fixed method operation.</description></parameter>
+        </in-parameters>
+        <out-parameters><parameter name="result" type="Map"/><parameter name="error" type="Map"/></out-parameters>
     </service>
 </services>

@@ -130,4 +130,15 @@ class McpToolsTests extends Specification {
         tools.find { it.name == 'never_loads' } == null
         tools.find { it.name == 'echo_text' } != null
     }
+
+    def "unknown adapters and audit profiles or untrusted document adapters are skipped"() {
+        when:
+        List<Map> tools = scan(['component://moqui-ai/src/test/resources/mcp/aitest-adapters.mcp.xml', FIX])
+
+        then:
+        tools.find { it.name == 'bad_adapter' } == null
+        tools.find { it.name == 'untrusted_adapter' } == null
+        tools.find { it.name == 'bad_audit' } == null
+        tools.find { it.name == 'echo_text' } != null
+    }
 }

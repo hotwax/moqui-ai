@@ -13,6 +13,7 @@
 
 import org.moqui.util.MNode
 import org.moqui.ai.ServiceSchemas
+import org.moqui.ai.DocumentMcpSupport
 
 // The operator floor (design decision 18): AiToolDenylist patterns veto services no matter
 // what a *.mcp.xml declares — the file author proposes, the deployment operator can block
@@ -45,10 +46,19 @@ for (String loc in locationList) {
             ec.logger.error("MCP scan: tool '${toolName}' in ${loc} backs onto denylisted service '${serviceName}' (pattern '${denied}'); dropping — the operator floor beats the file")
             continue
         }
+        Map options = DocumentMcpSupport.catalogOptions(serviceName,
+                toolNode.attribute('result-adapter'), toolNode.attribute('audit-profile'))
+        if (options == null) {
+            ec.logger.error("MCP scan: tool '${toolName}' in ${loc} has invalid or untrusted result-adapter/audit-profile; skipping")
+            continue
+        }
         // schemas from the live ServiceDefinition via ServiceSchemas (implicit auth
         // parameters already removed — the same generator agents use, decision 14)
         Map inputSchema = ServiceSchemas.inSchema(ec.factory, serviceName)
         Map outputSchema = ServiceSchemas.outSchema(ec.factory, serviceName)
+        // The adapter unwraps documentResult, so do not advertise the backing service's
+        // envelope as the tool result. Domain DTO fields vary by document operation.
+        if (options.resultAdapter) outputSchema = [type: 'object', properties: [ok: [type: 'boolean']], required: ['ok']]
         Map props = (Map) inputSchema.get("properties")
         List required = (List) inputSchema.get("required")
 
@@ -74,7 +84,7 @@ for (String loc in locationList) {
         byName.put(toolName, [name: toolName, title: toolNode.attribute("title"),
                 description: toolNode.attribute("description"), serviceName: serviceName,
                 inputSchema: inputSchema, outputSchema: outputSchema,
-                fixedParameters: fixedParameters, annotations: annotations])
+                fixedParameters: fixedParameters, annotations: annotations] + options)
         nameOwner.put(toolName, loc)
     }
 }

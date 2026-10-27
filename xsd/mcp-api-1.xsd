@@ -48,6 +48,21 @@
                             <xs:annotation><xs:documentation>OAuth scope required to call this tool
                                 (used from the auth step onward).</xs:documentation></xs:annotation>
                         </xs:attribute>
+                        <xs:attribute name="result-adapter">
+                            <xs:annotation><xs:documentation>Trusted document service DTO adapter;
+                                requires audit-profile="document-metadata". Never accepts MCP content passthrough.</xs:documentation></xs:annotation>
+                            <xs:simpleType><xs:restriction base="xs:string">
+                                <xs:enumeration value="document"/>
+                                <xs:enumeration value="document-preview"/>
+                            </xs:restriction></xs:simpleType>
+                        </xs:attribute>
+                        <xs:attribute name="audit-profile">
+                            <xs:annotation><xs:documentation>Metadata-only document audit; excludes
+                                source, customer data, reasons and binary bodies.</xs:documentation></xs:annotation>
+                            <xs:simpleType><xs:restriction base="xs:string">
+                                <xs:enumeration value="document-metadata"/>
+                            </xs:restriction></xs:simpleType>
+                        </xs:attribute>
                     </xs:complexType>
                 </xs:element>
             </xs:sequence>

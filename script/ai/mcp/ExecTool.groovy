@@ -9,10 +9,15 @@
  * the filtered arguments and the result with every secret-named value masked. */
 
 import org.moqui.ai.AuditRedactor
+import org.moqui.ai.DocumentMcpSupport
 
 long startMs = System.currentTimeMillis()
 Map svcResult = null
 String errText = null
+Map adaptedResult = null
+boolean documentProfile = toolDef.resultAdapter != null || toolDef.auditProfile != null ||
+        DocumentMcpSupport.TOOL_SERVICES.contains(toolDef.serviceName)
+String correlationId = documentProfile ? UUID.randomUUID().toString() : null
 
 // the arguments the backing service runs with: only exposed schema properties, then the
 // fixed parameters on top. The audit records these too, not the raw client input.
@@ -28,13 +33,29 @@ if (fixed) args.putAll(fixed)   // server-fixed values always win
 // the backing service's authenticate="true" (verified live: an anonymous caller got real
 // data). A real user has a UserAccount; the anonymous login never does. Interim gate until
 // the OAuth resource-server step replaces it with 401s.
-if (ec.user.userAccount == null) {
+if (documentProfile && DocumentMcpSupport.catalogOptions((String) toolDef.serviceName,
+        (String) toolDef.resultAdapter, (String) toolDef.auditProfile) == null) {
+    errText = 'Document tool configuration is invalid.'
+} else if (ec.user.userAccount == null) {
     errText = "Authentication required: this MCP server runs tools as the calling Moqui user; send credentials the server accepts (e.g. HTTP Basic or Bearer)."
 } else {
     try {
         svcResult = ec.service.sync().name((String) toolDef.serviceName)
                 .parameters(args).requireNewTransaction(true).call()
-        if (ec.message.hasError()) { errText = ec.message.errorsString; ec.message.clearErrors() }
+        if (ec.message.hasError()) {
+            errText = documentProfile ? 'The document operation failed.' : ec.message.errorsString
+            ec.message.clearErrors()
+        } else if (documentProfile) {
+            adaptedResult = DocumentMcpSupport.toolResult(svcResult, (String) toolDef.resultAdapter, { String uri ->
+                // A descriptor is never a callable service or a source of inline bytes.
+                // Poorti reauthorizes current caller/source access and expiry on every read.
+                Map artifactOut = ec.service.sync()
+                        .name('co.hotwax.poorti.document.DocumentTemplateServices.read#DocumentArtifact')
+                        .parameters([uri: uri]).requireNewTransaction(true).call()
+                if (ec.message.hasError()) { ec.message.clearErrors(); throw new IllegalStateException('Artifact read failed') }
+                return artifactOut.artifactResult
+            })
+        }
     } catch (org.moqui.context.AuthenticationRequiredException e) {
         ec.message.clearErrors()
         errText = "Authentication required: this MCP server runs tools as the calling Moqui user; send credentials the server accepts (e.g. HTTP Basic or Bearer)."
@@ -42,10 +63,17 @@ if (ec.user.userAccount == null) {
         ec.message.clearErrors()
         errText = "Not permitted: your account is not authorized for this tool."
     } catch (Throwable t) {
-        ec.logger.error("MCP tool '${toolDef.name}' execution error", t)
+        if (documentProfile) ec.logger.error("MCP document tool execution failed correlationId=${correlationId} type=${t.class.name}")
+        else ec.logger.error("MCP tool '${toolDef.name}' execution error", t)
         ec.message.clearErrors()
         errText = "Tool execution failed."
     }
+}
+
+if (documentProfile && errText != null) {
+    String code = ec.user.userAccount == null ? 'AUTHENTICATION_REQUIRED' :
+            (errText.startsWith('Not permitted') ? 'ACCESS_DENIED' : 'DOCUMENT_EXECUTION_FAILED')
+    adaptedResult = DocumentMcpSupport.failure(code, errText, [correlationId: correlationId])
 }
 
 // audit: one AiToolCall row per call, refused ones included (who tried also matters);
@@ -53,16 +81,24 @@ if (ec.user.userAccount == null) {
 // The row is plain text that outlives the call, so it gets masked copies of args and result
 // (AuditRedactor); the caller still gets the real result below.
 try {
+    Map auditBody = documentProfile ? DocumentMcpSupport.metadata((Map) adaptedResult?.structuredContent) : null
+    boolean succeeded = errText == null && (!documentProfile || adaptedResult?.isError == false)
     ec.service.sync().name("create#moqui.ai.AiToolCall").parameters([
             sourceEnumId: 'AI_TCS_MCP', userId: ec.user?.userId,
             toolName: toolDef.name, serviceName: toolDef.serviceName,
-            arguments: AuditRedactor.toJson(args),
-            result: errText == null ? AuditRedactor.toJson(svcResult ?: [:]) : null,
-            success: errText == null ? 'Y' : 'N', errorText: errText,
+            arguments: AuditRedactor.toJson(documentProfile ? DocumentMcpSupport.metadata(args) : args),
+            result: documentProfile ? AuditRedactor.toJson(auditBody) :
+                    (errText == null ? AuditRedactor.toJson(svcResult ?: [:]) : null),
+            success: succeeded ? 'Y' : 'N', errorText: documentProfile ? auditBody?.code : errText,
             durationMs: (System.currentTimeMillis() - startMs)]).call()
-} catch (Throwable t) { ec.logger.warn("MCP audit write for tool '${toolDef.name}' failed (continuing): ${t.message}") }
+} catch (Throwable t) {
+    if (documentProfile) ec.logger.warn("MCP document audit write failed correlationId=${correlationId} type=${t.class.name}")
+    else ec.logger.warn("MCP audit write for tool '${toolDef.name}' failed (continuing): ${t.message}")
+}
 
-if (errText != null) {
+if (documentProfile) {
+    result = adaptedResult
+} else if (errText != null) {
     result = [content: [[type: 'text', text: errText]], isError: true]
 } else {
     Map body = svcResult ?: [:]

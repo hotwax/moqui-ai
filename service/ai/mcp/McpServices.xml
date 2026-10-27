@@ -26,7 +26,7 @@
             <parameter name="params" type="Map"/>
             <parameter name="protocolVersionHeader"><description>MCP-Protocol-Version HTTP header.</description></parameter>
             <parameter name="mcpMethodHeader"><description>Mcp-Method HTTP header.</description></parameter>
-            <parameter name="mcpNameHeader"><description>Mcp-Name HTTP header (tools/call).</description></parameter>
+            <parameter name="mcpNameHeader"><description>Mcp-Name HTTP header: tool name for tools/call, URI for resources/read.</description></parameter>
             <parameter name="parseError"><description>Body JSON parse error text, when parsing failed.</description></parameter>
         </in-parameters>
         <out-parameters>

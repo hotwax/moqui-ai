@@ -61,14 +61,16 @@ if (!isNotification && err == null && !legacyClient) {
     }
 }
 
-// 9. tools/call: Mcp-Name required and must equal params.name after sentinel decode
-if (!isNotification && err == null && !legacyClient && method == 'tools/call') {
+// 9. Named operations: Mcp-Name is the tool name or (for resources/read) the full URI.
+if (!isNotification && err == null && !legacyClient && method in ['tools/call', 'resources/read']) {
     String headerName = (String) mcpNameHeader
-    if (headerName != null && headerName.startsWith('=?base64?') && headerName.endsWith('?='))
-        headerName = new String(headerName.substring(9, headerName.length() - 2).decodeBase64(), 'UTF-8')
-    Object bodyName = params instanceof Map ? params.get('name') : null
-    if (mcpNameHeader == null || headerName != bodyName) {
-        httpStatus = 400; err = [code: -32020, message: "HeaderMismatch: Mcp-Name '${headerName}' does not match body tool name '${bodyName}'".toString()] }
+    if (headerName != null && headerName.startsWith('=?base64?') && headerName.endsWith('?=')) {
+        try { headerName = new String(Base64.decoder.decode(headerName.substring(9, headerName.length() - 2)), 'UTF-8') }
+        catch (IllegalArgumentException ignored) { headerName = null }
+    }
+    Object bodyName = params instanceof Map ? params.get(method == 'resources/read' ? 'uri' : 'name') : null
+    if (headerName == null || headerName != bodyName) {
+        httpStatus = 400; err = [code: -32020, message: 'HeaderMismatch: Mcp-Name does not match the named request target'] }
 }
 
 // 10. the method allowlist: method name (as sent) -> implementing service. The MCP request
@@ -83,6 +85,9 @@ if (!isNotification && err == null) {
             'initialize':      'ai.mcp.McpMethodServices.initialize#Server',   // legacy compat
             'tools/list':      'ai.mcp.McpMethodServices.list#Tools',
             'tools/call':      'ai.mcp.McpMethodServices.call#Tools',
+            'resources/read': 'ai.mcp.McpMethodServices.read#Resource',
+            'resources/list': 'ai.mcp.McpMethodServices.list#Resources',
+            'resources/templates/list': 'ai.mcp.McpMethodServices.list#ResourceTemplates',
     ].get(method)
     if (serviceName == null) {
         httpStatus = 404; err = [code: -32601, message: 'Method not found: ' + method] }
