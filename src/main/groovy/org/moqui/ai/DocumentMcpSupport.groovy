@@ -8,10 +8,14 @@ import java.util.regex.Pattern
  * No arbitrary service-provided MCP content is forwarded. All helpers are pure. */
 class DocumentMcpSupport {
     static final String NAMESPACE = 'co.hotwax.poorti.document.DocumentTemplateServices.'
-    static final Set<String> TOOL_SERVICES = ['list#DocumentTemplates', 'get#DocumentTemplate',
+    static final String CATALOG_NAMESPACE = 'co.hotwax.poorti.document.DocumentCatalogServices.'
+    static final Set<String> TOOL_SERVICES = (['list#DocumentTemplates', 'get#DocumentTemplate',
             'save#DocumentRevision', 'create#DocumentPreview', 'get#DocumentPreview',
-            'list#DocumentTemplateHistory', 'activate#DocumentRevision', 'rollback#DocumentTemplate']
-            .collect { NAMESPACE + it }.toSet().asImmutable()
+            'list#DocumentTemplateHistory', 'activate#DocumentRevision', 'rollback#DocumentTemplate',
+            'inspect#DocumentDesign', 'find#DocumentExamples', 'configure#DocumentData'].collect { NAMESPACE + it } +
+            ['begin#DocumentUpload', 'append#DocumentUpload', 'finish#DocumentUpload', 'list#DocumentFonts',
+             'register#DocumentFont', 'store#DocumentAsset', 'list#DocumentAssets'].collect { CATALOG_NAMESPACE + it })
+            .toSet().asImmutable()
     static final int INLINE_PNG_BYTES = 1024 * 1024
     static final int RESOURCE_BYTES = 10 * 1024 * 1024
     static final int MAX_PAGES = 20
@@ -21,11 +25,13 @@ class DocumentMcpSupport {
             '_meta', 'resultType', 'ttlMs', 'cacheScope'] as Set
     private static final Set<String> METADATA_IDS = ['documentTemplateId', 'previewId', 'manifestVersionName',
             'baseManifestVersionName', 'publishedVersionName', 'receiptId', 'publicationEventId', 'jobRunId',
-            'validationResourceId', 'correlationId', 'documentType', 'status'] as Set
+            'validationResourceId', 'correlationId', 'documentType', 'status', 'uploadId', 'finalizedUploadId',
+            'resourceId', 'versionName', 'fontId', 'assetId', 'dataDocumentId'] as Set
     private static final Set<String> METADATA_HASHES = ['manifestHash', 'baseManifestHash', 'bundleHash',
-            'sourceHash', 'renderFingerprint'] as Set
+            'sourceHash', 'renderFingerprint', 'sha256', 'contentHash', 'dataProjectionHash'] as Set
     private static final Set<String> METADATA_NUMBERS = ['publicationSequence', 'expectedPublicationSequence',
-            'sourceCount', 'pageCount', 'pageNumber', 'size', 'durationMs', 'totalCount'] as Set
+            'sourceCount', 'pageCount', 'pageNumber', 'size', 'durationMs', 'totalCount',
+            'totalBytes', 'acceptedBytes', 'nextOffset', 'offset', 'chunkBytes', 'chunkLimit'] as Set
 
     /** Null rejects the declaration. Options are server-controlled and inseparable so a
      * document tool can never accidentally fall back to logging its source/customer data. */

@@ -52,6 +52,31 @@ class McpDocumentTransportTests extends Specification {
         thrown(org.xml.sax.SAXException)
     }
 
+    def "v2 document services require the document adapter and metadata audit: #serviceName"() {
+        expect:
+        DocumentMcpSupport.catalogOptions(serviceName, 'document', 'document-metadata') ==
+                [resultAdapter: 'document', auditProfile: 'document-metadata']
+        DocumentMcpSupport.catalogOptions(serviceName, 'document-preview', 'document-metadata') == null
+        DocumentMcpSupport.catalogOptions(serviceName, null, null) == null
+
+        where:
+        serviceName << ['inspect#DocumentDesign', 'find#DocumentExamples', 'configure#DocumentData'].collect { NS + it } +
+                ['begin#DocumentUpload', 'append#DocumentUpload', 'finish#DocumentUpload', 'list#DocumentFonts',
+                 'register#DocumentFont', 'store#DocumentAsset', 'list#DocumentAssets'].collect {
+                    'co.hotwax.poorti.document.DocumentCatalogServices.' + it }
+    }
+
+    def "catalog metadata keeps upload identities and sizes while excluding every content profile"() {
+        expect:
+        DocumentMcpSupport.metadata([uploadId: 'UP1', finalizedUploadId: 'UP1', resourceId: 'R1', versionName: '01',
+                sha256: 'a' * 64, totalBytes: 123, nextOffset: 64, chunkBytes: 64, offset: 0,
+                filename: 'private-font.ttf', dataBase64: 'private bytes', font: [family: 'private family'],
+                image: [bytes: 'private image'], source: 'private source', customer: 'private customer',
+                alias: 'private alias', licenseProfile: [license: 'private license']]) ==
+                [uploadId: 'UP1', finalizedUploadId: 'UP1', resourceId: 'R1', versionName: '01', sha256: 'a' * 64,
+                 totalBytes: 123, nextOffset: 64, chunkBytes: 64, offset: 0]
+    }
+
     def "a document domain failure is unwrapped and audited without its reason or source"() {
         given:
         def calls = new BoundaryCalls([(NS + 'save#DocumentRevision'): [documentResult:
