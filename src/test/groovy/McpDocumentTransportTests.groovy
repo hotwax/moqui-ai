@@ -94,8 +94,9 @@ class McpDocumentTransportTests extends Specification {
                 [ok: true, previewId: 'test-preview', status: 'ready',
                  content: [[type: 'image', data: 'untrusted']], artifacts: [
                      [uri: URI, name: 'Preview PDF', mimeType: 'application/pdf', size: PDF.length, artifactKey: 'pdf'],
-                     [uri: PNG_URI, name: 'Page 1', mimeType: 'image/png', size: PNG.length, artifactKey: 'page-1', pageNumber: 1]]]],
-                (NS + 'read#DocumentArtifact'): [artifactResult: [uri: PNG_URI, mimeType: 'image/png', blob: PNG.encodeBase64().toString()]]])
+                     [uri: PNG_URI, name: 'Page 1', mimeType: 'image/png', size: PNG.length, artifactKey: 'page-1', pageNumber: 1,
+                      widthPoints: 612, heightPoints: 792]]]],
+                (NS + 'read#DocumentArtifact'): [artifactResult: [ok: true, uri: PNG_URI, mimeType: 'image/png', blob: PNG.encodeBase64().toString()]]])
 
         when:
         Map result = runExec(calls, tool('get#DocumentPreview', 'document-preview'), [previewId: 'test-preview'])
@@ -104,6 +105,9 @@ class McpDocumentTransportTests extends Specification {
         result.isError == false
         result.content.findAll { it.type == 'resource_link' }*.uri == [URI, PNG_URI]
         result.content.findAll { it.type == 'image' }*.data == [PNG.encodeBase64().toString()]
+        result.structuredContent.artifacts[1].subMap(['artifactKey', 'pageNumber', 'widthPoints', 'heightPoints']) ==
+                [artifactKey: 'page-1', pageNumber: 1, widthPoints: 612, heightPoints: 792]
+        !result.content.find { it.type == 'resource_link' && it.uri == PNG_URI }.containsKey('artifactKey')
         calls.requests.findAll { it.name == NS + 'read#DocumentArtifact' }*.arguments == [[uri: PNG_URI]]
         !result.structuredContent.containsKey('content')
         !calls.audit.toString().contains(PNG.encodeBase64().toString())
@@ -121,6 +125,27 @@ class McpDocumentTransportTests extends Specification {
         then:
         result.content*.type == ['text', 'resource_link']
         calls.requests.every { it.name != NS + 'read#DocumentArtifact' }
+    }
+
+    def "an inline artifact domain denial keeps its safe document code: #code"() {
+        given:
+        def calls = new BoundaryCalls([(NS + 'get#DocumentPreview'): [documentResult: [ok: true, artifacts: [
+                [uri: PNG_URI, name: 'Page 1', mimeType: 'image/png', size: PNG.length, artifactKey: 'page-1', pageNumber: 1]]]],
+                (NS + 'read#DocumentArtifact'): [artifactResult: [ok: false, code: code, message: 'Preview is unavailable.',
+                        details: [retryable: false]]]])
+
+        when:
+        Map result = runExec(calls, tool('get#DocumentPreview', 'document-preview'), [:])
+
+        then:
+        result.isError == true
+        result.structuredContent == [ok: false, code: code, message: 'Preview is unavailable.', details: [retryable: false]]
+        result.content*.type == ['text']
+        calls.audit.success == 'N'
+        calls.audit.errorText == code
+
+        where:
+        code << ['PREVIEW_EXPIRED', 'PREVIEW_NOT_READY', 'SOURCE_ACCESS_DENIED']
     }
 
     def "resource methods reject anonymous callers before touching Poorti"() {
@@ -170,7 +195,7 @@ class McpDocumentTransportTests extends Specification {
     def "resource reads use a literal trusted service and return a private binary envelope"() {
         given:
         def calls = new BoundaryCalls([(NS + 'read#DocumentArtifact'):
-                [artifactResult: [uri: URI, mimeType: 'application/pdf', blob: PDF.encodeBase64().toString()]]])
+                [artifactResult: [ok: true, uri: URI, mimeType: 'application/pdf', blob: PDF.encodeBase64().toString()]]])
 
         when:
         Map out = runResource('read', calls, [uri: URI, serviceName: 'evil.service'])
@@ -180,6 +205,26 @@ class McpDocumentTransportTests extends Specification {
         calls.requests.find { it.name == NS + 'read#DocumentArtifact' }.arguments == [uri: URI]
         new JsonSlurper().parseText(calls.audit.arguments) == [previewId: 'test-preview']
         !calls.audit.toString().contains(PDF.encodeBase64().toString())
+    }
+
+    def "resource artifact domain denials are safe resource errors: #code"() {
+        given:
+        def calls = new BoundaryCalls([(NS + 'read#DocumentArtifact'): [artifactResult:
+                [ok: false, code: code, message: 'Preview is unavailable.', details: [source: 'private payload']]]])
+
+        when:
+        Map out = runResource('read', calls, [uri: URI])
+
+        then:
+        out.error == [code: -32002, message: 'Document resource is unavailable.', data: [code: code]]
+        out.result == null
+        calls.audit.success == 'N'
+        calls.audit.errorText == code
+        !out.toString().contains('private payload')
+        !calls.audit.toString().contains('private payload')
+
+        where:
+        code << ['PREVIEW_EXPIRED', 'PREVIEW_NOT_READY', 'SOURCE_ACCESS_DENIED']
     }
 
     def "resource reads reject paths outside opaque preview grammar: #uri"() {

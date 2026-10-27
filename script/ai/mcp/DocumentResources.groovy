@@ -50,12 +50,12 @@ if (ec.user.userAccount == null) {
                     .name('co.hotwax.poorti.document.DocumentTemplateServices.read#DocumentArtifact')
                     .parameters([uri: params.uri]).requireNewTransaction(true).call()
             if (ec.message.hasError()) { ec.message.clearErrors(); throw new IllegalStateException('Document resource read failed') }
-            if (serviceOut.documentResult instanceof Map && serviceOut.documentResult.ok == false) {
-                outcome = serviceOut.documentResult.code instanceof String && serviceOut.documentResult.code ==~ /[A-Z][A-Z0-9_]{0,63}/ ?
-                        serviceOut.documentResult.code : 'RESOURCE_UNAVAILABLE'
+            Map artifactResult = serviceOut.artifactResult instanceof Map ? (Map) serviceOut.artifactResult : null
+            if (artifactResult?.ok == false) {
+                outcome = DocumentMcpSupport.domainCode(artifactResult, 'RESOURCE_UNAVAILABLE')
                 error = [code: -32002, message: 'Document resource is unavailable.', data: [code: outcome]]
             } else {
-                Map binary = DocumentMcpSupport.binary(serviceOut.artifactResult, (String) params.uri)
+                Map binary = DocumentMcpSupport.binary(artifactResult, (String) params.uri)
                 result = DocumentMcpSupport.privateResult([contents: [binary]])
                 auditMetadata = [size: Base64.decoder.decode((String) binary.blob).length]
             }

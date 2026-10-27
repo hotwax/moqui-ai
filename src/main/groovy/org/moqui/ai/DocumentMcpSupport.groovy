@@ -58,6 +58,15 @@ class DocumentMcpSupport {
         return privateResult([content: [[type: 'text', text: JsonOutput.toJson(body)]], structuredContent: body, isError: true])
     }
 
+    static String domainCode(Map source, String fallback = 'DOCUMENT_OPERATION_FAILED') {
+        return source?.code instanceof String && source.code ==~ /[A-Z][A-Z0-9_]{0,63}/ ? source.code : fallback
+    }
+
+    static Map domainFailure(Map source) {
+        String message = source.message instanceof String ? source.message.take(1000) : 'The document operation failed.'
+        return failure(domainCode(source), message, source.details instanceof Map ? (Map) source.details : null)
+    }
+
     /** One metadata projection, never a recursive walk of arbitrary fields. Unknown keys,
      * reasons, bodies, customer references and artifact URIs/base64 cannot enter the audit. */
     static Map metadata(Map source) {
@@ -98,6 +107,23 @@ class DocumentMcpSupport {
         return [uri: item.uri, name: item.name, mimeType: item.mimeType, size: item.size]
     }
 
+    /** Preserve the lifecycle's page identity/dimensions in its domain DTO, independently
+     * of standard MCP resource-link fields. Optional values must agree with the URI. */
+    static Map domainDescriptor(Object candidate) {
+        Map resource = descriptor(candidate)
+        if (resource == null) return null
+        Map item = (Map) candidate
+        Map identity = uriMetadata(item.uri)
+        String expectedKey = identity.pageNumber == null ? 'pdf' : 'page-' + identity.pageNumber
+        if (item.artifactKey == expectedKey) resource.artifactKey = expectedKey
+        if (identity.pageNumber != null && item.pageNumber == identity.pageNumber) resource.pageNumber = identity.pageNumber
+        for (String key in ['widthPoints', 'heightPoints']) {
+            Object value = item.get(key)
+            if (value instanceof Number && value > 0 && value <= 1000000) resource[key] = value
+        }
+        return resource
+    }
+
     /** Strict canonical base64, expected URI/MIME, byte cap and media signature. Source
      * hashes are checked by the authorized Poorti artifact reader before it returns bytes. */
     static Map binary(Object candidate, String requestedUri, int byteLimit = RESOURCE_BYTES) {
@@ -124,19 +150,19 @@ class DocumentMcpSupport {
             throw new IllegalArgumentException('Invalid document service response')
         Map body = new LinkedHashMap((Map) candidate)
         WIRE_RESERVED.each { body.remove(it) }
-        if (!body.ok) {
-            String code = body.code instanceof String && body.code ==~ /[A-Z][A-Z0-9_]{0,63}/ ? body.code : 'DOCUMENT_OPERATION_FAILED'
-            String message = body.message instanceof String ? body.message.take(1000) : 'The document operation failed.'
-            return failure(code, message, body.details instanceof Map ? (Map) body.details : null)
-        }
+        if (!body.ok) return domainFailure(body)
         List<Map> content = []
         if (adapter == 'document-preview' && body.artifacts instanceof List) {
             List<Map> artifacts = ((List) body.artifacts).take(MAX_PAGES + 1).collect { descriptor(it) }.findAll { it != null }
-            body.artifacts = artifacts
+            body.artifacts = ((List) body.artifacts).take(MAX_PAGES + 1).collect { domainDescriptor(it) }.findAll { it != null }
             for (Map artifact in artifacts) content.add([type: 'resource_link'] + artifact)
             Map page = artifacts.find { it.mimeType == 'image/png' && it.size <= INLINE_PNG_BYTES }
             if (page != null) {
-                Map media = binary(readArtifact.call((String) page.uri), (String) page.uri, INLINE_PNG_BYTES)
+                Map artifactResult = readArtifact.call((String) page.uri)
+                // Lifecycle.execute returns domain failures inside artifactResult too;
+                // these are expected denials/readiness outcomes, not malformed binaries.
+                if (artifactResult?.ok == false) return domainFailure(artifactResult)
+                Map media = binary(artifactResult, (String) page.uri, INLINE_PNG_BYTES)
                 if (Base64.decoder.decode((String) media.blob).length != (page.size as long))
                     throw new IllegalArgumentException('Artifact size does not match descriptor')
                 content.add([type: 'image', data: media.blob, mimeType: 'image/png'])
