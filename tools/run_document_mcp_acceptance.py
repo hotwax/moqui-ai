@@ -23,8 +23,8 @@ DISABLED_FEATURES = ('shell_tool', 'unified_exec', 'shell_snapshot', 'apps', 'pl
 
 
 def build_command(bridge, login_env, manifest, audit_log, actor_cwd, model=None):
-    command = ['codex', 'exec', '--ignore-user-config', '--ephemeral', '--json', '--skip-git-repo-check',
-               '--sandbox', 'read-only', '--ask-for-approval', 'never', '--cd', str(actor_cwd)]
+    command = ['codex', '--ask-for-approval', 'never', 'exec', '--ignore-user-config', '--ephemeral', '--json',
+               '--skip-git-repo-check', '--sandbox', 'read-only', '--cd', str(actor_cwd)]
     values = [f'features.{feature}=false' for feature in DISABLED_FEATURES]
     values += ['web_search="disabled"', 'tools.web_search=false', 'tools.view_image=false', 'project_doc_max_bytes=0',
                'mcp_servers.document_local.command=' + json.dumps(sys.executable),

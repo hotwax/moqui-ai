@@ -212,6 +212,7 @@ class BridgeTests(unittest.TestCase):
         self.assertNotIn('CODEX_HOME=', joined)
         self.assertNotIn('auth.json', joined)
         self.assertEqual(command[command.index('--sandbox') + 1], 'read-only')
+        self.assertLess(command.index('--ask-for-approval'), command.index('exec'))
 
     def test_prepare_mode_writes_private_review_files_without_starting_codex(self):
         business = self.root / 'request.txt'
