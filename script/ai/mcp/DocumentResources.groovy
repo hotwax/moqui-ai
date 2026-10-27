@@ -91,7 +91,7 @@ try {
             arguments: AuditRedactor.toJson(DocumentMcpSupport.uriMetadata(params?.uri)),
             result: AuditRedactor.toJson(DocumentMcpSupport.metadata(auditMetadata)),
             success: error == null ? 'Y' : 'N', errorText: outcome,
-            durationMs: System.currentTimeMillis() - startMs]).call()
+            durationMs: System.currentTimeMillis() - startMs]).requireNewTransaction(true).disableAuthz().call()
 } catch (Throwable failure) {
     ec.logger.warn("MCP document resource audit failed correlationId=${correlationId} type=${failure.class.name}")
 }

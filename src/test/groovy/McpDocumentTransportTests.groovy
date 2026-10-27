@@ -71,6 +71,9 @@ class McpDocumentTransportTests extends Specification {
         result.cacheScope == 'private'
         audit.success == 'N'
         audit.errorText == 'PUBLICATION_CONFLICT'
+        calls.requests.find { it.name == 'create#moqui.ai.AiToolCall' }.newTransaction == true
+        calls.requests.find { it.name == 'create#moqui.ai.AiToolCall' }.authzDisabled == true
+        !calls.requests.find { it.name == NS + 'save#DocumentRevision' }.authzDisabled
         !audit.toString().contains('private source')
         !audit.toString().contains('customer address')
         !audit.toString().contains('S1')
@@ -86,6 +89,8 @@ class McpDocumentTransportTests extends Specification {
         expect:
         runExec(calls, definition, [:]).structuredContent == [value: 7]
         new JsonSlurper().parseText(calls.audit.result) == [value: 7]
+        !calls.requests.find { it.name == 'create#moqui.ai.AiToolCall' }.newTransaction
+        !calls.requests.find { it.name == 'create#moqui.ai.AiToolCall' }.authzDisabled
     }
 
     def "preview adds only approved resource links and one authorized bounded PNG"() {
@@ -204,6 +209,9 @@ class McpDocumentTransportTests extends Specification {
         out.result == [contents: [[uri: URI, mimeType: 'application/pdf', blob: PDF.encodeBase64().toString()]], ttlMs: 0, cacheScope: 'private']
         calls.requests.find { it.name == NS + 'read#DocumentArtifact' }.arguments == [uri: URI]
         new JsonSlurper().parseText(calls.audit.arguments) == [previewId: 'test-preview']
+        calls.requests.find { it.name == 'create#moqui.ai.AiToolCall' }.newTransaction == true
+        calls.requests.find { it.name == 'create#moqui.ai.AiToolCall' }.authzDisabled == true
+        !calls.requests.find { it.name == NS + 'read#DocumentArtifact' }.authzDisabled
         !calls.audit.toString().contains(PDF.encodeBase64().toString())
     }
 
@@ -355,7 +363,8 @@ class McpDocumentTransportTests extends Specification {
             def call = new Expando()
             call.name = { String name -> request.name = name; call }
             call.parameters = { Map arguments -> request.arguments = arguments; call }
-            call.requireNewTransaction = { boolean ignored -> call }
+            call.requireNewTransaction = { boolean enabled -> request.newTransaction = enabled; call }
+            call.disableAuthz = { -> request.authzDisabled = true; call }
             call.call = { ->
                 requests.add(request)
                 if (request.name == 'create#moqui.ai.AiToolCall') { audit = request.arguments; return [:] }

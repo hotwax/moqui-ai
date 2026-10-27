@@ -83,14 +83,18 @@ if (documentProfile && errText != null) {
 try {
     Map auditBody = documentProfile ? DocumentMcpSupport.metadata((Map) adaptedResult?.structuredContent) : null
     boolean succeeded = errText == null && (!documentProfile || adaptedResult?.isError == false)
-    ec.service.sync().name("create#moqui.ai.AiToolCall").parameters([
+    def auditCall = ec.service.sync().name("create#moqui.ai.AiToolCall").parameters([
             sourceEnumId: 'AI_TCS_MCP', userId: ec.user?.userId,
             toolName: toolDef.name, serviceName: toolDef.serviceName,
             arguments: AuditRedactor.toJson(documentProfile ? DocumentMcpSupport.metadata(args) : args),
             result: documentProfile ? AuditRedactor.toJson(auditBody) :
                     (errText == null ? AuditRedactor.toJson(svcResult ?: [:]) : null),
             success: succeeded ? 'Y' : 'N', errorText: documentProfile ? auditBody?.code : errText,
-            durationMs: (System.currentTimeMillis() - startMs)]).call()
+            durationMs: (System.currentTimeMillis() - startMs)])
+    // Only the fixed metadata audit uses system authority and an isolated transaction:
+    // a caller's audit denial must not mark the document operation rollback-only.
+    if (documentProfile) auditCall.requireNewTransaction(true).disableAuthz().call()
+    else auditCall.call()
 } catch (Throwable t) {
     if (documentProfile) ec.logger.warn("MCP document audit write failed correlationId=${correlationId} type=${t.class.name}")
     else ec.logger.warn("MCP audit write for tool '${toolDef.name}' failed (continuing): ${t.message}")
