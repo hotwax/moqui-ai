@@ -16,15 +16,32 @@
                  service"). Those speculative failures are noise here. A fork-JWT that
                  SUCCEEDS has already logged the user in and is honored by tools/call. -->
             <script>ec.message.clearErrors()</script>
-            <service-call name="ai.mcp.McpServices.dispatch#Request" out-map="context"
-                    in-map="[jsonrpc: ec.web.requestParameters.jsonrpc,
-                             method: ec.web.requestParameters.method,
-                             id: ec.web.requestParameters.id,
-                             params: ec.web.requestParameters.params,
-                             protocolVersionHeader: ec.web.request.getHeader('MCP-Protocol-Version'),
-                             mcpMethodHeader: ec.web.request.getHeader('Mcp-Method'),
-                             mcpNameHeader: ec.web.request.getHeader('Mcp-Name'),
-                             parseError: ec.web.requestParameters._requestBodyJsonParseError]"/>
+            <!-- A tarpit lock (design decision 11) is an expected answer, not an error: left to
+                 propagate it is logged at ERROR by XmlAction plus follow-on lines for every
+                 rejected request. Answer 429 with a JSON-RPC error body and Retry-After here. -->
+            <script><![CDATA[
+                try {
+                    Map dispatchOut = ec.service.sync().name("ai.mcp.McpServices.dispatch#Request").parameters([
+                            jsonrpc: ec.web.requestParameters.jsonrpc,
+                            method: ec.web.requestParameters.method,
+                            id: ec.web.requestParameters.id,
+                            params: ec.web.requestParameters.params,
+                            protocolVersionHeader: ec.web.request.getHeader('MCP-Protocol-Version'),
+                            mcpMethodHeader: ec.web.request.getHeader('Mcp-Method'),
+                            mcpNameHeader: ec.web.request.getHeader('Mcp-Name'),
+                            parseError: ec.web.requestParameters._requestBodyJsonParseError]).call()
+                    httpStatus = dispatchOut.httpStatus
+                    response = dispatchOut.response
+                } catch (org.moqui.context.ArtifactTarpitException e) {
+                    ec.logger.warn("MCP rate limit: " + e.message)
+                    int retryAfter = e.retryAfterSeconds ?: 0
+                    if (retryAfter > 0) ec.web.response.addIntHeader("Retry-After", retryAfter)
+                    httpStatus = 429
+                    response = [jsonrpc: '2.0', id: ec.web.requestParameters.id,
+                                error: [code: -32029, message: 'Too many requests: rate limit exceeded',
+                                        data: [retryAfterSeconds: retryAfter]]]
+                }
+            ]]></script>
             <!-- Write directly: status must be set BEFORE the body is written (the response
                  commits on flush), and ec.web.sendJsonResponse would overwrite any status with
                  200 (WebFacadeImpl.sendJsonResponseInternal:714). A null response body is a
