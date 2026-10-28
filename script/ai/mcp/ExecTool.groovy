@@ -1,7 +1,9 @@
 /* Implementation of ai.mcp.McpServices.exec#Tool — run ONE tool call (spec: "Call flow").
- * Contract in service/ai/mcp/McpServices.xml. Arguments are filtered to the exposed
- * inputSchema properties (an argument outside the schema never reaches the service), fixed
- * parameters are injected on top so the client can never override them, and the backing
+ * Contract in service/ai/mcp/McpServices.xml. Arguments are checked against the exposed
+ * inputSchema properties: an unknown name refuses the call with isError text naming it and
+ * the accepted names (a misspelled filter must not silently widen a result), and nothing
+ * outside the schema ever reaches the service. Fixed parameters are injected on top so the
+ * client can never override them, and the backing
  * service runs in its own transaction so a failure rolls back only itself. Failures become
  * isError:true text the model can react to — the message facade is left clean and no
  * exception or stack trace ever reaches the wire. Every call (including a refused one) is
@@ -17,10 +19,14 @@ String errText = null
 // the arguments the backing service runs with: only exposed schema properties, then the
 // fixed parameters on top. The audit records these too, not the raw client input.
 Map schemaProps = (Map) ((Map) toolDef.inputSchema)?.get('properties')
-Map args = [:]
-if (arguments instanceof Map)
-    for (def e in arguments.entrySet()) if (schemaProps?.containsKey(e.key)) args.put(e.key, e.value)
 Map fixed = (Map) toolDef.fixedParameters
+Map args = [:]
+List<String> unknownArgs = []
+if (arguments instanceof Map) for (def e in arguments.entrySet()) {
+    if (schemaProps?.containsKey(e.key)) args.put(e.key, e.value)
+    // a fixed name is hidden from the client and silently overridden below, never refused
+    else if (!fixed?.containsKey(e.key)) unknownArgs.add(e.key as String)
+}
 if (fixed) args.putAll(fixed)   // server-fixed values always win
 
 // A real user, not the anonymous-view login: the dispatch chain is anonymous so
@@ -28,7 +34,10 @@ if (fixed) args.putAll(fixed)   // server-fixed values always win
 // the backing service's authenticate="true" (verified live: an anonymous caller got real
 // data). A real user has a UserAccount; the anonymous login never does. Interim gate until
 // the OAuth resource-server step replaces it with 401s.
-if (ec.user.userAccount == null) {
+if (unknownArgs) {
+    errText = "Unknown argument${unknownArgs.size() > 1 ? 's' : ''} for ${toolDef.name}: ${unknownArgs.join(', ')}. " +
+            "Accepted: ${schemaProps ? schemaProps.keySet().join(', ') : 'none'}. Nothing was run."
+} else if (ec.user.userAccount == null) {
     errText = "Authentication required: this MCP server runs tools as the calling Moqui user; send credentials the server accepts (e.g. HTTP Basic or Bearer)."
 } else {
     try {

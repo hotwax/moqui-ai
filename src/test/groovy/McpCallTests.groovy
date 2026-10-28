@@ -4,7 +4,7 @@ import org.moqui.Moqui
 
 /** MCP step 3: tools/call (spec: docs/specs/2026-08-23-mcp-server-design.md).
  *  call#Tools resolves the tool in the catalog (unknown name -> protocol error -32602) and
- *  exec#Tool runs it: arguments are filtered to the exposed inputSchema, fixed parameters are
+ *  exec#Tool runs it: an argument outside the exposed inputSchema refuses the call, fixed parameters are
  *  injected server-side and always win, the backing service runs in its own transaction, and
  *  failures become isError:true text (message facade left clean) — never an exception or a
  *  stack trace on the wire. The AiToolCall audit row records the arguments the service ran
@@ -86,13 +86,21 @@ class McpCallTests extends Specification {
         ((Map) result.structuredContent).echoed == 'abab'
     }
 
-    def "arguments outside the exposed schema are dropped, never passed through"() {
-        when: "echo_text exposes only text; repeat must not reach the service"
+    def "an argument outside the exposed schema refuses the call, naming it and the accepted names"() {
+        when: "echo_text exposes only text; repeat must not reach the service, and must not be silently dropped"
         Map result = exec(fixtureTool('echo_text'), [text: 'a', repeat: 5])
+        String text = (String) ((Map) ((List) result.content)[0]).text
 
         then:
-        result.isError == false
-        ((Map) result.structuredContent).echoed == 'a'
+        result.isError == true
+        result.structuredContent == null
+        text.contains('Unknown argument for echo_text: repeat')
+        text.contains('Accepted: text')
+        !ec.message.hasError()
+
+        and: "the refusal is audited with only the in-schema arguments"
+        new groovy.json.JsonSlurper().parseText((String) newestMcpRow('echo_text').arguments) == [text: 'a']
+        newestMcpRow('echo_text').success == 'N'
     }
 
     def "an unauthenticated call is refused with isError, even though dispatch itself is anonymous"() {
@@ -195,11 +203,12 @@ class McpCallTests extends Specification {
     }
 
     def "the audit row records the arguments the service ran with: out-of-schema keys dropped, fixed values applied"() {
-        when: "echo_fixed exposes text and fixes repeat=2; the client also tries an override and an unknown key"
-        exec(fixtureTool('echo_fixed'), [text: 'ab', repeat: 5, notInSchema: 'zzz'])
+        when: "echo_fixed exposes text and fixes repeat=2; the client also tries an override"
+        Map result = exec(fixtureTool('echo_fixed'), [text: 'ab', repeat: 5])
         def row = newestMcpRow('echo_fixed')
 
-        then:
+        then: "a fixed name is overridden, not refused: the client cannot see it in the schema"
+        result.isError == false
         new groovy.json.JsonSlurper().parseText((String) row.arguments) == [text: 'ab', repeat: '2']
     }
 
