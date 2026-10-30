@@ -3,6 +3,8 @@ package org.moqui.ai
 import groovy.transform.CompileStatic
 import org.moqui.context.ExecutionContextFactory
 import org.moqui.context.ToolFactory
+import org.moqui.entity.EntityException
+import java.util.concurrent.CompletableFuture
 import org.moqui.ai.provider.MockProvider
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -20,6 +22,30 @@ class AiToolFactory implements ToolFactory<AiToolFactory> {
     private volatile Map<String, Map> toolsByName = [:]        // toolName -> toolDef
     private volatile boolean catalogLoaded = false
     private final Map<String, LlmProvider> providers = [:]
+
+    // Atomic read-through loading coalesces identical misses within this factory. Retention
+    // and bounds belong to Moqui's expiring caches, not to this temporary loading map.
+    private final java.util.concurrent.ConcurrentHashMap<String,CompletableFuture<Map>> classificationLoads = new java.util.concurrent.ConcurrentHashMap<>()
+    Map coalesceClassification(String key, Map parameters) {
+        CompletableFuture<Map> loading = new CompletableFuture<>()
+        CompletableFuture<Map> existing = classificationLoads.putIfAbsent(key, loading)
+        if (existing != null) return existing.join() + [cacheHit:true]
+        try {
+            def worker = ecf.executionContext
+            Map outcome = worker.service.sync().name('ai.DecisionServices.request#TextClassification')
+                    .parameters(parameters).call()
+            // Moqui can return partial output with errors on this thread. Never publish that as a usable result.
+            if (worker.message.hasError() || outcome == null)
+                throw new EntityException('Required text classification service failed')
+            loading.complete(outcome)
+            return outcome
+        } catch (Throwable failure) {
+            loading.completeExceptionally(failure)
+            throw failure
+        } finally {
+            classificationLoads.remove(key, loading)
+        }
+    }
 
     AiToolFactory() { }
 
