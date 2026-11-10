@@ -135,6 +135,29 @@ class McpCallTests extends Specification {
         row.durationMs != null
     }
 
+    def "a denied non-admin call is audited without granting business access or leaving errors"() {
+        given:
+        Map tool = fixtureTool('echo_mutating')
+        ec.transaction.runRequireNew(30, 'revoke generated test grants', {
+            ec.entity.find('moqui.security.UserGroupMember').condition('userId', 'AiTestUser').list().each { it.delete() }
+        })
+        ec.artifactExecution.enableAuthz()
+
+        when:
+        Map result = exec(tool, [text: 'denied'])
+        boolean clean = !ec.message.hasError()
+        ec.artifactExecution.disableAuthz()
+        def audit = ec.entity.find('moqui.ai.AiToolCall').condition('toolName', 'echo_mutating')
+                .condition('userId', 'AiTestUser').orderBy('-toolCallId').list().first()
+
+        then:
+        result.isError == true
+        result.content[0].text.contains('Not permitted')
+        clean
+        audit != null && audit.success == 'N'
+        audit.errorText.contains('Not permitted')
+    }
+
     def "a failed tool call is audited with the error text"() {
         when:
         exec(fixtureTool('echo_full'), [text: 'x', repeat: -1])

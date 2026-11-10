@@ -57,7 +57,9 @@ if (unknownArgs) {
     }
 }
 
-// audit: one AiToolCall row per call, refused ones included (who tried also matters);
+// Audit is a system-owned write, not a business permission granted to the caller.
+// Keep its transaction separate so a denied/audit-failed call cannot poison the dispatcher.
+// One AiToolCall row per call, refused ones included (who tried also matters);
 // guarded like AgentRunner's observability writes — an audit failure never aborts the call.
 // The row is plain text that outlives the call, so it gets masked copies of args and result
 // (AuditRedactor); the caller still gets the real result below.
@@ -68,8 +70,11 @@ try {
             arguments: AuditRedactor.toJson(args),
             result: errText == null ? AuditRedactor.toJson(svcResult ?: [:]) : null,
             success: errText == null ? 'Y' : 'N', errorText: errText,
-            durationMs: (System.currentTimeMillis() - startMs)]).call()
-} catch (Throwable t) { ec.logger.warn("MCP audit write for tool '${toolDef.name}' failed (continuing): ${t.message}") }
+            durationMs: (System.currentTimeMillis() - startMs)]).requireNewTransaction(true).disableAuthz().call()
+} catch (Throwable t) {
+    ec.message.clearErrors()
+    ec.logger.warn("MCP audit write for tool '${toolDef.name}' failed (continuing): ${t.message}")
+}
 
 if (errText != null) {
     result = [content: [[type: 'text', text: errText]], isError: true]
