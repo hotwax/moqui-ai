@@ -49,6 +49,8 @@ class McpOAuthTests extends Specification {
     def cleanupSpec() {
         // unpollute the JVM-wide properties for the specs that run after this one
         System.clearProperty('mcp_auth_flow_id')
+        System.clearProperty('mcp_audience')
+        System.clearProperty('mcp_canonical_uri')
         if (ec != null) ec.destroy()
     }
     def setup() { ((org.moqui.impl.context.UserFacadeImpl) ec.user).logoutUser(); ec.message.clearErrors() }
@@ -78,6 +80,11 @@ class McpOAuthTests extends Specification {
         SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(rsaKey.keyID).build(), builder.build())
         jwt.sign(new RSASSASigner((RSAKey) claimOverrides.getOrDefault('signWith', rsaKey)))
         return jwt.serialize()
+    }
+
+    def "dispatcher never remembers authorization headers in service statistics"() {
+        expect:
+        ec.service.getServiceDefinition('ai.mcp.McpServices.dispatch#Request').noRememberParameters
     }
 
     def "a valid token yields its claims, subject and scopes included"() {
@@ -140,12 +147,22 @@ class McpOAuthTests extends Specification {
         when:
         Map out = dispatch(callParams('get_ai_spend', [:]) + [authorizationHeader: 'Bearer ' + mint([scope: 'mcp:spend'])])
         Map result = (Map) ((Map) out.response).result
+        // Audit inspection is test-fixture work. The mapped caller receives no audit-table permission.
+        boolean wasDisabled = ec.artifactExecution.disableAuthz()
+        def audit
+        try {
+            audit = ec.entity.find("moqui.ai.AiToolCall").condition("toolName", "get_ai_spend")
+                    .orderBy("-toolCallId").list()[0]
+        } finally {
+            if (!wasDisabled) ec.artifactExecution.enableAuthz()
+        }
 
         then:
         out.httpStatus == 200
         result.isError == false
-        ec.entity.find("moqui.ai.AiToolCall").condition("toolName", "get_ai_spend")
-                .orderBy("-toolCallId").list()[0].userId == "McpOauthUser"
+        !ec.message.hasError()
+        audit.userId == "McpOauthUser"
+        audit.success == 'Y'
     }
 
     def "tools/call without credentials is HTTP 401 with WWW-Authenticate pointing at the metadata"() {
@@ -193,6 +210,15 @@ class McpOAuthTests extends Specification {
         when:
         Map out = dispatch(callParams('get_ai_spend', [:]))
         Map result = (Map) ((Map) out.response).result
+        // Audit inspection is test-fixture work. The mapped caller receives no audit-table permission.
+        boolean wasDisabled = ec.artifactExecution.disableAuthz()
+        def audit
+        try {
+            audit = ec.entity.find("moqui.ai.AiToolCall").condition("toolName", "get_ai_spend")
+                    .orderBy("-toolCallId").list()[0]
+        } finally {
+            if (!wasDisabled) ec.artifactExecution.enableAuthz()
+        }
 
         then:
         out.httpStatus == 200
