@@ -19,6 +19,11 @@ repositories {
 
 dependencies {
     implementation project(':framework')
+    // Servlet API is container-provided; OAuth tests compile against the same API.
+    testImplementation 'jakarta.servlet:jakarta.servlet-api:6.1.0'
+    // moqui-sso provides nimbus at runtime; do not vendor a second runtime copy.
+    compileOnly 'com.nimbusds:nimbus-jose-jwt:10.6'
+    testImplementation 'com.nimbusds:nimbus-jose-jwt:10.6'
     testImplementation project(':framework').configurations.testImplementation.allDependencies
 }
 

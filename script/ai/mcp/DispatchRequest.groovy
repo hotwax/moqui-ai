@@ -7,7 +7,7 @@
 // the endpoint ships dark: any deployment must turn it on deliberately. Early return is
 // safe here: out-parameters are set and the transport screen applies httpStatus itself.
 if (org.moqui.util.SystemBinding.getPropOrEnv('mcp_enabled') != 'Y') {
-    httpStatus = 404; response = null
+    httpStatus = 404; response = null; wwwAuthenticate = null
     return null
 }
 
@@ -16,6 +16,7 @@ ec.logger.info("MCP request method=${method} id=${id} paramsKeys=${params?.keySe
 
 List SUPPORTED = ['2026-07-28']
 httpStatus = 200
+wwwAuthenticate = null
 Map err = null       // JSON-RPC error map when a gate fails
 
 // 1. body parse error (transport rule: 400, -32700)
@@ -71,6 +72,61 @@ if (!isNotification && err == null && !legacyClient && method == 'tools/call') {
         httpStatus = 400; err = [code: -32020, message: "HeaderMismatch: Mcp-Name '${headerName}' does not match body tool name '${bodyName}'".toString()] }
 }
 
+// OAuth resource-server gate (design step 6, decision 5): active only when the
+// deployment names a trusted moqui-sso AuthFlow (mcp_auth_flow_id). A user already
+// authenticated by Moqui's own web auth (Basic, or this fork's Bearer-JWT patch) passes
+// unchanged — OAuth is the front door for external MCP clients, not a replacement for
+// the deployment's session auth. discover/list stay public (decision 9); tools/call
+// without credentials gets the spec's 401 + WWW-Authenticate resource_metadata.
+List grantedScopes = null
+String authFlowId = org.moqui.util.SystemBinding.getPropOrEnv('mcp_auth_flow_id')
+if (!isNotification && err == null && authFlowId && ec.user.userAccount == null) {
+    String canonical = org.moqui.util.SystemBinding.getPropOrEnv('mcp_canonical_uri') ?: ''
+    def om = canonical =~ /^(https?:\/\/[^\/]+)/
+    String resMeta = 'resource_metadata="' + (om.find() ? om.group(1) : '') + '/.well-known/oauth-protected-resource"'
+
+    if (authorizationHeader != null && authorizationHeader.startsWith('Bearer ')) {
+        try {
+            // issuer metadata: cached; on a miss, fetched from the AuthFlow's OIDC discovery
+            def metaCache = ec.cache.getCache('ai.mcp.oauth.meta')
+            Map idpMeta = (Map) metaCache.get(authFlowId)
+            if (idpMeta == null) {
+                def flow = ec.entity.find('moqui.security.sso.OidcFlow').condition('authFlowId', authFlowId).disableAuthz().one()
+                if (flow == null) throw new IllegalStateException("No OidcFlow config for mcp_auth_flow_id ${authFlowId}")
+                Map disc = (Map) new groovy.json.JsonSlurper().parseText(new URL((String) flow.discoveryUri).text)
+                idpMeta = [issuer: disc.issuer, jwksJson: new URL((String) disc.jwks_uri).text]
+                metaCache.put(authFlowId, idpMeta)
+            }
+            Map v = org.moqui.ai.McpBearerValidator.validate(
+                    authorizationHeader.substring(7).trim(),
+                    com.nimbusds.jose.jwk.JWKSet.parse((String) idpMeta.jwksJson),
+                    (String) idpMeta.issuer,
+                    org.moqui.util.SystemBinding.getPropOrEnv('mcp_audience'))
+            def ua = ec.entity.find('moqui.security.UserAccount').condition('externalUserId', v.sub).disableAuthz().one()
+            if (ua == null) {
+                httpStatus = 403
+                err = [code: 403, message: 'Token valid, but its subject maps to no account on this server']
+            } else {
+                ((org.moqui.impl.context.UserFacadeImpl) ec.user).internalLoginUser((String) ua.getNoCheckSimple('username'))
+                grantedScopes = (List) v.scopes
+            }
+        } catch (IllegalArgumentException e) {
+            httpStatus = 401
+            wwwAuthenticate = 'Bearer error="invalid_token", error_description="' + e.message + '", ' + resMeta
+            err = [code: 401, message: e.message]
+        } catch (Throwable t) {
+            ec.logger.error('MCP OAuth configuration/discovery error', t)
+            httpStatus = 401
+            wwwAuthenticate = 'Bearer error="invalid_token", ' + resMeta
+            err = [code: 401, message: 'Token validation unavailable']
+        }
+    } else if (method == 'tools/call') {
+        httpStatus = 401
+        wwwAuthenticate = 'Bearer ' + resMeta
+        err = [code: 401, message: 'Authorization required']
+    }
+}
+
 // 10. the method allowlist: method name (as sent) -> implementing service. The MCP request
 //     vocabulary is CLOSED (ten names in revision 2026-07-28), so a literal map is the
 //     honest form; an absent key IS the -32601 answer, and per the transport an
@@ -93,10 +149,15 @@ if (isNotification) {
 } else if (err != null) {
     response = [jsonrpc: '2.0', id: id, error: err]
 } else {
-    // 11. call the method service; it returns a plain result Map or an error Map
-    Map methodOut = ec.service.sync().name(serviceName).parameters([params: params]).call()
+    // 11. call the method service; it returns a plain result Map or an error Map (which
+    // may carry httpStatus/wwwAuthenticate for the transport — e.g. 403 insufficient_scope)
+    Map methodOut = ec.service.sync().name(serviceName)
+            .parameters([params: params, grantedScopes: grantedScopes]).call()
     if (methodOut.error != null) {
-        response = [jsonrpc: '2.0', id: id, error: methodOut.error]   // e.g. unknown tool: JSON-RPC error, HTTP 200
+        Map mErr = new LinkedHashMap((Map) methodOut.error)
+        if (mErr.httpStatus != null) httpStatus = mErr.remove('httpStatus')
+        if (mErr.wwwAuthenticate != null) wwwAuthenticate = mErr.remove('wwwAuthenticate')
+        response = [jsonrpc: '2.0', id: id, error: mErr]   // e.g. unknown tool: JSON-RPC error, HTTP 200
     } else {
         // envelope belongs to the engine: resultType default (a method service may
         // override) and serverInfo in every result's _meta
