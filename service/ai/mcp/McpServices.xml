@@ -69,7 +69,8 @@
             Internal: called by call#Tools with a catalog entry, and by tests with a
             build#ToolCatalog entry. Requires a real (non-anonymous) user and runs as them;
             the backing service's own authenticate and authz decide what they may do.
-            Failures become isError:true text, never an exception on the wire.</description>
+            An argument outside the exposed inputSchema refuses the call before the service
+            runs. Failures become isError:true text, never an exception on the wire.</description>
         <in-parameters>
             <parameter name="toolDef" type="Map" required="true"/>
             <parameter name="arguments" type="Map"/>
