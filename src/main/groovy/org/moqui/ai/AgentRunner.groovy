@@ -228,9 +228,11 @@ class AgentRunner {
                         String toolCallRequestId = ec.entity.sequencedIdPrimary("moqui.ai.AiToolCallRequest", null, null)
                         toolCallRequestIds.add(toolCallRequestId)
                         Map td = ai.getToolByName(tc.name as String)
+                        // arguments here are for the approver to read, so masked; resume() dispatches
+                        // from pendingState, which keeps the real values until the turn runs
                         persistRequired("create#moqui.ai.AiToolCallRequest", [toolCallRequestId: toolCallRequestId, agentRunId: runId,
                             stepSeqId: stepSeq as String, toolCallId: tc.id, toolName: tc.name, serviceName: td?.serviceName,
-                            arguments: JsonOutput.toJson(tc.arguments ?: [:]), statusId: "AI_TCREQ_PENDING",
+                            arguments: AuditRedactor.toJson(tc.arguments ?: [:]), statusId: "AI_TCREQ_PENDING",
                             requestedByUserId: ec.user.userId, requestedDate: ec.user.nowTimestamp])
                     }
                     persistRequired("update#moqui.ai.AiAgentRun", [agentRunId: runId, statusId: "AI_RUN_SUSPENDED",
@@ -321,7 +323,7 @@ class AgentRunner {
                 resultJson = JsonOutput.toJson([error: "Denied by user${appr.decisionNote ? ': ' + appr.decisionNote : ''}"])
                 persist("create#moqui.ai.AiToolCall", [agentRunId: agentRunId, stepSeqId: stepSeq as String,
                     providerCallId: tc.id, sourceEnumId: 'AI_TCS_AGENT', userId: ec.user?.userId, toolId: rejTd?.toolId, toolName: tc.name, serviceName: rejTd?.serviceName,
-                    arguments: JsonOutput.toJson(tc.arguments ?: [:]), result: resultJson, success: "N",
+                    arguments: AuditRedactor.toJson(tc.arguments ?: [:]), result: resultJson, success: "N",
                     errorText: "rejected", durationMs: 0])
             } else {
                 resultJson = (ctxOn && tc.name == REMEMBER_TOOL) ?
@@ -345,18 +347,20 @@ class AgentRunner {
     }
 
     /** Dispatch one tool-call Map via ec.service.sync (its own tx; Moqui authz applies). Tool
-     *  errors are caught and returned as a JSON error so the loop can recover. */
+     *  errors are caught and returned as a JSON error so the loop can recover. The model gets the
+     *  real result; the AiToolCall row gets masked copies of arguments and result (AuditRedactor). */
     private String dispatchTool(String runId, int stepSeq, Map tc) {
         Map td = ai.getToolByName(tc.name as String)
         long start = System.currentTimeMillis()
         String resultJson; boolean success; String errorText = null
+        Map out = null
         if (td == null) {
             success = false; errorText = "Tool not in catalog: ${tc.name}"
             resultJson = JsonOutput.toJson([error: errorText])
         } else {
             try {
                 ec.message.clearErrors()   // evaluate this tool call on its own error state
-                Map out = ec.service.sync().name(td.serviceName as String)
+                out = ec.service.sync().name(td.serviceName as String)
                         .parameters((tc.arguments ?: [:]) as Map).call()
                 if (ec.message.hasError()) {
                     success = false; errorText = ec.message.errorsString; ec.message.clearErrors()
@@ -370,7 +374,7 @@ class AgentRunner {
         }
         persist("create#moqui.ai.AiToolCall", [agentRunId: runId, stepSeqId: stepSeq as String,
             providerCallId: tc.id, sourceEnumId: 'AI_TCS_AGENT', userId: ec.user?.userId, toolId: td?.toolId, toolName: tc.name, serviceName: td?.serviceName,
-            arguments: JsonOutput.toJson(tc.arguments ?: [:]), result: resultJson,
+            arguments: AuditRedactor.toJson(tc.arguments ?: [:]), result: success ? AuditRedactor.toJson(out ?: [:]) : resultJson,
             success: success ? "Y" : "N", errorText: errorText,
             durationMs: (System.currentTimeMillis() - start) as int])
         return resultJson
@@ -416,7 +420,7 @@ class AgentRunner {
         }
         persist("create#moqui.ai.AiToolCall", [agentRunId: runId, stepSeqId: stepSeq as String,
             providerCallId: tc.id, sourceEnumId: 'AI_TCS_AGENT', userId: ec.user?.userId, toolName: tc.name, serviceName: "ai.FactServices.remember#Fact",
-            arguments: JsonOutput.toJson(args), result: resultJson,
+            arguments: AuditRedactor.toJson(args), result: resultJson,
             success: success ? "Y" : "N", errorText: errorText,
             durationMs: (System.currentTimeMillis() - start) as int])
         return resultJson

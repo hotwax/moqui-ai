@@ -5,11 +5,23 @@
  * service runs in its own transaction so a failure rolls back only itself. Failures become
  * isError:true text the model can react to — the message facade is left clean and no
  * exception or stack trace ever reaches the wire. Every call (including a refused one) is
- * audited as an AiToolCall row with sourceEnumId AI_TCS_MCP (design decision 12). */
+ * audited as an AiToolCall row with sourceEnumId AI_TCS_MCP (design decision 12), recording
+ * the filtered arguments and the result with every secret-named value masked. */
+
+import org.moqui.ai.AuditRedactor
 
 long startMs = System.currentTimeMillis()
 Map svcResult = null
 String errText = null
+
+// the arguments the backing service runs with: only exposed schema properties, then the
+// fixed parameters on top. The audit records these too, not the raw client input.
+Map schemaProps = (Map) ((Map) toolDef.inputSchema)?.get('properties')
+Map args = [:]
+if (arguments instanceof Map)
+    for (def e in arguments.entrySet()) if (schemaProps?.containsKey(e.key)) args.put(e.key, e.value)
+Map fixed = (Map) toolDef.fixedParameters
+if (fixed) args.putAll(fixed)   // server-fixed values always win
 
 // A real user, not the anonymous-view login: the dispatch chain is anonymous so
 // discover/list work without credentials, and that anonymous grant would otherwise satisfy
@@ -19,13 +31,6 @@ String errText = null
 if (ec.user.userAccount == null) {
     errText = "Authentication required: this MCP server runs tools as the calling Moqui user; send credentials the server accepts (e.g. HTTP Basic or Bearer)."
 } else {
-    Map schemaProps = (Map) ((Map) toolDef.inputSchema).get('properties')
-    Map args = [:]
-    if (arguments instanceof Map)
-        for (def e in arguments.entrySet()) if (schemaProps.containsKey(e.key)) args.put(e.key, e.value)
-    Map fixed = (Map) toolDef.fixedParameters
-    if (fixed) args.putAll(fixed)   // server-fixed values always win
-
     try {
         svcResult = ec.service.sync().name((String) toolDef.serviceName)
                 .parameters(args).requireNewTransaction(true).call()
@@ -44,13 +49,15 @@ if (ec.user.userAccount == null) {
 }
 
 // audit: one AiToolCall row per call, refused ones included (who tried also matters);
-// guarded like AgentRunner's observability writes — an audit failure never aborts the call
+// guarded like AgentRunner's observability writes — an audit failure never aborts the call.
+// The row is plain text that outlives the call, so it gets masked copies of args and result
+// (AuditRedactor); the caller still gets the real result below.
 try {
     ec.service.sync().name("create#moqui.ai.AiToolCall").parameters([
             sourceEnumId: 'AI_TCS_MCP', userId: ec.user?.userId,
             toolName: toolDef.name, serviceName: toolDef.serviceName,
-            arguments: arguments != null ? groovy.json.JsonOutput.toJson(arguments) : null,
-            result: errText == null ? groovy.json.JsonOutput.toJson(svcResult ?: [:]) : null,
+            arguments: AuditRedactor.toJson(args),
+            result: errText == null ? AuditRedactor.toJson(svcResult ?: [:]) : null,
             success: errText == null ? 'Y' : 'N', errorText: errText,
             durationMs: (System.currentTimeMillis() - startMs)]).call()
 } catch (Throwable t) { ec.logger.warn("MCP audit write for tool '${toolDef.name}' failed (continuing): ${t.message}") }

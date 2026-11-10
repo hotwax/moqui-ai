@@ -13,7 +13,7 @@
     <!-- Build/refresh the starting glossary from the live model + service catalog. SEEDED + APPROVED.
          Idempotent: a term already present (any status) is left untouched. Re-runnable to absorb new
          entities/services. Intended to be called once at install (ext data service-call) and on demand. -->
-    <service verb="seed" noun="DomainGlossary" authenticate="true">
+    <service verb="seed" noun="DomainGlossary" authenticate="anonymous-all">
         <in-parameters>
             <parameter name="ownerScope"/><!-- null = global (v1) -->
         </in-parameters>
@@ -131,13 +131,14 @@
     <service verb="capture" noun="NamingSignal" authenticate="false">
         <in-parameters>
             <parameter name="signalType" required="true"/><!-- AI_SIG_TOOL_NAME | AI_SIG_AGENT_NAME -->
-            <parameter name="chosenName" required="true"/>
+            <parameter name="chosenName"/>
             <parameter name="suggestedName"/>
             <parameter name="intentText"/>
         </in-parameters>
         <out-parameters><parameter name="signalId"/></out-parameters>
         <actions>
             <if condition="ec.context.signalGuard == true"><return/></if>
+            <if condition="!chosenName"><return/></if>
             <set field="signalId" from="ec.entity.sequencedIdPrimary('moqui.ai.AiNamingSignal', null, null)"/>
             <set field="overridden" from="(suggestedName != null &amp;&amp; suggestedName != chosenName) ? 'Y' : 'N'"/>
             <service-call name="create#moqui.ai.AiNamingSignal" in-map="[signalId: signalId, signalType: signalType,

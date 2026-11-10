@@ -56,6 +56,7 @@
             <parameter name="verb" required="true"/>
             <parameter name="noun" required="true"/>
             <parameter name="description"/>
+            <parameter name="exposable"/>
             <parameter name="requiresApproval"/>
             <parameter name="effectEnumId"/>
             <parameter name="resolutionNote"/>
@@ -75,7 +76,8 @@
                  (one transaction) the whole provision rolls back, leaving the request OPEN. Do NOT swallow. -->
             <service-call name="ai.ToolServices.store#AiTool" out-map="context"
                 in-map="[verb: verb, noun: noun, serviceName: serviceName, description: description,
-                         requiresApproval: requiresApproval, effectEnumId: effectEnumId, intentText: request.intent]"/>
+                         exposable: exposable, requiresApproval: requiresApproval,
+                         effectEnumId: effectEnumId, intentText: request.intent]"/>
 
             <!-- Tool created: mark the request done, linked to the new tool for provenance. -->
             <service-call name="ai.CapabilityServices.fulfill#CapabilityRequest"

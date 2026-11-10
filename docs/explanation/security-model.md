@@ -230,9 +230,36 @@ hardening should address each:
 |---|---|---|
 | Console access | `require-authentication` only — **any** logged-in user | dedicated `AI_OPERATOR` group + `ArtifactAuthz` gating |
 | **Order-data read grant** | `AI_OPS_DATA_READ` is granted to **`ALL_USERS`** for the demo | scope to an operator group that legitimately sees order data |
-| Approval-queue access | any authenticated user can read the pending queue (incl. tool arguments) | per-approver permissions (Phase 5) |
+| Approval-queue access | any authenticated user can read the pending queue (incl. tool arguments; secret-named values are masked, §6) | per-approver permissions (Phase 5) |
 
 The order-data gap is the one to watch: because an agent runs as the signed-in user
 (§3), an `ALL_USERS` VIEW grant on `org.apache.ofbiz.order.*` means **every**
 authenticated user — and any agent they run — can read all order data. Scoping
 `AI_OPS_DATA_READ` to a real operator group is the single highest-value production change.
+
+## 6. Secrets in the tool-call audit
+
+A tool call's audit copies are plain text that outlive the call: `AiToolCall.arguments` and
+`result` (MCP and agent calls alike) and `AiToolCallRequest.arguments` (what an approver reads).
+Tools take and return credentials (an API client secret or access token passed to a setup tool, an
+access key in a tool result), so these copies are masked before every write by
+`org.moqui.ai.AuditRedactor`. The value is first normalized the way the audit serializes it, so
+bean properties and iterator items are covered too. Then the value under any key whose name
+matches the built-in secret-name list, or a name the deployment adds through
+`ai_audit_redact_pattern` (configuration reference, §1), becomes `***redacted***` at any depth, as
+does the `value` of a `{name|key: <secret name>, value: …}` pair. The property can only add names,
+so no configuration switches masking off. The MCP row also records the arguments the backing
+service ran with (filtered to the exposed schema, fixed parameters applied), not the raw client
+input. Masking is audit-only: the service runs with, and the MCP client or model receives, the
+real values.
+
+What masking does **not** cover:
+
+| Copy | Why |
+|---|---|
+| `AiAgentRun.pendingState` | Load-bearing: `resume()` dispatches the approved calls from it. It holds the real arguments only while a run is suspended and is cleared on resume. |
+| `AiConversationMessage` (`toolCalls`, tool-result `content`) | Load-bearing: the transcript is replayed to the model on later turns. |
+| `errorText`, and a secret inside a string value | Key-name masking cannot see into free text, such as a service error that echoes its input or a JSON document returned as one string. |
+| Other name/value shapes | Only `{name\|key, value}` pairs are recognized; attribute-style rows such as `{settingTypeEnumId, settingValue}` are not. |
+| A secret under a name the list does not cover | Add the name through `ai_audit_redact_pattern`. |
+| Rows written by moqui-ai 1.1.0 and earlier | Not rewritten. Purging or re-masking existing rows on an instance is a separate data operation. |

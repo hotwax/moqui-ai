@@ -5,7 +5,7 @@ import org.moqui.Moqui
 
 @Suite
 @SelectClasses([ AiToolFactoryBootTests.class, AiEntitiesTests.class,
-        MockProviderTests.class, ServiceSchemasTests.class, DefinitionLoaderTests.class,
+        MockProviderTests.class, ServiceSchemasTests.class, AuditRedactorTests.class, DefinitionLoaderTests.class,
         AgentRunnerTests.class, RunAgentServiceTests.class, AnthropicProviderTests.class,
         AiConversationTests.class, OpenAiProviderTests.class, AiCostTests.class,
         AiContextTests.class, AiApprovalTests.class, AiReasoningTests.class,

@@ -12,7 +12,8 @@
     <transition name="provision">
         <service-call name="ai.CapabilityServices.provision#CapabilityRequest"
             in-map="[capabilityRequestId:capabilityRequestId, serviceName:serviceName, verb:verb, noun:noun,
-                     description:description, requiresApproval:requiresApproval, effectEnumId:effectEnumId, resolutionNote:resolutionNote]"/>
+                     description:description, exposable:exposable, requiresApproval:requiresApproval,
+                     effectEnumId:effectEnumId, resolutionNote:resolutionNote]"/>
         <default-response url="CapabilityRequests"/>
     </transition>
 
@@ -69,6 +70,9 @@
                     <field name="verb"><default-field title="Verb"><text-line size="20" default-value="${request.suggestedVerb ?: ''}"/></default-field></field>
                     <field name="noun"><default-field title="Noun"><text-line size="20" default-value="${request.suggestedNoun ?: ''}"/></default-field></field>
                     <field name="description"><default-field title="Description"><text-area rows="2" cols="70"/></default-field></field>
+                    <field name="exposable"><default-field title="Exposable">
+                        <drop-down allow-empty="true"><option key="Y" text="Yes"/><option key="N" text="No"/></drop-down>
+                    </default-field></field>
                     <field name="requiresApproval"><default-field title="Requires approval">
                         <drop-down allow-empty="true"><option key="Y" text="Yes"/><option key="N" text="No"/></drop-down>
                     </default-field></field>

@@ -43,7 +43,7 @@
                  query: name matches AND not this tool. On create toolId is empty, so the not-equal drops. -->
             <entity-find entity-name="moqui.ai.AiTool" list="nameClash" limit="1">
                 <econdition field-name="toolName" from="toolName"/>
-                <econdition field-name="toolId" operator="not-equal" from="toolId" ignore-if-empty="true"/>
+                <econdition field-name="toolId" operator="not-equals" from="toolId" ignore-if-empty="true"/>
             </entity-find>
             <if condition="nameClash">
                 <return error="true" message="A tool named '${toolName}' already exists (toolId ${nameClash[0].toolId}); choose a different verb/noun."/>

@@ -11,4 +11,10 @@
         description="echo (approval-gated)"
         effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="Y"
         sourceComponent="moqui-ai" statusId="AI_TOOL_ACTIVE"/>
+    <!-- credential-shaped arguments and results, for the audit-redaction tests -->
+    <moqui.ai.AiTool toolId="TL_CRED_ECHO" toolName="get_credential_echo" verb="get" noun="credentialEcho"
+        serviceName="moqui.ai.test.TestServices.get#CredentialEcho"
+        description="Echoes text; takes a clientSecret and returns it under secret-named keys."
+        effectEnumId="AI_TOOL_READ_ONLY" exposable="Y" requiresApproval="N"
+        sourceComponent="moqui-ai" statusId="AI_TOOL_ACTIVE"/>
 </entity-facade-xml>

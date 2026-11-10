@@ -94,7 +94,10 @@ Look at `result.isError`. `true` means the BACKING SERVICE failed (its message i
 with code `-32602` means the tool name is not in the catalog — back to the scan log.
 
 Check 3 — the audit row landed (entity `moqui.ai.AiToolCall`): find the newest row,
-confirm `sourceEnumId=AI_TCS_MCP`, the calling `userId`, and `success`.
+confirm `sourceEnumId=AI_TCS_MCP`, the calling `userId`, and `success`. Values under
+secret-named keys read `***redacted***` in `arguments` and `result` by design
+(`org.moqui.ai.AuditRedactor`; extra names via `ai_audit_redact_pattern`); the client still gets
+the real values.
 
 ### 4. Do not claim done without check 2 passing on real data
 

@@ -10,7 +10,7 @@
     <!-- The engine: conformance gates, the method allowlist map, the JSON-RPC envelope.
          The map keys are the entire reachable surface; nothing outside
          ai.mcp.McpMethodServices is ever callable from the endpoint. -->
-    <service verb="dispatch" noun="Request" authenticate="anonymous-view" type="script"
+    <service verb="dispatch" noun="Request" authenticate="anonymous-view" no-remember-parameters="true" type="script"
             location="component://moqui-ai/script/ai/mcp/DispatchRequest.groovy">
         <description>Dispatch one MCP JSON-RPC request through the conformance gates, resolve
             the method via the allowlist map, and wrap the outcome in the JSON-RPC envelope.

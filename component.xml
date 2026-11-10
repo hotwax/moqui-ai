@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/moqui-conf-3.xsd"
-           name="moqui-ai" version="0.1.0">
+           name="moqui-ai" version="1.3.0">
     <depends-on name="oms"/>
     <!-- OAuth for the MCP endpoint (design step 6): moqui-sso owns the IdP relationship
          (AuthFlow/OidcFlow config, browser SSO, pac4j + nimbus libs); moqui-ai's resource
