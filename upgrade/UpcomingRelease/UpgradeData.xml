@@ -1,3 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <entity-facade-xml type="ext-upgrade">
+    <!-- MCP dispatch for ADMIN goes from AUTHZT_ALWAYS to AUTHZT_ALLOW, so the services a tool calls keep their own grants
+         and denies (see data/SetupData.xml). -->
+    <moqui.security.ArtifactAuthz artifactAuthzId="McpServicesADMIN" userGroupId="ADMIN" artifactGroupId="MCP_DISPATCH" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
 </entity-facade-xml>
