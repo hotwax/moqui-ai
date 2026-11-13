@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<eecas xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-eca-3.xsd">
+    <eeca id="BuiltRuleSetRuleSetFactTypeCache" entity="moqui.ai.RuleSetFactType" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.rule.set').clear()</script></actions></eeca>
+    <eeca id="BuiltRuleSetRuleSetRuleCache" entity="moqui.ai.RuleSetRule" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.rule.set').clear()</script></actions></eeca>
+    <eeca id="BuiltRuleSetRuleSetConditionCache" entity="moqui.ai.RuleSetCondition" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.rule.set').clear()</script></actions></eeca>
+    <eeca id="BuiltRuleSetRuleSetActionCache" entity="moqui.ai.RuleSetAction" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.rule.set').clear()</script></actions></eeca>
+    <eeca id="BuiltRuleSetRuleSetActionFieldCache" entity="moqui.ai.RuleSetActionField" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.rule.set').clear()</script></actions></eeca>
+    <eeca id="BuiltRuleSetFactFieldCache" entity="moqui.ai.FactField" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.rule.set').clear()</script></actions></eeca>
+    <eeca id="BuiltRuleSetRuleSetOutcomeCache" entity="moqui.ai.RuleSetOutcome" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.rule.set').clear()</script></actions></eeca>
+    <eeca id="BuiltRuleSetRuleActionTypeCache" entity="moqui.ai.RuleActionType" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.rule.set').clear()</script></actions></eeca>
+    <eeca id="BuiltRuleSetRuleConditionTypeCache" entity="moqui.ai.RuleConditionType" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.rule.set').clear()</script></actions></eeca>
+
+    <eeca id="BuiltFactFactTypeCache" entity="moqui.ai.FactType" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.fact').clear()</script></actions></eeca>
+    <eeca id="BuiltFactFactFieldCache" entity="moqui.ai.FactField" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.fact').clear()</script></actions></eeca>
+    <eeca id="BuiltFactFactNodeCache" entity="moqui.ai.FactNode" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.fact').clear()</script></actions></eeca>
+    <eeca id="BuiltFactFactNodeConditionCache" entity="moqui.ai.FactNodeCondition" on-create="true" on-update="true" on-delete="true">
+        <actions><script>ec.cache.getCache('ai.rules.built.fact').clear()</script></actions></eeca>
+</eecas>

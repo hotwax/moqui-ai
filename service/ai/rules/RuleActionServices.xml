@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <service verb="prepare" noun="RuleAction" type="interface">
+        <description>Check one "then" part of a rule and give what the decision needs from it. Each RuleActionType names
+            the service for its kind in prepareServiceName. store#Rule reads the problems; the decision builder reads all.</description>
+        <in-parameters>
+            <parameter name="ruleSetId" required="true"/>
+            <parameter name="action" type="Map" required="true"><description>actionTypeId, outcomeId, factTypeId and fields,
+                a list of maps of fieldName and fixedValue.</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="problems" type="List"><description>What is wrong with the action, empty when it is good.</description></parameter>
+            <parameter name="outcomeId"><description>The outcome the action returns, if any.</description></parameter>
+            <parameter name="factToAdd" type="Map"><description>factTypeId and values, already converted, of the fact the
+                action adds, if any.</description></parameter>
+        </out-parameters>
+    </service>
+
+    <service verb="prepare" noun="OutcomeAction" authenticate="anonymous-all" allow-remote="false">
+        <implements service="ai.rules.RuleActionServices.prepare#RuleAction"/>
+        <actions>
+            <set field="problems" from="[]"/>
+            <entity-find-one entity-name="moqui.ai.RuleSetOutcome" value-field="ruleSetOutcome">
+                <field-map field-name="ruleSetId"/><field-map field-name="outcomeId" from="action.outcomeId"/></entity-find-one>
+            <if condition="ruleSetOutcome == null">
+                <script>problems.add("outcome ${action.outcomeId} is not in the list of decision ${ruleSetId}".toString())</script>
+                <return/>
+            </if>
+            <set field="outcomeId" from="action.outcomeId"/>
+        </actions>
+    </service>
+
+    <service verb="prepare" noun="AddFactAction" authenticate="anonymous-all" allow-remote="false">
+        <implements service="ai.rules.RuleActionServices.prepare#RuleAction"/>
+        <actions>
+            <set field="problems" from="[]"/>
+            <service-call name="ai.rules.RuleServices.get#DecisionFactTypes" in-map="[ruleSetId: ruleSetId]"
+                    out-map="decisionFactTypes" out-map-add-to-existing="false"/>
+            <if condition="!(action.factTypeId in decisionFactTypes.factTypeIds)">
+                <script>problems.add("the decision does not read fact type ${action.factTypeId}".toString())</script>
+                <return/>
+            </if>
+
+            <set field="values" from="[:]"/>
+            <set field="actionFields" from="action.fields ?: []"/>
+            <iterate list="actionFields" entry="actionField">
+                <entity-find-one entity-name="moqui.ai.FactField" value-field="factField">
+                    <field-map field-name="factTypeId" from="action.factTypeId"/>
+                    <field-map field-name="fieldName" from="actionField.fieldName"/></entity-find-one>
+                <if condition="factField == null">
+                    <script>problems.add("fact type ${action.factTypeId} has no field ${actionField.fieldName}".toString())</script>
+                    <continue/>
+                </if>
+                <service-call name="ai.rules.FactValueServices.convert#FactValue" out-map="convertedFixed" out-map-add-to-existing="false"
+                        in-map="[valueTypeEnumId: factField.valueTypeEnumId, value: actionField.fixedValue]"/>
+                <if condition="actionField.fixedValue == null || convertedFixed.problem">
+                    <script>problems.add("value ${actionField.fixedValue} does not fit field ${actionField.fieldName}".toString())</script>
+                    <continue/>
+                </if>
+                <script>values.put(actionField.fieldName, convertedFixed.convertedValue)</script>
+            </iterate>
+            <set field="factToAdd" from="[factTypeId: action.factTypeId, values: values]"/>
+        </actions>
+    </service>
+</services>

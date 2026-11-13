@@ -25,9 +25,12 @@
          attributes = no expiry); rebuilt on any cache miss by ai.mcp.McpServices.get#ToolCatalog -->
     <cache-list>
         <cache name="ai.mcp.tool.catalog" value-type="java.util.List"/>
+        <cache name="ai.rules.built.rule.set"/>
+        <cache name="ai.rules.built.fact"/>
     </cache-list>
     <tools>
         <tool-factory class="org.moqui.ai.AiToolFactory" init-priority="30" disabled="false"/>
+        <tool-factory class="org.moqui.ai.rules.RulesToolFactory" init-priority="30" disabled="false"/>
     </tools>
     <!-- Mount the AI Ops console as a top-level app under the standard apps webapp.
          Same mechanism the tools/oms/poorti components use (subscreens-item on apps.xml);

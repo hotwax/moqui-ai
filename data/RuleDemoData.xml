@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="ext-demo">
+    <moqui.ai.FactType factTypeId="checkResult" description="Result of a job's one-time run, read from its Data Manager log"/>
+    <moqui.ai.FactField factTypeId="checkResult" fieldName="refusedCount" valueTypeEnumId="FVT_INTEGER" description="Records the run refused"/>
+    <moqui.ai.FactField factTypeId="checkResult" fieldName="logStatusId" valueTypeEnumId="FVT_TEXT" description="Status of the run's Data Manager log"/>
+    <moqui.ai.FactField factTypeId="checkResult" fieldName="tryCount" valueTypeEnumId="FVT_INTEGER" description="Checks done so far, passed by the caller"/>
+
+    <moqui.ai.FactNode factTypeId="checkResult" nodeSeqId="01" sequenceNum="1" nodeTypeEnumId="FNT_RECORD"
+            entityName="co.hotwax.datamanager.DataManagerLog"/>
+    <moqui.ai.FactNodeCondition factTypeId="checkResult" nodeSeqId="01" conditionSeqId="01" entityFieldName="logId"
+            operatorEnumId="ENTCO_EQUALS" parameterName="logId"/>
+    <moqui.ai.FactNode factTypeId="checkResult" nodeSeqId="02" parentNodeSeqId="01" sequenceNum="2" nodeTypeEnumId="FNT_VALUE"
+            fieldName="refusedCount" entityFieldName="failedRecordCount"/>
+    <moqui.ai.FactNode factTypeId="checkResult" nodeSeqId="03" parentNodeSeqId="01" sequenceNum="3" nodeTypeEnumId="FNT_VALUE"
+            fieldName="logStatusId" entityFieldName="statusId"/>
+    <moqui.ai.FactNode factTypeId="checkResult" nodeSeqId="04" sequenceNum="4" nodeTypeEnumId="FNT_VALUE"
+            fieldName="tryCount" parameterName="tryCount"/>
+
+    <moqui.ai.RuleSet ruleSetId="SWITCH_ON_A_JOB" description="Next step after a job's one-time run" firstMatchOnly="Y"/>
+    <moqui.ai.RuleSetFactType ruleSetId="SWITCH_ON_A_JOB" factTypeId="checkResult"/>
+    <moqui.ai.RuleSetOutcome ruleSetId="SWITCH_ON_A_JOB" outcomeId="SWITCH_ON" description="Switch the job on"/>
+    <moqui.ai.RuleSetOutcome ruleSetId="SWITCH_ON_A_JOB" outcomeId="CHECK_AGAIN" description="Check the run again"/>
+    <moqui.ai.RuleSetOutcome ruleSetId="SWITCH_ON_A_JOB" outcomeId="PUT_BACK" description="Put the old settings back"/>
+
+    <moqui.ai.RuleSetRule ruleId="SWITCH_ON_A_JOB_ON" ruleSetId="SWITCH_ON_A_JOB" ruleName="switch on" priority="30"
+            description="No record refused and the run finished"/>
+    <moqui.ai.RuleSetCondition ruleId="SWITCH_ON_A_JOB_ON" conditionSeqId="01" sequenceNum="1" conditionTypeId="RCT_COMPARE"
+            factTypeId="checkResult" fieldName="refusedCount" operatorEnumId="ENTCO_EQUALS" compareValue="0"/>
+    <moqui.ai.RuleSetCondition ruleId="SWITCH_ON_A_JOB_ON" conditionSeqId="02" sequenceNum="2" conditionTypeId="RCT_COMPARE"
+            factTypeId="checkResult" fieldName="logStatusId" operatorEnumId="ENTCO_EQUALS" compareValue="DmlsFinished"/>
+    <moqui.ai.RuleSetAction ruleId="SWITCH_ON_A_JOB_ON" actionSeqId="01" ruleSetId="SWITCH_ON_A_JOB"
+            actionTypeId="RAT_OUTCOME" outcomeId="SWITCH_ON"/>
+
+    <moqui.ai.RuleSetRule ruleId="SWITCH_ON_A_JOB_AGAIN" ruleSetId="SWITCH_ON_A_JOB" ruleName="check again" priority="20"
+            description="The run has not finished and fewer than 3 checks were done"/>
+    <moqui.ai.RuleSetCondition ruleId="SWITCH_ON_A_JOB_AGAIN" conditionSeqId="01" sequenceNum="1" conditionTypeId="RCT_COMPARE"
+            factTypeId="checkResult" fieldName="logStatusId" operatorEnumId="ENTCO_NOT_EQUALS" compareValue="DmlsFinished"/>
+    <moqui.ai.RuleSetCondition ruleId="SWITCH_ON_A_JOB_AGAIN" conditionSeqId="02" sequenceNum="2" conditionTypeId="RCT_COMPARE"
+            factTypeId="checkResult" fieldName="tryCount" operatorEnumId="ENTCO_LESS" compareValue="3"/>
+    <moqui.ai.RuleSetAction ruleId="SWITCH_ON_A_JOB_AGAIN" actionSeqId="01" ruleSetId="SWITCH_ON_A_JOB"
+            actionTypeId="RAT_OUTCOME" outcomeId="CHECK_AGAIN"/>
+
+    <moqui.ai.RuleSetRule ruleId="SWITCH_ON_A_JOB_BACK" ruleSetId="SWITCH_ON_A_JOB" ruleName="put back" priority="10"
+            description="Any other result"/>
+    <moqui.ai.RuleSetAction ruleId="SWITCH_ON_A_JOB_BACK" actionSeqId="01" ruleSetId="SWITCH_ON_A_JOB"
+            actionTypeId="RAT_OUTCOME" outcomeId="PUT_BACK"/>
+
+    <moqui.ai.FactType factTypeId="orderItem" description="One item of a sales order, with its product type"/>
+    <moqui.ai.FactField factTypeId="orderItem" fieldName="orderItemSeqId" valueTypeEnumId="FVT_TEXT"/>
+    <moqui.ai.FactField factTypeId="orderItem" fieldName="productId" valueTypeEnumId="FVT_TEXT"/>
+    <moqui.ai.FactField factTypeId="orderItem" fieldName="productTypeId" valueTypeEnumId="FVT_TEXT"/>
+    <moqui.ai.FactNode factTypeId="orderItem" nodeSeqId="01" sequenceNum="1" nodeTypeEnumId="FNT_VALUE"
+            fieldName="orderItemSeqId" entityFieldName="orderItemSeqId"/>
+    <moqui.ai.FactNode factTypeId="orderItem" nodeSeqId="02" sequenceNum="2" nodeTypeEnumId="FNT_VALUE"
+            fieldName="productId" entityFieldName="productId"/>
+    <moqui.ai.FactNode factTypeId="orderItem" nodeSeqId="03" sequenceNum="3" nodeTypeEnumId="FNT_RECORD"
+            relationshipName="Product"/>
+    <moqui.ai.FactNode factTypeId="orderItem" nodeSeqId="04" parentNodeSeqId="03" sequenceNum="4" nodeTypeEnumId="FNT_VALUE"
+            fieldName="productTypeId" entityFieldName="productTypeId"/>
+
+    <moqui.ai.FactType factTypeId="salesOrder" description="A sales order with its items"/>
+    <moqui.ai.FactField factTypeId="salesOrder" fieldName="orderId" valueTypeEnumId="FVT_TEXT"/>
+    <moqui.ai.FactField factTypeId="salesOrder" fieldName="salesChannelEnumId" valueTypeEnumId="FVT_TEXT"/>
+    <moqui.ai.FactField factTypeId="salesOrder" fieldName="items" valueTypeEnumId="FVT_LIST" itemFactTypeId="orderItem"/>
+    <moqui.ai.FactNode factTypeId="salesOrder" nodeSeqId="01" sequenceNum="1" nodeTypeEnumId="FNT_RECORD"
+            entityName="org.apache.ofbiz.order.order.OrderHeader"/>
+    <moqui.ai.FactNodeCondition factTypeId="salesOrder" nodeSeqId="01" conditionSeqId="01" entityFieldName="orderId"
+            operatorEnumId="ENTCO_EQUALS" parameterName="orderId"/>
+    <moqui.ai.FactNode factTypeId="salesOrder" nodeSeqId="02" parentNodeSeqId="01" sequenceNum="2" nodeTypeEnumId="FNT_VALUE"
+            fieldName="orderId" entityFieldName="orderId"/>
+    <moqui.ai.FactNode factTypeId="salesOrder" nodeSeqId="03" parentNodeSeqId="01" sequenceNum="3" nodeTypeEnumId="FNT_VALUE"
+            fieldName="salesChannelEnumId" entityFieldName="salesChannelEnumId"/>
+    <moqui.ai.FactNode factTypeId="salesOrder" nodeSeqId="04" parentNodeSeqId="01" sequenceNum="4" nodeTypeEnumId="FNT_LIST"
+            fieldName="items" relationshipName="OrderItem"/>
+
+    <moqui.ai.RuleSet ruleSetId="HAS_DIGITAL_GOOD" description="Does a sales order hold a digital good" firstMatchOnly="Y"/>
+    <moqui.ai.RuleSetFactType ruleSetId="HAS_DIGITAL_GOOD" factTypeId="salesOrder"/>
+    <moqui.ai.RuleSetOutcome ruleSetId="HAS_DIGITAL_GOOD" outcomeId="HAS_DIGITAL" description="At least one item is a digital good"/>
+    <moqui.ai.RuleSetOutcome ruleSetId="HAS_DIGITAL_GOOD" outcomeId="NO_DIGITAL" description="No item is a digital good"/>
+
+    <moqui.ai.RuleSetRule ruleId="HAS_DIGITAL_GOOD_YES" ruleSetId="HAS_DIGITAL_GOOD" ruleName="has digital" priority="20"
+            description="An item has product type DIGITAL_GOOD"/>
+    <moqui.ai.RuleSetCondition ruleId="HAS_DIGITAL_GOOD_YES" conditionSeqId="01" sequenceNum="1" conditionTypeId="RCT_EXISTS"
+            factTypeId="salesOrder" fieldName="items"/>
+    <moqui.ai.RuleSetCondition ruleId="HAS_DIGITAL_GOOD_YES" conditionSeqId="02" parentConditionSeqId="01" sequenceNum="2"
+            conditionTypeId="RCT_COMPARE" factTypeId="orderItem" fieldName="productTypeId" operatorEnumId="ENTCO_EQUALS" compareValue="DIGITAL_GOOD"/>
+    <moqui.ai.RuleSetAction ruleId="HAS_DIGITAL_GOOD_YES" actionSeqId="01" ruleSetId="HAS_DIGITAL_GOOD"
+            actionTypeId="RAT_OUTCOME" outcomeId="HAS_DIGITAL"/>
+
+    <moqui.ai.RuleSetRule ruleId="HAS_DIGITAL_GOOD_NO" ruleSetId="HAS_DIGITAL_GOOD" ruleName="no digital" priority="10"
+            description="Any other order"/>
+    <moqui.ai.RuleSetAction ruleId="HAS_DIGITAL_GOOD_NO" actionSeqId="01" ruleSetId="HAS_DIGITAL_GOOD"
+            actionTypeId="RAT_OUTCOME" outcomeId="NO_DIGITAL"/>
+</entity-facade-xml>

@@ -1,0 +1,565 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <service verb="store" noun="Rule" authenticate="true">
+        <description>Record a rule, or change it in place when the decision already has a rule with this name. Lines are
+            matched by conditionSeqId and actions by position; the entity audit log keeps the old values. A change that
+            names a field the decision does not read, an outcome not in its list, a priority another rule has, or a value
+            that does not fit its field is refused, and nothing is saved.</description>
+        <in-parameters>
+            <parameter name="ruleSetId" required="true"/>
+            <parameter name="ruleName" required="true"/>
+            <parameter name="priority" type="Integer" required="true"/>
+            <parameter name="description"/>
+            <parameter name="conditions" type="List">
+                <description>Maps of conditionSeqId, parentConditionSeqId, conditionTypeId, factTypeId, fieldName,
+                    operatorEnumId and compareValue. Lines with no parent must all match.</description>
+            </parameter>
+            <parameter name="actions" type="List" required="true">
+                <description>Maps of actionTypeId, outcomeId, factTypeId and fields, a list of maps of fieldName and fixedValue.</description>
+            </parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="ruleId"/>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.RuleSet" value-field="ruleSet"/>
+            <if condition="ruleSet == null"><return error="true" message="Decision ${ruleSetId} does not exist"/></if>
+
+            <service-call name="ai.rules.RuleLineServices.prepare#RuleLines" out-map="preparedLines"
+                    in-map="[ruleSetId: ruleSetId, ruleName: ruleName, conditions: conditions]"/>
+            <set field="problems" from="[] + preparedLines.problems"/>
+            <if condition="!actions"><script>problems.add("A rule needs at least one action")</script></if>
+            <iterate list="actions" entry="action">
+                <entity-find-one entity-name="moqui.ai.RuleActionType" value-field="actionType">
+                    <field-map field-name="actionTypeId" from="action.actionTypeId"/></entity-find-one>
+                <if condition="actionType == null">
+                    <script>problems.add("Action ${action_index + 1}: action type ${action.actionTypeId} is not known".toString())</script>
+                    <continue/>
+                </if>
+                <service-call name="${actionType.prepareServiceName}" in-map="[ruleSetId: ruleSetId, action: action]"
+                        out-map="prepared" out-map-add-to-existing="false"/>
+                <script>problems.addAll(prepared.problems.collect { "Action ${action_index + 1}: ${it}".toString() })</script>
+            </iterate>
+            <iterate list="problems" entry="problem"><message error="true">${problem}</message></iterate>
+
+            <entity-find-one entity-name="moqui.ai.RuleSetRule" value-field="priorityRule">
+                <field-map field-name="ruleSetId"/><field-map field-name="priority"/></entity-find-one>
+            <if condition="priorityRule != null &amp;&amp; priorityRule.ruleName != ruleName">
+                <message error="true">Priority ${priority} is already used by rule ${priorityRule.ruleName}</message></if>
+
+            <entity-find-one entity-name="moqui.ai.RuleSetRule" value-field="existingRule" for-update="true">
+                <field-map field-name="ruleSetId"/><field-map field-name="ruleName"/></entity-find-one>
+            <check-errors/>
+
+            <set field="actionRows" from="actions.collect { [ruleSetId: ruleSetId, actionTypeId: it.actionTypeId,
+                    outcomeId: it.outcomeId, factTypeId: it.factTypeId, fields: (it.fields ?: []).collect { actionField ->
+                    [fieldName: actionField.fieldName, fixedValue: actionField.fixedValue as String] }] }"/>
+            <if condition="existingRule == null">
+                <service-call name="create#moqui.ai.RuleSetRule" out-map="context" in-map="[ruleSetId: ruleSetId,
+                        ruleName: ruleName, priority: priority, description: description, changedDate: ec.user.nowTimestamp,
+                        conditions: preparedLines.savedRows, actions: actionRows]"/>
+                <return/>
+            </if>
+
+            <set field="ruleId" from="existingRule.ruleId"/>
+            <entity-find entity-name="moqui.ai.RuleSetCondition" list="existingLines">
+                <econdition field-name="ruleId"/></entity-find>
+            <entity-find entity-name="moqui.ai.RuleSetAction" list="existingActions">
+                <econdition field-name="ruleId"/><order-by field-name="actionSeqId"/></entity-find>
+            <entity-find entity-name="moqui.ai.RuleSetActionField" list="existingActionFields">
+                <econdition field-name="ruleId"/></entity-find>
+            <set field="lineRows" from="preparedLines.savedRows"/>
+            <set field="actionRows" from="actionRows.withIndex().collect { row, index ->
+                    index &lt; existingActions.size() ? row + [actionSeqId: existingActions[index].actionSeqId] : row }"/>
+            <service-call name="store#moqui.ai.RuleSetRule" in-map="[ruleId: ruleId, ruleSetId: ruleSetId, ruleName: ruleName,
+                    priority: priority, description: description, changedDate: ec.user.nowTimestamp,
+                    conditions: lineRows, actions: actionRows]"/>
+
+            <set field="keptLineSeqIds" from="lineRows*.conditionSeqId"/>
+            <set field="removedLines" from="existingLines.findAll { !(it.conditionSeqId in keptLineSeqIds) }"/>
+            <set field="leafLines" from="removedLines.findAll { leaf -> !removedLines.any { it.parentConditionSeqId == leaf.conditionSeqId } }"/>
+            <while condition="leafLines">
+                <iterate list="leafLines" entry="leafLine"><entity-delete value-field="leafLine"/></iterate>
+                <set field="removedLines" from="removedLines - leafLines"/>
+                <set field="leafLines" from="removedLines.findAll { leaf -> !removedLines.any { it.parentConditionSeqId == leaf.conditionSeqId } }"/>
+            </while>
+            <set field="keptFieldKeys" from="actionRows.collectMany { row -> row.fields.collect { row.actionSeqId + ':' + it.fieldName } }"/>
+            <iterate list="existingActionFields" entry="actionField">
+                <if condition="!((actionField.actionSeqId + ':' + actionField.fieldName) in keptFieldKeys)">
+                    <entity-delete value-field="actionField"/></if>
+            </iterate>
+            <set field="removedActions" from="existingActions.drop(actionRows.size())"/>
+            <iterate list="removedActions" entry="removedAction"><entity-delete value-field="removedAction"/></iterate>
+        </actions>
+    </service>
+
+    <service verb="build" noun="Fact" authenticate="true">
+        <description>Build one fact by running the XML actions written from the fact tree of its fact type. The actions
+            are written once and kept until a row of a fact tree is created, changed or deleted. Each value is converted to
+            the type of its fact field. Rows are read with the caller's permissions.</description>
+        <in-parameters>
+            <parameter name="factTypeId" required="true"/>
+            <parameter name="parameters" type="Map"><description>Caller values that the tree reads by name, like logId.</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="fact" type="Map"/>
+        </out-parameters>
+        <actions>
+            <set field="builtFactCache" from="ec.cache.getCache('ai.rules.built.fact')"/>
+            <set field="builtFact" from="builtFactCache.get(factTypeId)"/>
+            <if condition="builtFact == null">
+                <service-call name="ai.rules.FactServices.prepare#FactType" in-map="[factTypeId: factTypeId]" out-map="prepared"/>
+                <iterate list="prepared.problems" entry="problem"><message error="true">${problem}</message></iterate>
+                <check-errors/>
+                <set field="builtFact" from="[actions: org.moqui.ai.rules.FactActions.write(ec, factTypeId, prepared.nodes),
+                        fixedValues: prepared.fixedValues, messages: prepared.messages]"/>
+                <script>builtFactCache.put(factTypeId, builtFact)</script>
+            </if>
+            <set field="fact" from="org.moqui.ai.rules.FactActions.run(ec, builtFact, parameters)"/>
+        </actions>
+    </service>
+
+    <service verb="get" noun="DecisionFactTypes" authenticate="anonymous-all" allow-remote="false">
+        <description>The fact types a decision reads: directly, from its RuleSetFactType rows, and through their list
+            fields, whose item types it reads too.</description>
+        <in-parameters>
+            <parameter name="ruleSetId" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="directFactTypeIds" type="List"/>
+            <parameter name="factTypeIds" type="List"><description>The direct fact types, then the item types reached through list fields.</description></parameter>
+        </out-parameters>
+        <actions>
+            <entity-find entity-name="moqui.ai.RuleSetFactType" list="readFactTypes" disable-authz="true">
+                <econdition field-name="ruleSetId"/></entity-find>
+            <set field="directFactTypeIds" from="readFactTypes*.factTypeId"/>
+            <set field="factTypeIds" from="[]"/>
+            <set field="waiting" from="directFactTypeIds.collect()"/>
+            <while condition="waiting">
+                <set field="visitedFactTypeId" from="waiting.remove(0)"/>
+                <if condition="visitedFactTypeId in factTypeIds"><continue/></if>
+                <script>factTypeIds.add(visitedFactTypeId)</script>
+                <entity-find entity-name="moqui.ai.FactField" list="listFields" disable-authz="true">
+                    <econdition field-name="factTypeId" from="visitedFactTypeId"/>
+                    <econdition field-name="itemFactTypeId" operator="is-not-null"/></entity-find>
+                <script>waiting.addAll(listFields*.itemFactTypeId)</script>
+            </while>
+        </actions>
+    </service>
+
+    <service verb="convert" noun="Fact" authenticate="anonymous-all" allow-remote="false">
+        <description>Check a fact a caller hands in against the fields of its fact type, and convert each value to its
+            field's kind. A list field holds item facts; this service converts each one with the item fact type. It gives
+            every problem at once and adds no errors, so the caller decides what a problem means.</description>
+        <in-parameters>
+            <parameter name="factTypeId" required="true"/>
+            <parameter name="values" type="Map"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="fact" type="Map"/>
+            <parameter name="problems" type="List"/>
+        </out-parameters>
+        <actions>
+            <set field="problems" from="[]"/>
+            <set field="fact" from="[:]"/>
+            <set field="values" from="values ?: [:]"/>
+            <entity-find entity-name="moqui.ai.FactField" list="factFields"><econdition field-name="factTypeId"/></entity-find>
+            <set field="unknownFieldNames" from="values.keySet() - factFields*.fieldName"/>
+            <iterate list="unknownFieldNames" entry="unknownFieldName">
+                <script>problems.add("Fact type ${factTypeId} has no field ${unknownFieldName}".toString())</script></iterate>
+
+            <iterate list="factFields" entry="factField">
+                <set field="value" from="values.get(factField.fieldName)"/>
+                <if condition="factField.valueTypeEnumId == 'FVT_LIST'">
+                    <if condition="value != null &amp;&amp; !(value instanceof List)">
+                        <script>problems.add("Field ${factField.fieldName} of ${factTypeId} must be a list".toString())</script>
+                        <continue/>
+                    </if>
+                    <set field="items" from="value == null ? null : []"/>
+                    <set field="itemList" from="value ?: []"/>
+                    <iterate list="itemList" entry="itemValues">
+                        <if condition="!(itemValues instanceof Map)">
+                            <script>problems.add("Item ${itemValues_index + 1} of field ${factField.fieldName} of ${factTypeId} must be a fact".toString())</script>
+                            <continue/>
+                        </if>
+                        <service-call name="ai.rules.RuleServices.convert#Fact" out-map="convertedItem" out-map-add-to-existing="false"
+                                in-map="[factTypeId: factField.itemFactTypeId, values: itemValues]"/>
+                        <script>problems.addAll(convertedItem.problems)</script>
+                        <script>items.add(convertedItem.fact)</script>
+                    </iterate>
+                    <script>fact.put(factField.fieldName, items)</script>
+                    <continue/>
+                </if>
+                <service-call name="ai.rules.FactValueServices.convert#FactValue" out-map="convertedValue" out-map-add-to-existing="false"
+                        in-map="[valueTypeEnumId: factField.valueTypeEnumId, value: value]"/>
+                <if condition="convertedValue.problem">
+                    <script>problems.add("Value ${value} does not fit field ${factField.fieldName} of ${factTypeId}".toString())</script>
+                    <else><script>fact.put(factField.fieldName, convertedValue.convertedValue)</script></else>
+                </if>
+            </iterate>
+        </actions>
+    </service>
+
+    <service verb="evaluate" noun="RuleSet" authenticate="true">
+        <description>Run the rules of a decision on the given facts and return what they decide. The rules are built once
+            and kept until a row of the decision's rules or read fields is created, changed or deleted, so any change is
+            used from the next call on. Nothing is acted on: the caller acts on the outcomes.</description>
+        <in-parameters>
+            <parameter name="ruleSetId" required="true"/>
+            <parameter name="facts" type="List" required="true"><description>Maps of factTypeId and fact, the fact being a Map of field values.</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="outcomes" type="List"><description>Outcome ids, highest priority first. Only the first when the decision has firstMatchOnly Y.</description></parameter>
+            <parameter name="matchedRules" type="List"><description>Maps of ruleId, ruleName, priority and outcomeId for every rule that matched.</description></parameter>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.RuleSet" value-field="ruleSet"/>
+            <if condition="ruleSet == null"><return error="true" message="Decision ${ruleSetId} does not exist"/></if>
+            <entity-find entity-name="moqui.ai.RuleSetFactType" list="readFactTypeList">
+                <econdition field-name="ruleSetId"/></entity-find>
+            <set field="readFactTypeIds" from="readFactTypeList*.factTypeId"/>
+
+            <set field="convertedFacts" from="[]"/>
+            <set field="factProblems" from="[]"/>
+            <iterate list="facts" entry="factEntry">
+                <if condition="!(factEntry.factTypeId in readFactTypeIds)">
+                    <script>factProblems.add("Decision ${ruleSetId} does not read fact type ${factEntry.factTypeId}".toString())</script>
+                    <continue/>
+                </if>
+                <service-call name="ai.rules.RuleServices.convert#Fact" out-map="converted" out-map-add-to-existing="false"
+                        in-map="[factTypeId: factEntry.factTypeId, values: factEntry.fact]"/>
+                <script>factProblems.addAll(converted.problems)</script>
+                <script>convertedFacts.add([factTypeId: factEntry.factTypeId, fact: converted.fact])</script>
+            </iterate>
+            <iterate list="factProblems" entry="factProblem"><message error="true">${factProblem}</message></iterate>
+            <check-errors/>
+
+            <set field="decided" from="ec.getTool('Rules', org.moqui.ai.rules.RuleSets).builtRuleSet(ruleSetId)
+                    .decide(ec, convertedFacts, ruleSet.firstMatchOnly == 'Y')"/>
+            <check-errors/>
+            <set field="outcomes" from="decided.outcomes"/>
+            <set field="matchedRules" from="decided.matchedRules"/>
+        </actions>
+    </service>
+
+    <service verb="evaluate" noun="RuleSetOverSearch" authenticate="true">
+        <description>Build a fact for every row a search finds, run one decision on each, and count the outcomes. The search
+            reads searchParameters the way a Moqui find form reads its fields: fieldName, fieldName_op, fieldName_not.
+            Each found row's primary key fields go to build#Fact as caller values, with parameters. The first fact or
+            decision that fails stops the run, with its error.</description>
+        <in-parameters>
+            <parameter name="ruleSetId" required="true"/>
+            <parameter name="factTypeId" required="true"/>
+            <parameter name="entityName" required="true"><description>The entity whose rows the search finds, like WorkEffort.</description></parameter>
+            <parameter name="searchParameters" type="Map"><description>Find form fields, like statusId: 'TASK_COMPLETED,TASK_CANCELLED',
+                statusId_op: 'in' and statusId_not: 'Y'.</description></parameter>
+            <parameter name="parameters" type="Map"><description>Caller values given to every fact, besides the row's key.</description></parameter>
+            <parameter name="groupByFieldNames" type="List"><description>Fact fields to count by, besides the outcome, like purposeId.</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="rowCount" type="Integer"/>
+            <parameter name="counts" type="List"><description>Maps of each groupBy field's value, outcomeId and count, the
+                largest count first. A fact that no rule matched counts with outcomeId empty.</description></parameter>
+            <parameter name="results" type="List"><description>Maps of the row's keys, its fact and its outcomes.</description></parameter>
+        </out-parameters>
+        <actions>
+            <if condition="!ec.entity.isEntityDefined(entityName)"><return error="true" message="Entity ${entityName} does not exist"/></if>
+            <set field="groupByFieldNames" from="groupByFieldNames ?: []"/>
+            <iterate list="groupByFieldNames" entry="groupByFieldName">
+                <entity-find-one entity-name="moqui.ai.FactField" value-field="groupByField">
+                    <field-map field-name="factTypeId"/><field-map field-name="fieldName" from="groupByFieldName"/></entity-find-one>
+                <if condition="groupByField == null"><message error="true">Fact type ${factTypeId} has no field ${groupByFieldName}</message></if>
+            </iterate>
+            <check-errors/>
+
+            <entity-find entity-name="${entityName}" list="foundRows">
+                <search-form-inputs input-fields-map="searchParameters ?: [:]" paginate="false"/></entity-find>
+            <set field="rowCount" from="foundRows.size()"/>
+            <set field="countsByKey" from="[:]"/>
+            <set field="results" from="[]"/>
+            <iterate list="foundRows" entry="foundRow">
+                <set field="rowKeys" from="foundRow.getPrimaryKeys()"/>
+                <service-call name="ai.rules.RuleServices.build#Fact" out-map="built" out-map-add-to-existing="false"
+                        in-map="[factTypeId: factTypeId, parameters: (parameters ?: [:]) + rowKeys]"/>
+                <check-errors/>
+                <service-call name="ai.rules.RuleServices.evaluate#RuleSet" out-map="evaluated" out-map-add-to-existing="false"
+                        in-map="[ruleSetId: ruleSetId, facts: [[factTypeId: factTypeId, fact: built.fact]]]"/>
+                <check-errors/>
+                <script>results.add([keys: rowKeys, fact: built.fact, outcomes: evaluated.outcomes])</script>
+                <set field="groupValues" from="groupByFieldNames.collectEntries { [(it): built.fact.get(it)] }"/>
+                <set field="countedOutcomeIds" from="evaluated.outcomes ?: [null]"/>
+                <iterate list="countedOutcomeIds" entry="countedOutcomeId">
+                    <set field="countKey" from="groupValues + [outcomeId: countedOutcomeId]"/>
+                    <script>countsByKey.put(countKey, (countsByKey.get(countKey) ?: 0) + 1)</script>
+                </iterate>
+            </iterate>
+            <set field="counts" from="countsByKey.collect { key, count -> key + [count: count] }.sort { -it.count }"/>
+        </actions>
+    </service>
+
+    <service verb="read" noun="FileRecords" authenticate="anonymous-all" allow-remote="false">
+        <description>Read the records of a CSV or JSON file, with one branch per format as Moqui's own data loader has. The
+            file's extension picks the branch. Each record is a map of values and problems: a CSV row with more values than
+            columns gets a problem, and an empty CSV cell holds no value. A file that cannot be read, holds no records, or
+            has a value with no field name or more than one value is refused with errors.</description>
+        <in-parameters>
+            <parameter name="fileName" required="true"/>
+            <parameter name="fileText" required="true" allow-html="any"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="records" type="List"><description>Maps of values and problems, in file order.</description></parameter>
+        </out-parameters>
+        <actions>
+            <set field="extension" from="fileName.contains('.') ? fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase() : ''"/>
+            <set field="records" from="[]"/>
+            <set field="readError" from="null"/>
+            <if condition="extension == 'csv'">
+                <script><![CDATA[
+                    try {
+                        org.apache.commons.csv.CSVParser parser = org.apache.commons.csv.CSVParser.parse(fileText,
+                                org.apache.commons.csv.CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
+                                        .setTrim(true).setIgnoreEmptyLines(true).get())
+                        try {
+                            int columnCount = parser.headerNames.size()
+                            records = parser.records.collect { row ->
+                                [values: row.toMap().collectEntries(new LinkedHashMap()) { fieldName, value -> [(fieldName): value ?: null] },
+                                 problems: row.size() > columnCount ? ["It has ${row.size()} values, but the file has ${columnCount} columns".toString()] : []]
+                            }
+                        } finally {
+                            parser.close()
+                        }
+                    } catch (IOException | UncheckedIOException | IllegalArgumentException e) {
+                        readError = e.message
+                    }
+                ]]></script>
+                <else-if condition="extension == 'json'">
+                    <script><![CDATA[
+                        try {
+                            parsed = new groovy.json.JsonSlurper().parseText(fileText)
+                        } catch (groovy.json.JsonException | IllegalArgumentException e) {
+                            readError = e.message
+                        }
+                    ]]></script>
+                    <if condition="!readError">
+                        <set field="jsonObjects" from="parsed instanceof Map ? [parsed] : parsed instanceof List &amp;&amp;
+                                parsed.every { it instanceof Map } ? parsed : null"/>
+                        <if condition="jsonObjects == null">
+                            <set field="readError" value="a JSON file must hold one object or a list of objects"/>
+                            <else><set field="records" from="jsonObjects.collect { [values: it, problems: []] }"/></else>
+                        </if>
+                    </if>
+                </else-if>
+                <else><return error="true" message="File ${fileName} is not a CSV or JSON file"/></else>
+            </if>
+            <if condition="readError"><return error="true" message="File ${fileName} could not be read: ${readError}"/></if>
+            <if condition="!records"><return error="true" message="File ${fileName} has no records"/></if>
+
+            <iterate list="records" entry="record">
+                <set field="recordNumber" from="record_index + 1"/>
+                <set field="recordValues" from="record.values"/>
+                <iterate list="recordValues" key="fieldName" entry="value">
+                    <if condition="!fieldName?.trim()">
+                        <message error="true">Record ${recordNumber} of ${fileName} has a value with no field name</message>
+                        <else-if condition="value instanceof Map || value instanceof List">
+                            <message error="true">Record ${recordNumber} of ${fileName} holds more than one value in ${fieldName}</message>
+                        </else-if>
+                    </if>
+                </iterate>
+            </iterate>
+        </actions>
+    </service>
+
+    <service verb="learn" noun="FileFields" authenticate="true">
+        <description>Read a CSV or JSON file and record its columns as the fields of a kind of file. A new kind is recorded
+            first. Each column the kind does not have yet becomes a field, with the kind of value its values fit: integer,
+            decimal, boolean, date-time, or else text. Fields the kind already has are kept as they are.</description>
+        <in-parameters>
+            <parameter name="factTypeId" required="true"><description>The kind of file the Rule Author picked or named.</description></parameter>
+            <parameter name="fileName" required="true"><description>Its extension, csv or json, says how the file is read.</description></parameter>
+            <parameter name="fileText" required="true" allow-html="any"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="fields" type="List"><description>Maps of fieldName and valueTypeEnumId for every field of the kind.</description></parameter>
+            <parameter name="newFieldNames" type="List"><description>The fields this file added.</description></parameter>
+        </out-parameters>
+        <actions>
+            <service-call name="ai.rules.RuleServices.read#FileRecords" in-map="[fileName: fileName, fileText: fileText]"
+                    out-map="read" out-map-add-to-existing="false"/>
+            <check-errors/>
+            <set field="fileRecords" from="read.records"/>
+
+            <entity-find-one entity-name="moqui.ai.FactType" value-field="factType"/>
+            <if condition="factType == null">
+                <service-call name="create#moqui.ai.FactType" in-map="[factTypeId: factTypeId]"/></if>
+
+            <entity-find entity-name="moqui.ai.FactField" list="knownFieldList">
+                <econdition field-name="factTypeId"/></entity-find>
+            <set field="records" from="fileRecords*.values"/>
+            <set field="newFieldNames" from="records.collectMany { it.keySet() as List }.unique() - knownFieldList*.fieldName"/>
+            <iterate list="newFieldNames" entry="fieldName">
+                <service-call name="ai.rules.FactValueServices.guess#FactValueType" out-map="guessed" out-map-add-to-existing="false"
+                        in-map="[values: records*.get(fieldName)]"/>
+                <service-call name="create#moqui.ai.FactField" in-map="[factTypeId: factTypeId, fieldName: fieldName,
+                        valueTypeEnumId: guessed.valueTypeEnumId]"/>
+            </iterate>
+
+            <entity-find entity-name="moqui.ai.FactField" list="fieldList">
+                <econdition field-name="factTypeId"/><order-by field-name="fieldName"/></entity-find>
+            <set field="fields" from="fieldList.collect { [fieldName: it.fieldName, valueTypeEnumId: it.valueTypeEnumId] }"/>
+        </actions>
+    </service>
+
+    <service verb="update" noun="FactField" authenticate="true">
+        <description>Correct the kind of value of a fact field, like a learned orderId that is an id and so text. Both kinds
+            must hold one value. The change is refused, and nothing is saved, when a rule line on the field has a value
+            that does not fit the new kind, or compares with like and the new kind is not text. Decisions that read the
+            field are built again on their next call.</description>
+        <in-parameters>
+            <parameter name="factTypeId" required="true"/>
+            <parameter name="fieldName" required="true"/>
+            <parameter name="valueTypeEnumId" required="true"/>
+        </in-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.FactField" value-field="factField"/>
+            <if condition="factField == null">
+                <return error="true" message="Fact type ${factTypeId} has no field ${fieldName}"/></if>
+            <service-call name="ai.rules.FactValueServices.convert#FactValue" out-map="oldKind" out-map-add-to-existing="false"
+                    in-map="[valueTypeEnumId: factField.valueTypeEnumId]"/>
+            <service-call name="ai.rules.FactValueServices.convert#FactValue" out-map="newKind" out-map-add-to-existing="false"
+                    in-map="[valueTypeEnumId: valueTypeEnumId]"/>
+            <if condition="oldKind.problem || newKind.problem">
+                <return error="true" message="Field ${fieldName} of ${factTypeId} can only change between kinds that hold one value"/></if>
+
+            <entity-find entity-name="moqui.ai.RuleSetConditionAndRule" list="lineList">
+                <econdition field-name="factTypeId"/><econdition field-name="fieldName"/></entity-find>
+            <set field="problems" from="[]"/>
+            <iterate list="lineList" entry="line">
+                <entity-find-one entity-name="moqui.ai.RuleConditionType" value-field="conditionType">
+                    <field-map field-name="conditionTypeId" from="line.conditionTypeId"/></entity-find-one>
+                <service-call name="${conditionType.prepareServiceName}" out-map="prepared" out-map-add-to-existing="false"
+                        in-map="[line: line, childLines: [], readFactTypeIds: [factTypeId], valueTypeEnumId: valueTypeEnumId]"/>
+                <script>problems.addAll(prepared.problems.collect { "Rule ${line.ruleName}: ${it}".toString() })</script>
+            </iterate>
+            <iterate list="problems" entry="problem"><message error="true">${problem}</message></iterate>
+            <check-errors/>
+
+            <service-call name="update#moqui.ai.FactField"
+                    in-map="[factTypeId: factTypeId, fieldName: fieldName, valueTypeEnumId: valueTypeEnumId]"/>
+        </actions>
+    </service>
+
+    <service verb="check" noun="File" authenticate="true">
+        <description>Check each record of a CSV or JSON file against a decision. Each record is one fact of the kind of
+            file, which the decision must read. A record that does not fit the kind's fields is refused with its
+            reasons, and the other records are still checked. An empty CSV cell holds no value. The check and each record's
+            outcomes or reasons are kept as a FileCheck. Nothing is acted on.</description>
+        <in-parameters>
+            <parameter name="ruleSetId" required="true"/>
+            <parameter name="factTypeId" required="true"><description>The kind of file, with fields learned by learn#FileFields.</description></parameter>
+            <parameter name="fileName" required="true"><description>Its extension, csv or json, says how the file is read.</description></parameter>
+            <parameter name="fileText" required="true" allow-html="any"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="fileCheckId"><description>The kept record of this check, for review and download.</description></parameter>
+            <parameter name="checkedRecords" type="List"><description>One map per record, in file order: recordNumber, then
+                outcomes and matchedRules as evaluate#RuleSet gives them, or refusedReasons.</description></parameter>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.RuleSet" value-field="ruleSet"/>
+            <if condition="ruleSet == null"><return error="true" message="Decision ${ruleSetId} does not exist"/></if>
+            <entity-find-one entity-name="moqui.ai.RuleSetFactType" value-field="ruleSetFactType"/>
+            <if condition="ruleSetFactType == null">
+                <return error="true" message="Decision ${ruleSetId} does not read fact type ${factTypeId}"/></if>
+            <service-call name="ai.rules.RuleServices.read#FileRecords" in-map="[fileName: fileName, fileText: fileText]"
+                    out-map="read" out-map-add-to-existing="false"/>
+            <check-errors/>
+
+            <set field="builtRuleSet" from="ec.getTool('Rules', org.moqui.ai.rules.RuleSets).builtRuleSet(ruleSetId)"/>
+            <set field="checkedRecords" from="[]"/>
+            <set field="keptRows" from="[]"/>
+            <set field="fileRecords" from="read.records"/>
+            <iterate list="fileRecords" entry="fileRecord">
+                <service-call name="ai.rules.RuleServices.convert#Fact" out-map="converted" out-map-add-to-existing="false"
+                        in-map="[factTypeId: factTypeId, values: fileRecord.values]"/>
+                <set field="refusedReasons" from="fileRecord.problems + converted.problems"/>
+                <set field="checkedRecord" from="[recordNumber: fileRecord_index + 1]"/>
+                <if condition="!refusedReasons">
+                    <set field="decided" from="builtRuleSet.decide(ec, [[factTypeId: factTypeId, fact: converted.fact]], ruleSet.firstMatchOnly == 'Y')"/>
+                    <if condition="ec.message.hasError()">
+                        <set field="refusedReasons" from="ec.message.errors.collect()"/>
+                        <script>ec.message.clearErrors()</script>
+                        <else><script>checkedRecord.putAll(decided)</script></else>
+                    </if>
+                </if>
+                <if condition="refusedReasons"><set field="checkedRecord.refusedReasons" from="refusedReasons"/></if>
+                <script>checkedRecords.add(checkedRecord)</script>
+                <script>keptRows.add([recordNumber: checkedRecord.recordNumber, recordValues: groovy.json.JsonOutput.toJson(fileRecord.values),
+                        outcomes: checkedRecord.outcomes != null ? groovy.json.JsonOutput.toJson(checkedRecord.outcomes) : null,
+                        refusedReasons: refusedReasons ? groovy.json.JsonOutput.toJson(refusedReasons) : null])</script>
+            </iterate>
+
+            <service-call name="create#moqui.ai.FileCheck" out-map="context"
+                    in-map="[ruleSetId: ruleSetId, factTypeId: factTypeId, fileName: fileName, checkedDate: ec.user.nowTimestamp,
+                        checkedByUserId: ec.user.userId, recordCount: checkedRecords.size(),
+                        refusedCount: checkedRecords.count { it.refusedReasons }, records: keptRows]"/>
+        </actions>
+    </service>
+
+    <service verb="get" noun="FileCheck" authenticate="true">
+        <description>Read a kept file check for review: who checked which file against which decision and when, with each
+            record's values and its outcomes or the reasons it was refused, in file order.</description>
+        <in-parameters>
+            <parameter name="fileCheckId" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="fileCheck" type="Map"><description>The FileCheck fields and records, a list of maps of
+                recordNumber, recordValues, outcomes and refusedReasons.</description></parameter>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.ai.FileCheck" value-field="fileCheckValue"/>
+            <if condition="fileCheckValue == null">
+                <return error="true" message="File check ${fileCheckId} does not exist"/></if>
+            <entity-find entity-name="moqui.ai.FileCheckRecord" list="recordList">
+                <econdition field-name="fileCheckId"/><order-by field-name="recordNumber"/></entity-find>
+            <set field="jsonSlurper" from="new groovy.json.JsonSlurper()"/>
+            <set field="fileCheck" from="fileCheckValue.getMap() + [records: recordList.collect { [recordNumber: it.recordNumber,
+                    recordValues: jsonSlurper.parseText(it.recordValues), outcomes: it.outcomes ? jsonSlurper.parseText(it.outcomes) : null,
+                    refusedReasons: it.refusedReasons ? jsonSlurper.parseText(it.refusedReasons) : null] }]"/>
+        </actions>
+    </service>
+
+    <service verb="download" noun="FileCheck" authenticate="true">
+        <description>Write a kept file check as a CSV file: the record's own columns, then its outcomes and the reasons it
+            was refused.</description>
+        <in-parameters>
+            <parameter name="fileCheckId" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="fileName"><description>The checked file's name with -checked.csv at the end.</description></parameter>
+            <parameter name="fileText"/>
+        </out-parameters>
+        <actions>
+            <service-call name="ai.rules.RuleServices.get#FileCheck" in-map="[fileCheckId: fileCheckId]" out-map="kept"/>
+            <check-errors/>
+            <set field="keptFileName" from="kept.fileCheck.fileName"/>
+            <set field="fileName" from="(keptFileName.contains('.') ? keptFileName.substring(0, keptFileName.lastIndexOf('.')) : keptFileName) + '-checked.csv'"/>
+            <set field="keptRecords" from="kept.fileCheck.records"/>
+            <set field="valueColumns" from="keptRecords.collectMany { it.recordValues.keySet() as List }.unique()"/>
+            <set field="fileWriter" from="new StringWriter()"/>
+            <script><![CDATA[
+                org.apache.commons.csv.CSVPrinter printer = new org.apache.commons.csv.CSVPrinter(fileWriter,
+                        org.apache.commons.csv.CSVFormat.DEFAULT.builder().setHeader((valueColumns + ["outcomes", "refusedReasons"]) as String[]).get())
+                try {
+                    for (Map record in keptRecords)
+                        printer.printRecord(valueColumns.collect { record.recordValues.get(it) } +
+                                [record.outcomes?.join(", "), record.refusedReasons?.join("; ")])
+                } finally {
+                    printer.close()
+                }
+            ]]></script>
+            <set field="fileText" from="fileWriter.toString()"/>
+        </actions>
+    </service>
+</services>

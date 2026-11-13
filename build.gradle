@@ -10,6 +10,7 @@ def moquiDir = projectDir.parentFile.parentFile.parentFile
 def frameworkDir = file(moquiDir.absolutePath + '/framework')
 def runtimeDir = file(moquiDir.absolutePath + '/runtime')
 def jarBaseName = componentNode.'@name'
+def maargUtilLib = fileTree(dir: projectDir.parentFile.absolutePath + '/maarg-util/lib', include: '*.jar')
 
 repositories {
     flatDir name: 'localLib', dirs: frameworkDir.absolutePath + '/lib'
@@ -19,8 +20,11 @@ repositories {
 
 dependencies {
     implementation project(':framework')
+    compileOnly maargUtilLib
+    testImplementation maargUtilLib
     testImplementation project(':framework').configurations.testImplementation.allDependencies
 }
+tasks.named('compileGroovy') { dependsOn ':runtime:component:maarg-util:jar' }
 
 test {
     useJUnitPlatform()

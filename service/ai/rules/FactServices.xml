@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <service verb="prepare" noun="FactType" authenticate="anonymous-all" allow-remote="false">
+        <description>Check the fact tree of a fact type against the entity definitions and give the checked tree that
+            template/FactActions.xml.ftl writes as XML actions. The tree holds only names that passed the check. Fixed
+            values and error texts are kept apart as data, so no text from a row becomes code.</description>
+        <in-parameters>
+            <parameter name="factTypeId" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="problems" type="List"><description>What is wrong with the tree, empty when it is good.</description></parameter>
+            <parameter name="nodes" type="List"><description>The checked top nodes. Each is a Map with kind, the FactNodeType
+                enumCode that names its macro, and what that macro writes; a record node holds its children.</description></parameter>
+            <parameter name="fixedValues" type="List"><description>Fixed values of nodes and conditions, read by position.</description></parameter>
+            <parameter name="messages" type="List"><description>Error texts the built actions add, read by position.</description></parameter>
+        </out-parameters>
+        <actions>
+            <set field="problems" from="[]"/>
+            <set field="nodes" from="[]"/>
+            <set field="fixedValues" from="[]"/>
+            <set field="messages" from="[]"/>
+            <set field="plainName" from="~/[A-Za-z_][A-Za-z0-9_]*/"/>
+            <set field="readingKinds" from="['record', 'list', 'count']"/>
+            <set field="operatorNames" from="['equals', 'not-equals', 'less', 'greater', 'less-equals', 'greater-equals',
+                    'like', 'not-like', 'is-null', 'is-not-null']"/>
+            <entity-find entity-name="moqui.basic.Enumeration" list="nodeTypes" cache="true">
+                <econdition field-name="enumTypeId" value="FactNodeType"/></entity-find>
+            <set field="kindsByEnumId" from="nodeTypes.collectEntries { [(it.enumId): it.enumCode] }"/>
+
+            <set field="rowNumber" from="0"/>
+            <set field="waiting" from="[[factTypeId: factTypeId, factName: 'fact', parent: null, siblings: nodes, path: []]]"/>
+            <while condition="waiting">
+                <set field="entry" from="waiting.remove(0)"/>
+                <if condition="entry.row == null">
+                    <entity-find-one entity-name="moqui.ai.FactType" value-field="factType">
+                        <field-map field-name="factTypeId" from="entry.factTypeId"/></entity-find-one>
+                    <if condition="factType == null">
+                        <script>problems.add("Fact type ${entry.factTypeId} does not exist".toString())</script>
+                        <continue/>
+                    </if>
+                    <entity-find entity-name="moqui.ai.FactField" list="factFields">
+                        <econdition field-name="factTypeId" from="entry.factTypeId"/></entity-find>
+                    <entity-find entity-name="moqui.ai.FactNode" list="nodeRows">
+                        <econdition field-name="factTypeId" from="entry.factTypeId"/><order-by field-name="sequenceNum"/></entity-find>
+                    <entity-find entity-name="moqui.ai.FactNodeCondition" list="conditionRows">
+                        <econdition field-name="factTypeId" from="entry.factTypeId"/><order-by field-name="conditionSeqId"/></entity-find>
+                    <set field="tree" from="[fieldsByName: factFields.collectEntries { [(it.fieldName): it] },
+                            rowsByParent: nodeRows.groupBy { it.parentNodeSeqId }, conditionsByNode: conditionRows.groupBy { it.nodeSeqId }]"/>
+                    <set field="path" from="entry.path + [entry.factTypeId]"/>
+                    <script>waiting.addAll((tree.rowsByParent.get(null) ?: []).collect { [factTypeId: entry.factTypeId, tree: tree,
+                            factName: entry.factName, row: it, parent: entry.parent, siblings: entry.siblings, path: path] })</script>
+                    <continue/>
+                </if>
+
+                <set field="row" from="entry.row"/>
+                <set field="tree" from="entry.tree"/>
+                <set field="parent" from="entry.parent"/>
+                <set field="nodeName" from="'Node ' + row.nodeSeqId + ' of ' + entry.factTypeId"/>
+                <set field="kind" from="kindsByEnumId.get(row.nodeTypeEnumId)"/>
+                <if condition="kind == null">
+                    <script>problems.add("${nodeName} has unknown node type ${row.nodeTypeEnumId}".toString())</script>
+                    <continue/>
+                </if>
+                <set field="rowNumber" from="rowNumber + 1"/>
+                <set field="node" from="[kind: kind, rowName: 'row' + rowNumber, parentRowName: parent?.rowName,
+                        factName: entry.factName, children: []]"/>
+
+                <if condition="kind != 'record'">
+                    <set field="factField" from="tree.fieldsByName.get(row.fieldName)"/>
+                    <if condition="factField == null">
+                        <script>problems.add("${nodeName} names no field to fill".toString())</script>
+                        <continue/>
+                    </if>
+                    <if condition="!(row.fieldName ==~ plainName)">
+                        <script>problems.add("${nodeName} fills field ${row.fieldName}, which is not a plain name".toString())</script>
+                        <continue/>
+                    </if>
+                    <if condition="kind == 'list'">
+                        <if condition="factField.valueTypeEnumId != 'FVT_LIST' || !factField.itemFactTypeId">
+                            <script>problems.add("${nodeName} fills field ${row.fieldName}, which is not a list of facts".toString())</script>
+                            <continue/>
+                        </if>
+                        <else>
+                            <service-call name="ai.rules.FactValueServices.convert#FactValue" out-map="fieldKind" out-map-add-to-existing="false"
+                                    in-map="[valueTypeEnumId: factField.valueTypeEnumId]"/>
+                            <if condition="fieldKind.problem">
+                                <script>problems.add("${nodeName} fills field ${row.fieldName}, which does not hold a single value".toString())</script>
+                                <continue/>
+                            </if>
+                        </else>
+                    </if>
+                    <if condition="kind == 'age' &amp;&amp; factField.valueTypeEnumId != 'FVT_INTEGER'">
+                        <script>problems.add("${nodeName} fills field ${row.fieldName} with an age in days, so the field must hold an integer".toString())</script>
+                        <continue/>
+                    </if>
+                    <set field="node.fieldName" from="row.fieldName"/>
+                    <set field="node.valueTypeEnumId" from="factField.valueTypeEnumId"/>
+                    <if condition="kind != 'list'">
+                        <script>messages.add("${nodeName} fills field ${row.fieldName}".toString())</script>
+                        <set field="node.fillMessageIndex" from="messages.size() - 1"/>
+                    </if>
+                </if>
+
+                <if condition="kind in readingKinds">
+                    <if condition="row.relationshipName">
+                        <set field="relationship" from="parent?.rowDefinition?.getRelationshipInfo(row.relationshipName)"/>
+                        <if condition="relationship == null">
+                            <script>problems.add("${nodeName} follows relationship ${row.relationshipName}, which its parent row does not have".toString())</script>
+                            <continue/>
+                        </if>
+                        <set field="node.rowDefinition" from="relationship.relatedEd"/>
+                        <set field="node.keyFields" from="relationship.keyMap.collect { [fieldName: it.value, parentFieldName: it.key] }"/>
+                        <else>
+                            <set field="node.rowDefinition" from="row.entityName &amp;&amp; ec.entity.isEntityDefined(row.entityName) ? ec.entity.getEntityDefinition(row.entityName) : null"/>
+                            <if condition="node.rowDefinition == null">
+                                <script>problems.add("${nodeName} reads entity ${row.entityName}, which does not exist".toString())</script>
+                                <continue/>
+                            </if>
+                            <set field="node.keyFields" from="[]"/>
+                        </else>
+                    </if>
+                    <set field="node.entityName" from="node.rowDefinition.getFullEntityName()"/>
+                    <set field="node.filterByDate" from="row.filterByDate == 'Y'"/>
+                    <if condition="node.filterByDate &amp;&amp; !(node.rowDefinition.isField('fromDate') &amp;&amp; node.rowDefinition.isField('thruDate'))">
+                        <script>problems.add("${nodeName} keeps only rows current now, but ${node.entityName} has no fromDate and thruDate".toString())</script>
+                        <continue/>
+                    </if>
+                    <set field="node.conditions" from="[]"/>
+                    <set field="nodeConditions" from="tree.conditionsByNode.get(row.nodeSeqId) ?: []"/>
+                    <iterate list="nodeConditions" entry="conditionRow">
+                        <if condition="!node.rowDefinition.isField(conditionRow.entityFieldName)">
+                            <script>problems.add("${nodeName} has a condition on field ${conditionRow.entityFieldName}, which ${node.entityName} does not have".toString())</script>
+                            <continue/>
+                        </if>
+                        <entity-find-one entity-name="moqui.basic.Enumeration" value-field="operator" cache="true">
+                            <field-map field-name="enumId" from="conditionRow.operatorEnumId"/></entity-find-one>
+                        <set field="operatorName" from="operator?.description"/>
+                        <if condition="!(operatorName in operatorNames)">
+                            <script>problems.add("${nodeName} has a condition with operator ${conditionRow.operatorEnumId}, which a fact tree cannot use".toString())</script>
+                            <continue/>
+                        </if>
+                        <if condition="conditionRow.fixedValue != null">
+                            <script>fixedValues.add(node.rowDefinition.convertFieldString(conditionRow.entityFieldName, conditionRow.fixedValue, ec))</script>
+                            <set field="conditionFrom" from="'fixedValues[' + (fixedValues.size() - 1) + ']'"/>
+                            <else-if condition="conditionRow.parameterName">
+                                <if condition="!(conditionRow.parameterName ==~ plainName)">
+                                    <script>problems.add("${nodeName} reads caller value ${conditionRow.parameterName}, which is not a plain name".toString())</script>
+                                    <continue/>
+                                </if>
+                                <set field="conditionFrom" from="'parameters.' + conditionRow.parameterName"/>
+                            </else-if>
+                            <else><set field="conditionFrom" value="null"/></else>
+                        </if>
+                        <script>node.conditions.add([fieldName: conditionRow.entityFieldName, operator: operatorName, from: conditionFrom])</script>
+                    </iterate>
+                    <if condition="kind == 'record'">
+                        <script>messages.add("${nodeName} reads more than one ${node.entityName} row".toString())</script>
+                        <set field="node.messageIndex" from="messages.size() - 1"/>
+                        <script>waiting.addAll((tree.rowsByParent.get(row.nodeSeqId) ?: []).collect { [factTypeId: entry.factTypeId, tree: tree,
+                                factName: entry.factName, row: it, parent: node, siblings: node.children, path: entry.path] })</script>
+                    </if>
+                    <if condition="kind == 'list'">
+                        <if condition="factField.itemFactTypeId in entry.path">
+                            <script>problems.add("${nodeName} fills field ${row.fieldName} with fact type ${factField.itemFactTypeId}, so fact type ${factField.itemFactTypeId} would contain itself".toString())</script>
+                            <continue/>
+                        </if>
+                        <set field="node.itemName" from="'item' + rowNumber"/>
+                        <script>waiting.add([factTypeId: factField.itemFactTypeId, factName: node.itemName, parent: node, siblings: node.children, path: entry.path])</script>
+                    </if>
+                    <else>
+                        <if condition="row.filterByDate == 'Y'">
+                            <script>problems.add("${nodeName} keeps only rows current now, but it reads no rows".toString())</script>
+                            <continue/>
+                        </if>
+                        <if condition="kind == 'age'">
+                            <set field="ageFieldInfo" from="parent?.rowDefinition?.getFieldInfo(row.entityFieldName)"/>
+                            <if condition="ageFieldInfo == null">
+                                <script>problems.add("${nodeName} reads field ${row.entityFieldName}, which its parent row does not have".toString())</script>
+                                <continue/>
+                            </if>
+                            <if condition="!(ageFieldInfo.type in ['date-time', 'date'])">
+                                <script>problems.add("${nodeName} counts days since field ${row.entityFieldName}, which is not a date".toString())</script>
+                                <continue/>
+                            </if>
+                            <set field="node.from" from="parent.rowName + '?.' + row.entityFieldName"/>
+                            <else>
+                                <if condition="row.entityFieldName">
+                                    <if condition="!parent?.rowDefinition?.isField(row.entityFieldName)">
+                                        <script>problems.add("${nodeName} reads field ${row.entityFieldName}, which its parent row does not have".toString())</script>
+                                        <continue/>
+                                    </if>
+                                    <set field="valueFrom" from="parent.rowName + '?.' + row.entityFieldName"/>
+                                    <else-if condition="row.parameterName">
+                                        <if condition="!(row.parameterName ==~ plainName)">
+                                            <script>problems.add("${nodeName} reads caller value ${row.parameterName}, which is not a plain name".toString())</script>
+                                            <continue/>
+                                        </if>
+                                        <set field="valueFrom" from="'parameters.' + row.parameterName"/>
+                                    </else-if>
+                                    <else-if condition="row.fixedValue != null">
+                                        <script>fixedValues.add(row.fixedValue)</script>
+                                        <set field="valueFrom" from="'fixedValues[' + (fixedValues.size() - 1) + ']'"/>
+                                    </else-if>
+                                    <else><set field="valueFrom" value="null"/></else>
+                                </if>
+                                <set field="node.from" from="valueFrom"/>
+                            </else>
+                        </if>
+                    </else>
+                </if>
+                <script>entry.siblings.add(node)</script>
+            </while>
+        </actions>
+    </service>
+</services>

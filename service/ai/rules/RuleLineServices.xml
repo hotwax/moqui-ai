@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <service verb="prepare" noun="RuleLines" authenticate="anonymous-all" allow-remote="false">
+        <description>Check every "when" line of one rule and turn them into Moqui conditions. Each line is prepared by the
+            service its RuleConditionType names, lines under it first. A top line must read exactly one fact type, one the
+            decision reads directly. Used by store#Rule and by the decision builder.</description>
+        <in-parameters>
+            <parameter name="ruleSetId" required="true"/>
+            <parameter name="ruleName" required="true"/>
+            <parameter name="conditions" type="List"><description>Maps of conditionSeqId, parentConditionSeqId, sequenceNum,
+                conditionTypeId, factTypeId, fieldName, operatorEnumId and compareValue.</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="problems" type="List"/>
+            <parameter name="savedRows" type="List"><description>The lines to save, parents first, numbered in order.</description></parameter>
+            <parameter name="factMatches" type="Map"><description>For each fact type the rule reads, a map of condition and
+                itemChecks that a fact must match. Empty when there are problems.</description></parameter>
+        </out-parameters>
+        <actions>
+            <set field="problems" from="[]"/>
+            <service-call name="ai.rules.RuleServices.get#DecisionFactTypes" in-map="[ruleSetId: ruleSetId]"
+                    out-map="decisionFactTypes" out-map-add-to-existing="false"/>
+            <set field="readFactTypeIds" from="decisionFactTypes.factTypeIds"/>
+            <set field="rows" from="(conditions ?: []).sort(false) { it.sequenceNum }"/>
+            <if condition="rows.any { !it.conditionSeqId }">
+                <script>problems.add("Each condition needs a conditionSeqId")</script></if>
+            <set field="rowsByParent" from="rows.findAll { it.conditionSeqId }.groupBy { it.parentConditionSeqId }"/>
+
+            <set field="walkOrder" from="[]"/>
+            <set field="toVisit" from="[] + (rowsByParent.get(null) ?: [])"/>
+            <while condition="toVisit">
+                <set field="visitedRow" from="toVisit.remove(0)"/>
+                <script>walkOrder.add(visitedRow)
+                    toVisit.addAll(0, rowsByParent.get(visitedRow.conditionSeqId) ?: [])</script>
+            </while>
+            <set field="unplacedRows" from="rows.findAll { it.conditionSeqId &amp;&amp; !(it in walkOrder) }"/>
+            <iterate list="unplacedRows" entry="unplacedRow">
+                <script>problems.add("Condition ${unplacedRow.conditionSeqId} of rule ${ruleName}: its parent ${unplacedRow.parentConditionSeqId} is not a line of this rule".toString())</script>
+            </iterate>
+
+            <set field="preparedBySeqId" from="[:]"/>
+            <set field="childrenFirst" from="walkOrder.reverse()"/>
+            <iterate list="childrenFirst" entry="row">
+                <set field="childLines" from="(rowsByParent.get(row.conditionSeqId) ?: []).collect { preparedBySeqId.get(it.conditionSeqId) }"/>
+                <entity-find-one entity-name="moqui.ai.RuleConditionType" value-field="conditionType">
+                    <field-map field-name="conditionTypeId" from="row.conditionTypeId"/></entity-find-one>
+                <if condition="conditionType == null">
+                    <set field="prepared" from="[problems: ['condition type ' + row.conditionTypeId + ' is not known'], factTypeIds: []]"/>
+                    <else>
+                        <service-call name="${conditionType.prepareServiceName}" out-map="prepared" out-map-add-to-existing="false"
+                                in-map="[line: row, childLines: childLines, readFactTypeIds: readFactTypeIds]"/>
+                    </else>
+                </if>
+                <script>preparedBySeqId.put(row.conditionSeqId, prepared + [conditionSeqId: row.conditionSeqId])
+                    problems.addAll(prepared.problems.collect { "Condition ${row.conditionSeqId} of rule ${ruleName}: ${it}".toString() })</script>
+            </iterate>
+
+            <set field="topLines" from="(rowsByParent.get(null) ?: []).collect { preparedBySeqId.get(it.conditionSeqId) }"/>
+            <iterate list="topLines" entry="topLine">
+                <if condition="topLine.matches == null"><continue/></if>
+                <if condition="topLine.factTypeIds.size() != 1">
+                    <script>problems.add("Condition ${topLine.conditionSeqId} of rule ${ruleName}: the lines under a group must read exactly one fact type".toString())</script>
+                    <else-if condition="!(topLine.factTypeIds[0] in decisionFactTypes.directFactTypeIds)">
+                        <script>problems.add("Condition ${topLine.conditionSeqId} of rule ${ruleName}: ${topLine.factTypeIds[0]} is a list item type, so its lines must sit under an exists line".toString())</script>
+                    </else-if>
+                </if>
+            </iterate>
+
+            <set field="savedRows" from="walkOrder.collect { [conditionSeqId: it.conditionSeqId, parentConditionSeqId: it.parentConditionSeqId,
+                    sequenceNum: rows.indexOf(it) + 1, conditionTypeId: it.conditionTypeId, factTypeId: it.factTypeId,
+                    fieldName: it.fieldName, operatorEnumId: it.operatorEnumId, compareValue: it.compareValue as String] }"/>
+            <set field="factMatches" from="[:]"/>
+            <if condition="!problems">
+                <set field="factMatches" from="topLines.groupBy { it.factTypeIds[0] }.collectEntries { factTypeId, factLines ->
+                        [(factTypeId): [condition: ec.entity.conditionFactory.makeCondition(factLines*.matches*.condition, org.moqui.entity.EntityCondition.AND),
+                            itemChecks: factLines.collectMany { it.matches.itemChecks }]] }"/>
+            </if>
+        </actions>
+    </service>
+
+    <service verb="prepare" noun="RuleLine" type="interface">
+        <description>Check one "when" line and turn it into a Moqui condition, as written and turned around. Each
+            RuleConditionType names the service for its kind in prepareServiceName. A line with problems gives no conditions.</description>
+        <in-parameters>
+            <parameter name="line" type="Map" required="true"><description>conditionSeqId, conditionTypeId, factTypeId,
+                fieldName, operatorEnumId and compareValue.</description></parameter>
+            <parameter name="childLines" type="List"><description>What this service gave for each line directly under it.</description></parameter>
+            <parameter name="readFactTypeIds" type="List" required="true"><description>The fact types the decision reads,
+                list item types included.</description></parameter>
+            <parameter name="valueTypeEnumId"><description>Check as if the field held this kind of value, for a field
+                whose kind is being changed.</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="problems" type="List"/>
+            <parameter name="factTypeIds" type="List"><description>The fact types the line reads.</description></parameter>
+            <parameter name="matches" type="Map"><description>condition, an EntityCondition on the fact's own fields, and
+                itemChecks, a list of maps of fieldName, itemMatch and found for exists lines.</description></parameter>
+            <parameter name="notMatches" type="Map"><description>The line turned around, in the same shape. Empty when the
+                line cannot be turned around.</description></parameter>
+        </out-parameters>
+    </service>
+
+    <service verb="prepare" noun="CompareLine" authenticate="anonymous-all" allow-remote="false">
+        <implements service="ai.rules.RuleLineServices.prepare#RuleLine"/>
+        <actions>
+            <set field="problems" from="[]"/>
+            <set field="factTypeIds" from="[line.factTypeId]"/>
+            <set field="oppositeOperators" from="[ENTCO_EQUALS: 'ENTCO_NOT_EQUALS', ENTCO_NOT_EQUALS: 'ENTCO_EQUALS',
+                    ENTCO_LESS: 'ENTCO_GREATER_EQ', ENTCO_GREATER_EQ: 'ENTCO_LESS', ENTCO_GREATER: 'ENTCO_LESS_EQ',
+                    ENTCO_LESS_EQ: 'ENTCO_GREATER', ENTCO_LIKE: 'ENTCO_NOT_LIKE', ENTCO_NOT_LIKE: 'ENTCO_LIKE',
+                    ENTCO_IS_NULL: 'ENTCO_IS_NOT_NULL', ENTCO_IS_NOT_NULL: 'ENTCO_IS_NULL']"/>
+            <set field="operatorsWithoutValue" from="['ENTCO_IS_NULL', 'ENTCO_IS_NOT_NULL']"/>
+            <set field="textOnlyOperators" from="['ENTCO_LIKE', 'ENTCO_NOT_LIKE']"/>
+
+            <if condition="childLines">
+                <script>problems.add("a compare line takes no lines under it")</script></if>
+            <entity-find-one entity-name="moqui.ai.FactField" value-field="factField">
+                <field-map field-name="factTypeId" from="line.factTypeId"/>
+                <field-map field-name="fieldName" from="line.fieldName"/></entity-find-one>
+            <if condition="factField == null || !(line.factTypeId in readFactTypeIds)">
+                <script>problems.add("the decision does not read field ${line.fieldName} of ${line.factTypeId}".toString())</script>
+                <return/>
+            </if>
+            <set field="fieldValueType" from="valueTypeEnumId ?: factField.valueTypeEnumId"/>
+            <if condition="!oppositeOperators.containsKey(line.operatorEnumId)">
+                <script>problems.add("operator ${line.operatorEnumId} is not allowed".toString())</script>
+                <return/>
+            </if>
+            <if condition="fieldValueType == 'FVT_LIST'">
+                <script>problems.add("list field ${line.fieldName} cannot be compared, use an exists line".toString())</script>
+                <return/>
+            </if>
+            <if condition="line.operatorEnumId in textOnlyOperators &amp;&amp; fieldValueType != 'FVT_TEXT'">
+                <script>problems.add("operator ${line.operatorEnumId} works on text fields only".toString())</script>
+                <return/>
+            </if>
+            <set field="holdsValue" from="!(line.operatorEnumId in operatorsWithoutValue)"/>
+            <if condition="holdsValue">
+                <service-call name="ai.rules.FactValueServices.convert#FactValue" out-map="convertedCompare" out-map-add-to-existing="false"
+                        in-map="[valueTypeEnumId: fieldValueType, value: line.compareValue]"/>
+                <if condition="line.compareValue == null || convertedCompare.problem">
+                    <script>problems.add("value ${line.compareValue} does not fit field ${line.fieldName}".toString())</script>
+                    <return/>
+                </if>
+            </if>
+            <if condition="problems"><return/></if>
+
+            <set field="compareConstant" from="holdsValue ? convertedCompare.convertedValue : null"/>
+            <set field="conditionFactory" from="ec.entity.conditionFactory"/>
+            <set field="matches" from="[condition: conditionFactory.makeCondition(line.fieldName,
+                    conditionFactory.comparisonOperatorFromEnumId(line.operatorEnumId), compareConstant), itemChecks: []]"/>
+            <set field="notMatches" from="[condition: conditionFactory.makeCondition(line.fieldName,
+                    conditionFactory.comparisonOperatorFromEnumId(oppositeOperators[line.operatorEnumId]), compareConstant), itemChecks: []]"/>
+        </actions>
+    </service>
+
+    <service verb="prepare" noun="AllLine" authenticate="anonymous-all" allow-remote="false">
+        <implements service="ai.rules.RuleLineServices.prepare#RuleLine"/>
+        <actions>
+            <set field="problems" from="[]"/>
+            <if condition="!childLines">
+                <script>problems.add("an all line needs at least one line under it")</script>
+                <return/>
+            </if>
+            <set field="factTypeIds" from="childLines.collectMany { it.factTypeIds }.unique()"/>
+            <if condition="childLines.any { it.matches == null }"><return/></if>
+
+            <set field="conditionFactory" from="ec.entity.conditionFactory"/>
+            <set field="matches" from="[condition: conditionFactory.makeCondition(childLines*.matches*.condition, org.moqui.entity.EntityCondition.AND),
+                    itemChecks: childLines.collectMany { it.matches.itemChecks }]"/>
+            <if condition="childLines.every { it.notMatches != null &amp;&amp; !it.notMatches.itemChecks }">
+                <set field="notMatches" from="[condition: conditionFactory.makeCondition(childLines*.notMatches*.condition,
+                        org.moqui.entity.EntityCondition.OR), itemChecks: []]"/>
+            </if>
+        </actions>
+    </service>
+
+    <service verb="prepare" noun="AnyLine" authenticate="anonymous-all" allow-remote="false">
+        <implements service="ai.rules.RuleLineServices.prepare#RuleLine"/>
+        <actions>
+            <set field="problems" from="[]"/>
+            <if condition="!childLines">
+                <script>problems.add("an any line needs at least one line under it")</script>
+                <return/>
+            </if>
+            <set field="factTypeIds" from="childLines.collectMany { it.factTypeIds }.unique()"/>
+            <if condition="childLines.any { it.matches == null }"><return/></if>
+            <if condition="childLines.any { it.matches.itemChecks }">
+                <script>problems.add("an exists line cannot be one choice of an any line, write a second rule instead")</script>
+                <return/>
+            </if>
+
+            <set field="conditionFactory" from="ec.entity.conditionFactory"/>
+            <set field="matches" from="[condition: conditionFactory.makeCondition(childLines*.matches*.condition, org.moqui.entity.EntityCondition.OR),
+                    itemChecks: []]"/>
+            <if condition="childLines.every { it.notMatches != null }">
+                <set field="notMatches" from="[condition: conditionFactory.makeCondition(childLines*.notMatches*.condition,
+                        org.moqui.entity.EntityCondition.AND), itemChecks: childLines.collectMany { it.notMatches.itemChecks }]"/>
+            </if>
+        </actions>
+    </service>
+
+    <service verb="prepare" noun="NotLine" authenticate="anonymous-all" allow-remote="false">
+        <implements service="ai.rules.RuleLineServices.prepare#RuleLine"/>
+        <actions>
+            <set field="problems" from="[]"/>
+            <if condition="!childLines">
+                <script>problems.add("a not line needs at least one line under it")</script>
+                <return/>
+            </if>
+            <set field="factTypeIds" from="childLines.collectMany { it.factTypeIds }.unique()"/>
+            <if condition="childLines.any { it.matches == null }"><return/></if>
+            <set field="unturnableLines" from="childLines.findAll { it.notMatches == null }"/>
+            <iterate list="unturnableLines" entry="unturnableLine">
+                <script>problems.add("line ${unturnableLine.conditionSeqId} cannot be turned around under a not line".toString())</script>
+            </iterate>
+            <if condition="problems"><return/></if>
+
+            <set field="conditionFactory" from="ec.entity.conditionFactory"/>
+            <set field="matches" from="[condition: conditionFactory.makeCondition(childLines*.notMatches*.condition, org.moqui.entity.EntityCondition.AND),
+                    itemChecks: childLines.collectMany { it.notMatches.itemChecks }]"/>
+            <if condition="childLines.every { !it.matches.itemChecks }">
+                <set field="notMatches" from="[condition: conditionFactory.makeCondition(childLines*.matches*.condition,
+                        org.moqui.entity.EntityCondition.OR), itemChecks: []]"/>
+            </if>
+        </actions>
+    </service>
+
+    <service verb="prepare" noun="ExistsLine" authenticate="anonymous-all" allow-remote="false">
+        <implements service="ai.rules.RuleLineServices.prepare#RuleLine"/>
+        <actions>
+            <set field="problems" from="[]"/>
+            <set field="factTypeIds" from="[line.factTypeId]"/>
+            <entity-find-one entity-name="moqui.ai.FactField" value-field="factField">
+                <field-map field-name="factTypeId" from="line.factTypeId"/>
+                <field-map field-name="fieldName" from="line.fieldName"/></entity-find-one>
+            <if condition="factField == null || factField.valueTypeEnumId != 'FVT_LIST' || !(line.factTypeId in readFactTypeIds)">
+                <script>problems.add("${line.fieldName} of ${line.factTypeId} is not a list field the decision reads".toString())</script>
+                <return/>
+            </if>
+            <set field="lines" from="childLines ?: []"/>
+            <if condition="lines.collectMany { it.factTypeIds }.unique() != [factField.itemFactTypeId]">
+                <script>problems.add("the lines under it must read ${factField.itemFactTypeId}, the item type of ${line.fieldName}".toString())</script>
+                <return/>
+            </if>
+            <if condition="lines.any { it.matches == null }"><return/></if>
+
+            <set field="conditionFactory" from="ec.entity.conditionFactory"/>
+            <set field="itemMatch" from="[condition: conditionFactory.makeCondition(lines*.matches*.condition, org.moqui.entity.EntityCondition.AND),
+                    itemChecks: lines.collectMany { it.matches.itemChecks }]"/>
+            <set field="matches" from="[condition: conditionFactory.trueCondition,
+                    itemChecks: [[fieldName: line.fieldName, itemMatch: itemMatch, found: true]]]"/>
+            <set field="notMatches" from="[condition: conditionFactory.trueCondition,
+                    itemChecks: [[fieldName: line.fieldName, itemMatch: itemMatch, found: false]]]"/>
+        </actions>
+    </service>
+</services>

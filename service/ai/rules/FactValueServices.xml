@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <service verb="convert" noun="FactValue" authenticate="anonymous-all" allow-remote="false">
+        <description>Convert one value to the Moqui type its value kind names in enumCode, with one branch per type, as a
+            service parameter of that type is converted. A value that does not fit is refused: a number is only digits with
+            one optional sign and point, a whole number takes no fraction, yes/no takes only true, false, y or n in any
+            case, and a date and time must parse.</description>
+        <in-parameters>
+            <parameter name="valueTypeEnumId" required="true"/>
+            <parameter name="value" type="Object"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="convertedValue" type="Object"/>
+            <parameter name="problem"><description>Why the value does not fit, empty when it fits.</description></parameter>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.basic.Enumeration" value-field="valueType" cache="true">
+                <field-map field-name="enumId" from="valueTypeEnumId"/></entity-find-one>
+            <set field="typeName" from="valueType?.enumTypeId == 'FactValueType' ? valueType.enumCode : null"/>
+            <if condition="!(typeName in ['String', 'Long', 'BigDecimal', 'Boolean', 'Timestamp'])">
+                <set field="problem" value="value kind ${valueTypeEnumId} does not hold a single value"/>
+                <return/>
+            </if>
+            <if condition="value == null"><return/></if>
+            <set field="text" from="value.toString().trim()"/>
+            <set field="number" from="value instanceof Number ? new BigDecimal(value.toString()) :
+                    text ==~ /[+-]?(\d+(\.\d*)?|\.\d+)/ ? new BigDecimal(text) : null"/>
+
+            <if condition="typeName == 'String'">
+                <set field="convertedValue" from="value.toString()"/>
+                <else-if condition="typeName == 'Long'">
+                    <if condition="number == null || number.stripTrailingZeros().scale() &gt; 0 || number.abs() &gt; Long.MAX_VALUE">
+                        <set field="problem" value="${value} is not a whole number"/>
+                        <else><set field="convertedValue" from="number.longValue()"/></else>
+                    </if>
+                </else-if>
+                <else-if condition="typeName == 'BigDecimal'">
+                    <set field="convertedValue" from="number"/>
+                    <if condition="convertedValue == null"><set field="problem" value="${value} is not a number"/></if>
+                </else-if>
+                <else-if condition="typeName == 'Boolean'">
+                    <set field="convertedValue" from="value instanceof Boolean ? value : ['true': true, 'y': true, 'false': false, 'n': false].get(text.toLowerCase())"/>
+                    <if condition="convertedValue == null"><set field="problem" value="${value} is not yes or no"/></if>
+                </else-if>
+                <else>
+                    <set field="convertedValue" from="value instanceof java.sql.Timestamp ? value : value instanceof Date ?
+                            new java.sql.Timestamp(value.time) : ec.l10n.parseTimestamp(text, null)"/>
+                    <if condition="convertedValue == null"><set field="problem" value="${value} is not a date and time"/></if>
+                </else>
+            </if>
+        </actions>
+    </service>
+
+    <service verb="guess" noun="FactValueType" authenticate="anonymous-all" allow-remote="false">
+        <description>Guess the value kind of a file column from its values. The kinds are tried in their sequenceNum order,
+            leaving out text and lists; the first kind every value fits wins. Text is the kind when nothing else fits, or
+            when the column holds no values.</description>
+        <in-parameters>
+            <parameter name="values" type="Collection"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="valueTypeEnumId"/>
+        </out-parameters>
+        <actions>
+            <entity-find entity-name="moqui.basic.Enumeration" list="valueTypes" cache="true">
+                <econdition field-name="enumTypeId" value="FactValueType"/><order-by field-name="sequenceNum"/></entity-find>
+            <set field="valueTypeEnumId" from="valueTypes.find { it.enumCode == 'String' }.enumId"/>
+            <set field="texts" from="(values ?: []).findAll { it != null &amp;&amp; it.toString().trim() }"/>
+            <if condition="!texts"><return/></if>
+            <set field="guessedTypes" from="valueTypes.findAll { !(it.enumCode in ['String', 'List']) }"/>
+            <iterate list="guessedTypes" entry="guessedType">
+                <set field="allFit" from="true"/>
+                <iterate list="texts" entry="guessedText">
+                    <service-call name="ai.rules.FactValueServices.convert#FactValue" out-map="converted" out-map-add-to-existing="false"
+                            in-map="[valueTypeEnumId: guessedType.enumId, value: guessedText]"/>
+                    <if condition="converted.problem"><set field="allFit" from="false"/><break/></if>
+                </iterate>
+                <if condition="allFit"><set field="valueTypeEnumId" from="guessedType.enumId"/><return/></if>
+            </iterate>
+        </actions>
+    </service>
+</services>
