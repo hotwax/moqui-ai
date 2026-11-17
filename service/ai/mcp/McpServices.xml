@@ -49,7 +49,10 @@
         <out-parameters><parameter name="toolList" type="List"><description>Sorted by tool name.
             Each: name, title, description, serviceName, inputSchema, outputSchema,
             fixedParameters, annotations. NOTE: callers share the cached object graph — read
-            only, never mutate.</description></parameter></out-parameters>
+            only, never mutate.</description></parameter>
+            <parameter name="instructions"><description>Server instructions for MCP clients: one line per
+            *.mcp.xml file that contributes a tool, its display-name and root description. Null when no file
+            has a description.</description></parameter></out-parameters>
     </service>
 
     <service verb="build" noun="ToolCatalog" authenticate="anonymous-view" type="script"
@@ -59,7 +62,10 @@
             Separate from get#ToolCatalog so the rules are testable against fixture files
             without giving the cached endpoint path any way to name a file.</description>
         <in-parameters><parameter name="locationList" type="List" required="true"/></in-parameters>
-        <out-parameters><parameter name="toolList" type="List"/></out-parameters>
+        <out-parameters>
+            <parameter name="toolList" type="List"/>
+            <parameter name="instructions"/>
+        </out-parameters>
     </service>
 
     <service verb="exec" noun="Tool" authenticate="anonymous-view" type="script"
