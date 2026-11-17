@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- MCP tool declarations for the moqui-ai component itself (spec:
      docs/specs/2026-08-23-mcp-server-design.md, "The *.mcp.xml format"). The component
-     dogfoods its own mechanism: two real, read-only operational tools. -->
+     dogfoods its own mechanism: read-only operational and knowledge tools. -->
 <mcp xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
      xsi:noNamespaceSchemaLocation="component://moqui-ai/xsd/mcp-api-1.xsd"
      name="ai" display-name="Moqui AI" version="1.0.0"
@@ -10,6 +10,19 @@
     <tool name="get_ai_spend" title="Get AI Spend" effect="read"
           description="Total LLM cost, tokens and run count, optionally filtered by agent name, user or date range, and optionally grouped by agent or user.">
         <service name="ai.CostServices.get#AiSpend"/>
+    </tool>
+
+    <tool name="list_knowledge_topics" title="List Knowledge Topics" effect="read"
+          description="The playbooks and reference topics this server offers: each topic's name and a description of
+              when to use it. Call it before a task that takes more than one tool call, then read a topic that fits
+              with get_knowledge_topic and follow it.">
+        <service name="ai.KnowledgeServices.find#KnowledgeTopics"/>
+    </tool>
+
+    <tool name="get_knowledge_topic" title="Get Knowledge Topic" effect="read"
+          description="One playbook or reference topic by the name list_knowledge_topics gives, as markdown: the
+              steps, the checks to make before any change, and which tools to use.">
+        <service name="ai.KnowledgeServices.get#KnowledgeTopic"/>
     </tool>
 
     <tool name="list_ai_models" title="List AI Models" effect="read"

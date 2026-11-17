@@ -105,6 +105,23 @@ A tool that lists but fails on call is not done. The most common failure is a he
 backing service that breaks on the deployment's dataset — this is why step 1 says test
 the service first.
 
+## Shipping a playbook: knowledge topics
+
+A multi-step procedure that only combines existing tools (read this, check that, then upload) is a
+knowledge topic, not a new tool. MCP clients find it with `list_knowledge_topics` and read it with
+`get_knowledge_topic`; in-house agents get the topics granted to them injected by `AgentRunner`.
+
+1. Write the body as `<component>/knowledge/<topic-name>.md`. It is reviewed in the PR and released with
+   the tools it names. A body anywhere else is refused, by `store#KnowledgeTopic` and again on read.
+2. Seed a `moqui.ai.AiKnowledgeTopic` row in the component's data and in its `upgrade/UpcomingRelease`
+   data: `topicName` (the name agents ask for), `description` (when to use it; agents choose from this),
+   `contentLocation` (`component://<component>/knowledge/<topic-name>.md`) and
+   `statusId="AI_KNOW_APPROVED"`. Only approved, currently effective topics are listed or readable.
+   The `description` is what an agent sees in `list_knowledge_topics`, so say when to use the topic.
+
+A topic guides an agent; it enforces nothing. A check that must hold whatever the agent does belongs in a
+service.
+
 ## Environment facts your agent session needs
 
 - The endpoint ships DARK. Dev server needs `-Dmcp_enabled=Y`. Tool calls authenticate
