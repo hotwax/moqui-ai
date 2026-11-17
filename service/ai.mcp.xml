@@ -5,9 +5,7 @@
 <mcp xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
      xsi:noNamespaceSchemaLocation="component://moqui-ai/xsd/mcp-api-1.xsd"
      name="ai" display-name="Moqui AI" version="1.0.0"
-     description="Playbooks and operational insight into the AI agent framework. Before a task that takes more
-         than one tool call, call list_knowledge_topics and read any topic that fits with get_knowledge_topic;
-         a topic gives the steps, the checks and the tools to use. Also: available models and AI spend.">
+     description="Operational insight into the AI agent framework: available models and AI spend.">
 
     <tool name="get_ai_spend" title="Get AI Spend" effect="read"
           description="Total LLM cost, tokens and run count, optionally filtered by agent name, user or date range, and optionally grouped by agent or user.">

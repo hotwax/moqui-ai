@@ -22,9 +22,6 @@ List<String> denyPatterns = ec.entity.find("moqui.ai.AiToolDenylist").useCache(t
         .collect { it.getNoCheckSimple("servicePattern") as String }
 Map<String, Map> byName = new LinkedHashMap<>()
 Map<String, String> nameOwner = [:]
-// One line of server instructions per file that contributes a tool: the file's display-name (or name) and
-// its root description, so each component describes its own tool group (spec: "instructions").
-Map<String, String> groupLines = new TreeMap<>()
 
 for (String loc in locationList) {
     MNode root = null
@@ -32,7 +29,6 @@ for (String loc in locationList) {
     catch (Throwable t) { ec.logger.error("MCP scan: cannot parse ${loc}, skipping the file: ${t.message}") }
     if (root == null) continue
 
-    int toolsBefore = byName.size()
     for (MNode toolNode in root.children("tool")) {
         String toolName = toolNode.attribute("name")
         String serviceName = toolNode.first("service")?.attribute("name")
@@ -81,13 +77,8 @@ for (String loc in locationList) {
                 fixedParameters: fixedParameters, annotations: annotations])
         nameOwner.put(toolName, loc)
     }
-    String groupDescription = root.attribute("description")
-    if (byName.size() > toolsBefore && groupDescription)
-        groupLines.put((root.attribute("name") ?: loc) as String,
-                "${root.attribute("display-name") ?: root.attribute("name")}: ${groupDescription.replaceAll(/\s+/, ' ').trim()}".toString())
 }
 toolList = byName.values().toList().sort { it.name }
-instructions = groupLines ? ("Tool groups on this server:\n" + groupLines.values().collect { "- " + it }.join("\n")) : null
 
 // ScriptServiceRunner uses the script's RETURN VALUE as the whole service result when it is
 // a Map (ScriptServiceRunner.java:60); return null so out-parameters are read from context.

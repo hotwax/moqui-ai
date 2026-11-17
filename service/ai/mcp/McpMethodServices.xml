@@ -16,16 +16,10 @@
         <in-parameters><parameter name="params" type="Map"/></in-parameters>
         <out-parameters><parameter name="result" type="Map"/></out-parameters>
         <actions>
-            <service-call name="ai.mcp.McpServices.get#ToolCatalog" out-map="catOut"/>
             <set field="result" from="[
                     supportedVersions: ['2026-07-28'],
                     capabilities: [tools: [listChanged: false]],
                     ttlMs: 300000, cacheScope: 'public']"/>
-            <!-- Natural-language guidance a client may put in the model's context: each component's own
-                 description of its tool group (spec: "instructions"). Omitted when there is none. -->
-            <if condition="catOut.instructions">
-                <set field="result.instructions" from="catOut.instructions"/>
-            </if>
         </actions>
     </service>
 
@@ -44,8 +38,6 @@
             result = [protocolVersion: (params?.get('protocolVersion') ?: '2025-06-18'),
                       capabilities: [tools: [listChanged: false]],
                       serverInfo: [name: 'moqui-ai', version: compVersion]]
-            String instructions = ec.service.sync().name('ai.mcp.McpServices.get#ToolCatalog').call()?.instructions
-            if (instructions) result.instructions = instructions
         ]]></script></actions>
     </service>
 

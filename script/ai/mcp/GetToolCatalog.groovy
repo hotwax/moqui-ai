@@ -5,8 +5,7 @@
 
 def cache = ec.cache.getCache("ai.mcp.tool.catalog")
 List cached = (List) cache.get("catalog")
-String cachedInstructions = (String) cache.get("instructions")
-if (cached != null && cachedInstructions != null) { toolList = cached; instructions = cachedInstructions ?: null; return }
+if (cached != null) { toolList = cached; return }
 
 List locationList = []
 for (String location in ec.factory.getComponentBaseLocations().values()) {
@@ -18,9 +17,7 @@ for (String location in ec.factory.getComponentBaseLocations().values()) {
 Map buildOut = ec.service.sync().name("ai.mcp.McpServices.build#ToolCatalog")
         .parameters([locationList: locationList]).call()
 toolList = buildOut.toolList
-instructions = buildOut.instructions
 cache.put("catalog", toolList)
-cache.put("instructions", instructions ?: "")
 
 // ScriptServiceRunner uses the script's RETURN VALUE as the whole service result when it is
 // a Map (ScriptServiceRunner.java:60); return null so out-parameters are read from context.
