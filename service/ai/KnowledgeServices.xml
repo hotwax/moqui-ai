@@ -151,4 +151,63 @@
         </actions>
     </service>
 
+    <service verb="find" noun="KnowledgeTopics" authenticate="true">
+        <description>The approved, currently effective knowledge topics, by name: each topic's name and
+        description, without its body. An agent reads this list to choose a topic, then reads the topic with
+        get#KnowledgeTopic, the way a skill list leads to one skill. Its verb is find so read-only callers are authorized at the view level.</description>
+        <out-parameters>
+            <parameter name="topics" type="List">
+                <description>Sorted by topicName. Each: topicName, description.</description>
+            </parameter>
+        </out-parameters>
+        <actions>
+            <entity-find entity-name="moqui.ai.AiKnowledgeTopic" list="approvedTopics">
+                <econdition field-name="statusId" value="AI_KNOW_APPROVED"/>
+                <date-filter/>
+                <order-by field-name="topicName"/>
+                <select-field field-name="topicName"/>
+                <select-field field-name="description"/>
+            </entity-find>
+            <set field="topics" from="approvedTopics.collect({ [topicName: it.topicName, description: it.description] })"/>
+        </actions>
+    </service>
+
+    <service verb="get" noun="KnowledgeTopic" authenticate="true">
+        <description>One approved, currently effective knowledge topic by name, with its markdown body. A
+        draft, archived or expired topic is refused. The body is read only from a component:// path under a
+        knowledge/ directory ending in .md, the same rule store#KnowledgeTopic enforces, so a row written some
+        other way cannot point an agent at another file.</description>
+        <in-parameters>
+            <parameter name="topicName" required="true">
+                <description>The topic's name, as list_knowledge_topics (find#KnowledgeTopics) returns it.</description>
+            </parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="topicName"/>
+            <parameter name="description"/>
+            <parameter name="content"><description>The topic's markdown body.</description></parameter>
+        </out-parameters>
+        <actions>
+            <entity-find entity-name="moqui.ai.AiKnowledgeTopic" list="approvedTopics" limit="1">
+                <econdition field-name="topicName"/>
+                <econdition field-name="statusId" value="AI_KNOW_APPROVED"/>
+                <date-filter/>
+            </entity-find>
+            <if condition="!approvedTopics">
+                <return error="true" message="No approved knowledge topic is named ${topicName}. Call list_knowledge_topics for the topics you can read."/>
+            </if>
+            <set field="topic" from="approvedTopics[0]"/>
+            <set field="contentLocation" from="topic.contentLocation ?: ''"/>
+            <if condition="!contentLocation.startsWith('component://') || !contentLocation.contains('/knowledge/') || !contentLocation.endsWith('.md') || contentLocation.contains('..')">
+                <log level="warn" message="Knowledge topic ${topic.topicId} has contentLocation ${contentLocation} outside component://.../knowledge/*.md; refusing to read it"/>
+                <return error="true" message="Knowledge topic ${topicName} cannot be read: its body is not under a component knowledge/ directory."/>
+            </if>
+            <set field="content" from="ec.resource.getLocationText(contentLocation, true)"/>
+            <if condition="!content">
+                <return error="true" message="Knowledge topic ${topicName} has no body at ${contentLocation}."/>
+            </if>
+            <set field="description" from="topic.description"/>
+        </actions>
+    </service>
+
 </services>
