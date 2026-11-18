@@ -24,6 +24,8 @@
     <!-- MCP tool catalog cache: declared like the framework's service.rest.api cache (no expire
          attributes = no expiry); rebuilt on any cache miss by ai.mcp.McpServices.get#ToolCatalog -->
     <cache-list>
+        <cache name="ai.classification.results" expire-time-live="3600" max-elements="10000" value-type="Map"/>
+        <cache name="ai.classification.failures" expire-time-live="30" max-elements="10000" value-type="Map"/>
         <cache name="ai.mcp.tool.catalog" value-type="java.util.List"/>
     </cache-list>
     <tools>
