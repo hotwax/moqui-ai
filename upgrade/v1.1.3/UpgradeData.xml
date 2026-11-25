@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="ext-upgrade">
+    <moqui.ai.AiKnowledgeTopic
+        topicId="KNOW_OMS_PRODUCT_MDM"
+        topicName="Update Existing OMS Products with Data Manager"
+        description="For requests to update product fields or classify SKUs in OMS: use a configured Data Manager import and verify each product through GraphQL."
+        contentLocation="component://moqui-ai/knowledge/oms-product-mdm.md"
+        statusId="AI_KNOW_APPROVED"/>
+    <moqui.ai.AiAgentKnowledge agentId="AICMP_AGENT" topicId="KNOW_OMS_PRODUCT_MDM"/>
+</entity-facade-xml>
